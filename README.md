@@ -15,9 +15,6 @@ sudo apt install -y curl git build-essential
 ```bash
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
-# 可选检查版本
-node -v
-npm -v
 ```
 
 ### 3. 克隆项目
@@ -42,11 +39,13 @@ npm start
 ```
 需要填写：`api_id` 和 `api_hash`
 Please enter your number: +18888888888
+输入验证码
 安装完成后 按下`CTRL+C`
 
 ### 6. 安装并使用 PM2 管理进程
 
 ```bash
+npm install -g pm2
 pm2 start npm --name telebox -- start
 pm2 save
 sudo pm2 startup systemd
