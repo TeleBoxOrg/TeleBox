@@ -3,7 +3,7 @@ import fs from "fs";
 import { Plugin } from "@utils/pluginBase";
 import { getGlobalClient } from "@utils/globalClient";
 import { NewMessageEvent, NewMessage } from "telegram/events";
-import { AliasDB } from "./aliasDB";
+import { AliasDB } from "./AliasDB";
 import { Api, TelegramClient } from "telegram";
 
 const basePlugins: Map<string, Plugin> = new Map(); // 用来储存没重命名的版本
@@ -32,20 +32,30 @@ function dynamicRequireWithDeps(filePath: string) {
 
 async function setPlugins(basePath: string) {
   const files = fs.readdirSync(basePath).filter((file) => file.endsWith(".ts"));
+  console.log(`[PluginManager] Loading plugins from ${basePath}, found files:`, files);
   for (const file of files) {
     const pluginPath = path.resolve(basePath, file);
+    console.log(`[PluginManager] Loading plugin: ${pluginPath}`);
     const mod = await dynamicRequireWithDeps(pluginPath);
     if (mod) {
       const plugin: Plugin = mod.default;
-      const command = plugin.command;
-      plugins.set(command, plugin);
-      basePlugins.set(command, plugin);
-      // 设置 alias 命令回复
-      const db = new AliasDB();
-      const alias = db.get(command);
-      if (alias) {
-        plugins.set(alias, plugin);
+      if (plugin && plugin.command) {
+        const command = plugin.command;
+        plugins.set(command, plugin);
+        basePlugins.set(command, plugin);
+        console.log(`[PluginManager] Successfully loaded plugin: ${command}`);
+        // 设置 alias 命令回复
+        const db = new AliasDB();
+        const alias = db.get(command);
+        if (alias) {
+          plugins.set(alias, plugin);
+          console.log(`[PluginManager] Set alias ${alias} for ${command}`);
+        }
+      } else {
+        console.log(`[PluginManager] Plugin ${file} has no valid command or default export`);
       }
+    } else {
+      console.log(`[PluginManager] Failed to load plugin: ${file}`);
     }
   }
 }
