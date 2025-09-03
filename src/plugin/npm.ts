@@ -1,5 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { loadPlugins } from "@utils/pluginManager";
+import { createDirectoryInTemp } from "@utils/pathHelpers";
 import path from "path";
 import fs from "fs";
 import axios from "axios";
@@ -96,9 +97,12 @@ async function installAllPlugins(msg: Api.Message) {
         // 检查插件是否已存在
         const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
         if (fs.existsSync(filePath)) {
-          // 备份现有插件
-          const backupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+          // 将现有插件转移到缓存目录
+          const cacheDir = createDirectoryInTemp('plugin_backups');
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
           fs.copyFileSync(filePath, backupPath);
+          console.log(`[NPM] 旧插件已转移到缓存: ${backupPath}`);
         }
 
         // 保存插件文件
