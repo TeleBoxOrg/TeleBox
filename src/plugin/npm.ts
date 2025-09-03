@@ -1,5 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { loadPlugins } from "@utils/pluginManager";
+import { createDirectoryInTemp } from "@utils/pathHelpers";
 import path from "path";
 import fs from "fs";
 import axios from "axios";
@@ -27,8 +28,26 @@ async function installRemotePlugin(plugin: string, msg: Api.Message) {
       await msg.edit({ text: `无法下载插件 ${plugin}` });
       return;
     }
-    // 保存插件文件
+    // 检查插件是否已存在
     const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
+    const oldBackupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+    
+    if (fs.existsSync(filePath)) {
+      // 将现有插件转移到缓存目录
+      const cacheDir = createDirectoryInTemp('plugin_backups');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
+      fs.copyFileSync(filePath, backupPath);
+      console.log(`[NPM] 旧插件已转移到缓存: ${backupPath}`);
+    }
+    
+    // 清理旧的 .backup 文件（如果存在）
+    if (fs.existsSync(oldBackupPath)) {
+      fs.unlinkSync(oldBackupPath);
+      console.log(`[NPM] 已清理旧备份文件: ${oldBackupPath}`);
+    }
+    
+    // 保存插件文件
     fs.writeFileSync(filePath, response.data);
     await msg.edit({ text: `插件 ${plugin} 已安装并加载成功` });
     await loadPlugins(); // 重新加载插件
@@ -95,10 +114,21 @@ async function installAllPlugins(msg: Api.Message) {
 
         // 检查插件是否已存在
         const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
+        const oldBackupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+        
         if (fs.existsSync(filePath)) {
-          // 备份现有插件
-          const backupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+          // 将现有插件转移到缓存目录
+          const cacheDir = createDirectoryInTemp('plugin_backups');
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
           fs.copyFileSync(filePath, backupPath);
+          console.log(`[NPM] 旧插件已转移到缓存: ${backupPath}`);
+        }
+        
+        // 清理旧的 .backup 文件（如果存在）
+        if (fs.existsSync(oldBackupPath)) {
+          fs.unlinkSync(oldBackupPath);
+          console.log(`[NPM] 已清理旧备份文件: ${oldBackupPath}`);
         }
 
         // 保存插件文件
@@ -215,55 +245,102 @@ async function uploadPlugin(args: string[], msg: Api.Message) {
 
 async function search(msg: Api.Message) {
   const url = `https://github.com/TeleBoxDev/TeleBox_Plugins/blob/main/plugins.json?raw=true`;
-  const res = await axios.get(url);
-  if (res.status === 200) {
-    const plugins = Object.keys(res.data);
+  
+  try {
+    await msg.edit({ text: "🔍 正在获取插件列表..." });
     
-    // 插件描述映射
-    const pluginDescriptions: { [key: string]: string } = {
-      "aban": "用户权限管理，多群组操作",
-      "bulk_delete": "批量删除消息工具",
-      "clean_member": "群组成员清理工具",
-      "da": "删除群内所有消息",
-      "dc": "获取数据中心信息",
-      "dig": "DNS 查询工具",
-      "dme": "删除自己的消息",
-      "eat": "生成吃掉表情包",
-      "forward_cron": "定时转发消息",
-      "gpt": "OpenAI GPT 聊天助手",
-      "gt": "谷歌翻译插件",
-      "ip": "IP 地址查询工具",
-      "keyword": "关键词自动回复",
-      "komari": "服务器监控插件",
-      "lottery": "群组抽奖系统",
-      "music": "YouTube 音乐下载",
-      "netease": "网易云音乐播放",
-      "pin_cron": "定时置顶消息",
-      "pm2": "PM2 进程管理",
-      "pmcaptcha": "私聊验证系统",
-      "q": "消息引用生成器",
-      "search": "频道消息搜索",
-      "send_cron": "定时发送消息",
-      "shift": "智能消息转发",
-      "speednext": "网络速度测试",
-      "yt-dlp": "YouTube 视频下载"
-    };
+    const res = await axios.get(url);
+    if (res.status !== 200) {
+      await msg.edit({ text: `❌ 无法获取远程插件库` });
+      return;
+    }
     
-    const pluginList = plugins.map(plugin => {
-      const description = pluginDescriptions[plugin] || "暂无描述";
-      return `• <code>${plugin}</code> - ${description}`;
+    const remotePlugins = res.data;
+    const pluginNames = Object.keys(remotePlugins);
+    
+    // 获取本地已安装的插件列表
+    const installedPlugins = new Set<string>();
+    try {
+      const files = fs.readdirSync(PLUGIN_PATH);
+      files.forEach(file => {
+        if (file.endsWith('.ts') && !file.includes('backup')) {
+          const pluginName = file.replace('.ts', '');
+          installedPlugins.add(pluginName);
+        }
+      });
+    } catch (error) {
+      console.error("[NPM] 读取本地插件失败:", error);
+    }
+    
+    // 统计信息
+    const totalPlugins = pluginNames.length;
+    const installedCount = pluginNames.filter(name => installedPlugins.has(name)).length;
+    const notInstalledCount = totalPlugins - installedCount;
+    
+    // 生成插件列表，使用远程的描述信息
+    const pluginList = pluginNames.map(plugin => {
+      const isInstalled = installedPlugins.has(plugin);
+      const status = isInstalled ? "☑️" : "❌";
+      const pluginData = remotePlugins[plugin];
+      const description = pluginData?.desc || "暂无描述";
+      const author = pluginData?.author || "未知";
+      
+      // 格式化输出：状态图标 插件名 - 描述 (作者)
+      return `${status} <code>${plugin}</code> - ${description} <i>(${author})</i>`;
     }).join("\n");
     
-    const installTip = `\n\n💡 <b>安装方法:</b>\n• <code>npm i &lt;插件名&gt;</code> - 安装单个插件\n• <code>npm i all</code> - 一键安装全部远程插件`;
-    const repoLink = `\n\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxDev/TeleBox_Plugins">TeleBox_Plugins</a>`;
+    // 生成统计信息
+    const statsInfo = `📊 <b>插件统计:</b>\n` +
+                     `• 总计: ${totalPlugins} 个插件\n` +
+                     `• ☑️ 已安装: ${installedCount} 个\n` +
+                     `• ❌ 未安装: ${notInstalledCount} 个`;
     
-    // 确保消息不超过Telegram限制
-    await msg.edit({ 
-      text: `🔍 <b>远程插件列表:</b>\n\n${pluginList}${installTip}${repoLink}`,
-      parseMode: "html"
-    });
-  } else {
-    await msg.edit({ text: `❌ 无法获取远程插件库` });
+    const installTip = `\n💡 <b>安装方法:</b>\n` +
+                      `• <code>npm i &lt;插件名&gt;</code> - 安装单个插件\n` +
+                      `• <code>npm i all</code> - 一键安装全部远程插件\n` +
+                      `• <code>npm rm &lt;插件名&gt;</code> - 卸载插件`;
+    
+    const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxDev/TeleBox_Plugins">TeleBox_Plugins</a>`;
+    
+    // 组装最终消息
+    const message = `🔍 <b>远程插件列表:</b>\n\n` +
+                   `${statsInfo}\n\n` +
+                   `<b>插件详情:</b>\n${pluginList}\n` +
+                   `${installTip}\n` +
+                   `${repoLink}`;
+    
+    // 确保消息不超过Telegram限制（4096字符）
+    if (message.length > 4000) {
+      // 如果消息太长，截断插件列表
+      const truncatedList = pluginNames.slice(0, 25).map(plugin => {
+        const isInstalled = installedPlugins.has(plugin);
+        const status = isInstalled ? "☑️" : "❌";
+        const pluginData = remotePlugins[plugin];
+        const description = pluginData?.desc || "暂无描述";
+        return `${status} <code>${plugin}</code> - ${description}`;
+      }).join("\n");
+      
+      const truncatedMessage = `🔍 <b>远程插件列表 (显示前25个):</b>\n\n` +
+                              `${statsInfo}\n\n` +
+                              `<b>插件详情:</b>\n${truncatedList}\n` +
+                              `... 还有 ${totalPlugins - 25} 个插件\n` +
+                              `${installTip}\n` +
+                              `${repoLink}`;
+      
+      await msg.edit({ 
+        text: truncatedMessage,
+        parseMode: "html"
+      });
+    } else {
+      await msg.edit({ 
+        text: message,
+        parseMode: "html"
+      });
+    }
+    
+  } catch (error) {
+    console.error("[NPM] 搜索插件失败:", error);
+    await msg.edit({ text: `❌ 搜索插件失败: ${error}` });
   }
 }
 
