@@ -1,5 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { loadPlugins } from "@utils/pluginManager";
+import { createDirectoryInTemp } from "@utils/pathHelpers";
 import path from "path";
 import fs from "fs";
 import axios from "axios";
@@ -27,8 +28,26 @@ async function installRemotePlugin(plugin: string, msg: Api.Message) {
       await msg.edit({ text: `无法下载插件 ${plugin}` });
       return;
     }
-    // 保存插件文件
+    // 检查插件是否已存在
     const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
+    const oldBackupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+    
+    if (fs.existsSync(filePath)) {
+      // 将现有插件转移到缓存目录
+      const cacheDir = createDirectoryInTemp('plugin_backups');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
+      fs.copyFileSync(filePath, backupPath);
+      console.log(`[NPM] 旧插件已转移到缓存: ${backupPath}`);
+    }
+    
+    // 清理旧的 .backup 文件（如果存在）
+    if (fs.existsSync(oldBackupPath)) {
+      fs.unlinkSync(oldBackupPath);
+      console.log(`[NPM] 已清理旧备份文件: ${oldBackupPath}`);
+    }
+    
+    // 保存插件文件
     fs.writeFileSync(filePath, response.data);
     await msg.edit({ text: `插件 ${plugin} 已安装并加载成功` });
     await loadPlugins(); // 重新加载插件
@@ -95,10 +114,21 @@ async function installAllPlugins(msg: Api.Message) {
 
         // 检查插件是否已存在
         const filePath = path.join(PLUGIN_PATH, `${plugin}.ts`);
+        const oldBackupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+        
         if (fs.existsSync(filePath)) {
-          // 备份现有插件
-          const backupPath = path.join(PLUGIN_PATH, `${plugin}.ts.backup`);
+          // 将现有插件转移到缓存目录
+          const cacheDir = createDirectoryInTemp('plugin_backups');
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+          const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
           fs.copyFileSync(filePath, backupPath);
+          console.log(`[NPM] 旧插件已转移到缓存: ${backupPath}`);
+        }
+        
+        // 清理旧的 .backup 文件（如果存在）
+        if (fs.existsSync(oldBackupPath)) {
+          fs.unlinkSync(oldBackupPath);
+          console.log(`[NPM] 已清理旧备份文件: ${oldBackupPath}`);
         }
 
         // 保存插件文件
