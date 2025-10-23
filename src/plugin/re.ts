@@ -27,47 +27,55 @@ class RePlugin extends Plugin {
           reverse: true,
         });
         await msg.delete();
+        
+        // 尝试使用转发方式复读
+        let forwardFailed = false;
         for (let i = 0; i < repeat; i++) {
           if (messages && messages.length > 0) {
-            // for (const message of messages) {
-            //   await message.forwardTo(msg.peerId);
-            // }
-            // await msg.client?.forwardMessages(msg.peerId, {
-            //   messages: messages.map((m) => m.id),
-            //   fromPeer: msg.peerId,
-            // });
-            // 使用原始 API 以支持论坛话题 (topMsgId)
-            const toPeer = await msg.getInputChat();
-            const fromPeer = await replied!.getInputChat();
-            const ids = messages.map((m) => m.id);
-            const topMsgId =
-              replied?.replyTo?.replyToTopId || replied?.replyTo?.replyToMsgId;
+            try {
+              // 使用原始 API 以支持论坛话题 (topMsgId)
+              const toPeer = await msg.getInputChat();
+              const fromPeer = await replied!.getInputChat();
+              const ids = messages.map((m) => m.id);
+              const topMsgId =
+                replied?.replyTo?.replyToTopId || replied?.replyTo?.replyToMsgId;
 
-            await msg.client?.invoke(
-              new Api.messages.ForwardMessages({
-                fromPeer,
-                id: ids,
-                toPeer,
-                // 如果在论坛话题中，指定话题的顶层消息 ID
-                ...(topMsgId ? { topMsgId } : {}),
-              })
-            );
+              await msg.client?.invoke(
+                new Api.messages.ForwardMessages({
+                  fromPeer,
+                  id: ids,
+                  toPeer,
+                  // 如果在论坛话题中，指定话题的顶层消息 ID
+                  ...(topMsgId ? { topMsgId } : {}),
+                })
+              );
+            } catch (error) {
+              if (error instanceof RPCError && error.errorMessage === "CHAT_FORWARDS_RESTRICTED") {
+                forwardFailed = true;
+                break;
+              } else {
+                throw error;
+              }
+            }
+          }
+        }
+        
+        // 如果转发失败（群组禁止转发），使用复制方式
+        if (forwardFailed && messages && messages.length > 0) {
+          for (let i = 0; i < repeat; i++) {
+            for (const message of messages) {
+              await this.copyMessage(msg.client!, msg.peerId, message, replied?.replyTo?.replyToTopId || replied?.replyTo?.replyToMsgId);
+            }
           }
         }
       } catch (error) {
         if (error instanceof RPCError) {
-          if (error.errorMessage == "CHAT_FORWARDS_RESTRICTED") {
-            await msg.edit({
-              text: "无法复读消息，群组设置禁止复读消息。",
-            });
-          } else {
-            await msg.edit({
-              text: error.message || "发生错误，无法复读消息。请稍后再试。",
-            });
-          }
+          await msg.client?.sendMessage(msg.peerId, {
+            message: error.message || "发生错误，无法复读消息。请稍后再试。",
+          });
         } else {
-          await msg.edit({
-            text: "发生未知错误，无法转发消息。请稍后再试。",
+          await msg.client?.sendMessage(msg.peerId, {
+            message: "发生未知错误，无法复读消息。请稍后再试。",
           });
         }
       }
@@ -78,6 +86,47 @@ class RePlugin extends Plugin {
       }
     },
   };
+
+  // 复制消息内容并发送（用于禁止转发的群组）
+  private async copyMessage(
+    client: TelegramClient,
+    peerId: any,
+    message: Api.Message,
+    topMsgId?: number
+  ): Promise<void> {
+    try {
+      const sendOptions: any = {
+        ...(topMsgId ? { replyTo: topMsgId } : {}),
+      };
+
+      // 处理不同类型的消息
+      if (message.media) {
+        // 有媒体的消息
+        sendOptions.file = message.media;
+        sendOptions.message = message.message || "";
+        
+        // 复制消息格式（加粗、斜体等）
+        if (message.entities && message.entities.length > 0) {
+          sendOptions.formattingEntities = message.entities;
+        }
+        
+        await client.sendFile(peerId, sendOptions);
+      } else if (message.message) {
+        // 纯文本消息
+        sendOptions.message = message.message;
+        
+        // 复制消息格式
+        if (message.entities && message.entities.length > 0) {
+          sendOptions.formattingEntities = message.entities;
+        }
+        
+        await client.sendMessage(peerId, sendOptions);
+      }
+    } catch (error) {
+      console.error("复制消息失败:", error);
+      throw error;
+    }
+  }
 }
 
 const plugin = new RePlugin();
