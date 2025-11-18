@@ -16,26 +16,28 @@ const execAsync = promisify(exec);
 const exitDir = createDirectoryInTemp("exit");
 const exitFile = path.join(exitDir, "msg.json");
 
-if (fs.existsSync(exitFile)) {
+const editExitMsg = async () => {
   try {
     const data = fs.readFileSync(exitFile, "utf-8");
     const { messageId, chatId, time } = JSON.parse(data);
-    getGlobalClient().then((client) => {
-      if (client) {
-        client
-          .editMessage(chatId, {
-            message: messageId,
-            text: `✅ 重启完成, 耗时 ${Date.now() - time}ms`,
-          })
-          .then(() => {
-            fs.unlinkSync(exitFile);
-          })
-          .catch(() => {
-            // Ignore errors when cleaning up
-          });
-      }
-    });
-  } catch (e) {}
+    const client = await getGlobalClient();
+    if (client) {
+      // NOTE: https://docs.telethon.dev/en/stable/concepts/entities.html
+      await client.getDialogs();
+
+      await client.editMessage(chatId, {
+        message: messageId,
+        text: `✅ 重启完成, 耗时 ${Date.now() - time}ms`,
+      });
+      fs.unlinkSync(exitFile);
+    }
+  } catch (e) {
+    console.error("Failed to edit exit message:", e);
+  }
+};
+
+if (fs.existsSync(exitFile)) {
+  editExitMsg();
 }
 
 class ReloadPlugin extends Plugin {
