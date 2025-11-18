@@ -22,9 +22,16 @@ const editExitMsg = async () => {
     const { messageId, chatId, time } = JSON.parse(data);
     const client = await getGlobalClient();
     if (client) {
-      // NOTE: https://docs.telethon.dev/en/stable/concepts/entities.html
-      await client.getDialogs();
-
+      let target;
+      try {
+        target = await client.getEntity(chatId);
+      } catch (e) {
+        console.error("Failed to get entity for exit message:", e);
+      }
+      if (!target) {
+        // NOTE: https://docs.telethon.dev/en/stable/concepts/entities.html
+        await client.getDialogs();
+      }
       await client.editMessage(chatId, {
         message: messageId,
         text: `✅ 重启完成, 耗时 ${Date.now() - time}ms`,
