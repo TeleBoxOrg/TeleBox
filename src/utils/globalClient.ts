@@ -2,6 +2,7 @@ import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
+import { logger } from "./logger";
 
 let client: TelegramClient;
 
@@ -26,6 +27,7 @@ async function initializeClient() {
     api.api_hash!,
     { connectionRetries, deviceModel: readAppName(), proxy }
   );
+  client.setLogLevel(logger.getGramJSLogLevel() as any);
 }
 
 export async function getGlobalClient(): Promise<TelegramClient> {
