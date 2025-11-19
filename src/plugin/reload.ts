@@ -26,12 +26,16 @@ const editExitMsg = async () => {
       try {
         target = await client.getEntity(chatId);
       } catch (e) {
-        console.error("Failed to get entity for exit message:", e);
-      }
-      if (!target) {
+        // 尝试通过 getDialogs 获取实体缓存
         // NOTE: https://docs.telethon.dev/en/stable/concepts/entities.html
-        await client.getDialogs();
+        await client.getDialogs({ limit: 20 });
+        try {
+           target = await client.getEntity(chatId);
+        } catch (innerE) {
+           console.error("Failed to get entity for exit message:", innerE);
+        }
       }
+      
       await client.editMessage(chatId, {
         message: messageId,
         text: `✅ 重启完成, 耗时 ${Date.now() - time}ms`,
