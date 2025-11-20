@@ -1775,101 +1775,16 @@ await db.write();
 ### 📚 帮助文档生成器
 
 ```typescript
-// ========== 帮助文档模块化框架 ==========
-
-interface CommandInfo {
-  command: string;
-  description: string;
-  usage?: string;
-  example?: string;
-}
-
-interface HelpConfig {
-  title: string;
-  icon?: string;
-  commands: CommandInfo[];
-  footer?: string;
-}
-
-// 帮助文档生成器
-class HelpBuilder {
-  static build(config: HelpConfig): string {
-    const { title, icon = "📋", commands, footer } = config;
-    const prefix = getPrefixInfo().display;
-    
-    let help = `${icon} <b>${title}</b>\n\n`;
-    
-    if (commands.length > 0) {
-      help += `<b>命令：</b>\n`;
-      for (const cmd of commands) {
-        help += `• <code>${prefix}${cmd.command}</code> - ${cmd.description}\n`;
-        if (cmd.usage) {
-          help += `  用法: <code>${cmd.usage}</code>\n`;
-        }
-        if (cmd.example) {
-          help += `  示例: <code>${cmd.example}</code>\n`;
-        }
-      }
-    }
-    
-    if (footer) {
-      help += `\n${footer}`;
-    }
-    
-    return help;
-  }
-  
-  // 生成子命令帮助
-  static buildSubCommand(mainCmd: string, subCommands: CommandInfo[]): string {
-    const prefix = getPrefixInfo().display;
-    let help = `<b>子命令：</b>\n`;
-    
-    for (const sub of subCommands) {
-      help += `• <code>${prefix}${mainCmd} ${sub.command}</code> - ${sub.description}\n`;
-    }
-    
-    return help;
-  }
-}
-
-// ========== 使用示例 ==========
-
-// 方式1：简单插件
-const SIMPLE_HELP = HelpBuilder.build({
+// 可选：使用 HelpBuilder 生成帮助文本（简洁示例）
+// 假设 HelpBuilder 已提供
+const HELP = HelpBuilder.build({
   title: "示例插件",
   commands: [
     { command: "example", description: "执行示例" },
     { command: "example help", description: "显示帮助" }
-  ]
-});
-
-// 方式2：复杂插件
-const COMPLEX_HELP = HelpBuilder.build({
-  title: "高级插件",
-  icon: "🚀",
-  commands: [
-    { 
-      command: "adv query <keyword>", 
-      description: "查询数据",
-      usage: "adv query [关键词]",
-      example: "adv query test"
-    },
-    { 
-      command: "adv process", 
-      description: "处理数据" 
-    },
-    { 
-      command: "adv config", 
-      description: "配置设置" 
-    },
-    { 
-      command: "adv help", 
-      description: "显示帮助" 
-    }
   ],
-  footer: "💡 使用 <code>.adv help [子命令]</code> 查看详细帮助"
+  footer: "💡 使用 <code>.example help</code> 查看详细帮助"
 });
-
 ```
 
 ### 🎨 标准插件开发模板
@@ -1926,10 +1841,6 @@ class StandardPlugin extends Plugin {
         case "status":
           await this.handleStatus(msg);
           break;
-        case "help":
-        case "h":
-          await msg.edit({ text: this.HELP, parseMode: "html" });
-          break;
         default:
           await this.handleDefault(msg, subCommand);
       }
@@ -1940,7 +1851,7 @@ class StandardPlugin extends Plugin {
   
   // 默认处理
   private async handleDefault(msg: Api.Message, sub: string | undefined) {
-    if (!sub) {
+    if (!sub || sub === "help" || sub === "h") {
       // 无参数时的默认行为
       await msg.edit({ text: this.HELP, parseMode: "html" });
     } else {
@@ -3076,16 +2987,12 @@ class MusicPlugin extends Plugin {
         case 'cookie':
           await this.handleCookie(args);
           break;
-        case 'help':
-        case 'h':  // 别名
-          await this.showHelp(msg);
-          break;
         default:
-          // 默认行为：直接搜索或显示帮助
-          if (sub) {
-            await this.handleSearch(msg.text?.split(/\s+/).slice(1).join(' '));
-          } else {
+          // 默认行为：help/h/无参 => 帮助；否则直达搜索
+          if (!sub || sub.toLowerCase() === 'help' || sub.toLowerCase() === 'h') {
             await this.showHelp(msg);
+          } else {
+            await this.handleSearch(msg.text?.split(/\s+/).slice(1).join(' '));
           }
       }
     }
@@ -3201,21 +3108,22 @@ class AbanPlugin extends Plugin {
 
 ### 帮助系统设计
 
-**所有插件必须：**
-1. 定义 `help_text` 常量
-2. 在 `description` 中引用帮助文本
-3. 支持 help 子指令或无参数时显示帮助
+ **所有插件必须：**
+ 1. 定义 `help_text` 常量
+ 2. 在 `description` 中引用帮助文本
+ 3. 支持 help 子指令或无参数时显示帮助
+ 4. help 触发规范：必须同时支持 `help` 与 `h` 子指令触发帮助；实现需遵循 @[d:\Users\Desktop\telebox\TELEBOX_DEVELOPMENT.md:L3206] 的方式（在 `description` 中引用 `help_text`），并在无参数、`help` 或 `h` 时统一返回帮助文本
 
 ```typescript
 const help_text = `📝 <b>插件名称</b>
 
-<b>命令格式：</b>
-<code>.cmd [子命令] [参数]</code>
+ <b>命令格式：</b>
+ <code>.cmd [子命令] [参数]</code>
 
-<b>可用命令：</b>
-• <code>.cmd sub1</code> - 子命令1说明
-• <code>.cmd sub2</code> - 子命令2说明
-• <code>.cmd help</code> - 显示帮助`;
+ <b>可用命令：</b>
+ • <code>.cmd sub1</code> - 子命令1说明
+ • <code>.cmd sub2</code> - 子命令2说明
+ • <code>.cmd help</code> - 显示帮助`;
 
 class MyPlugin extends Plugin {
   description = `插件简介\n\n${help_text}`;
@@ -3223,7 +3131,7 @@ class MyPlugin extends Plugin {
   cmdHandlers = {
     cmd: async (msg) => {
       const sub = msg.text?.split(/\s+/)[1];
-      if (!sub || sub === 'help') {
+      if (!sub || sub === 'help' || sub === 'h') {
         await msg.edit({ text: help_text, parseMode: "html" });
         return;
       }
