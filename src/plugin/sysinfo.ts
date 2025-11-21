@@ -74,7 +74,7 @@ class TeleBoxSystemMonitor extends Plugin {
     const scanTime = Date.now() - startTime;
 
     // 小屏幕友好的输出格式
-    return `<code>\nroot@${hostname}\n--------------\nOS: ${systemDetails.osInfo}\nKernel: ${systemDetails.kernelInfo}\nUptime: ${uptimeStr}\nLoadavg: ${loadavgStr}\nPackages: ${systemDetails.packages}\nInit System: ${systemDetails.initSystem}\nShell: node.js\nLocale: ${locale}\nProcesses: ${systemDetails.processes}\nMemory: ${memoryUsage}\nSwap: ${systemDetails.swapInfo}\nDisk (/): ${systemDetails.diskInfo}\nNetwork IO (${networkInterface}): ${systemDetails.networkInfo}\nScan Time: ${scanTime}ms\n</code>`;
+    return `<code>\nroot@${hostname}\n--------------\nOS: ${systemDetails.osInfo}\nKernel: ${systemDetails.kernelInfo}\nUptime: ${uptimeStr}\nLoadavg: ${loadavgStr}\nPackages: ${systemDetails.packages}\nInit System: ${systemDetails.initSystem}\nShell: node.js\nLocale: ${locale}\nProcesses: ${systemDetails.processes}\nMemory: ${memoryUsage}\nSwap: ${systemDetails.swapInfo}\nDisk: ${systemDetails.diskInfo}\nNetwork IO (${networkInterface}): ${systemDetails.networkInfo}\nScan Time: ${scanTime}ms\n</code>`;
   }
 
   private async gatherSystemDetails(): Promise<any> {
@@ -154,11 +154,21 @@ class TeleBoxSystemMonitor extends Plugin {
           }).trim();
           const parts = dfOutput.split(/\s+/);
           if (parts.length >= 5) {
-            const totalBytes = parseInt(parts[1], 10) * 1024;
-            const usedBytes = parseInt(parts[2], 10) * 1024;
-            if (!Number.isNaN(totalBytes) && !Number.isNaN(usedBytes)) {
-              const fsType = this.detectFilesystemType("/") ?? "ext4";
-              diskInfo = `${this.formatByteUsage(usedBytes, totalBytes)} - ${fsType}`;
+            const totalBlocks = parseInt(parts[1], 10);
+            let usedBlocks = parseInt(parts[2], 10);
+            const availableBlocks = parseInt(parts[3], 10);
+
+            if (!Number.isNaN(totalBlocks) && !Number.isNaN(availableBlocks)) {
+              const recalculatedUsed = totalBlocks - availableBlocks;
+              if (!Number.isNaN(recalculatedUsed)) {
+                usedBlocks = recalculatedUsed;
+              }
+            }
+
+            if (!Number.isNaN(totalBlocks) && !Number.isNaN(usedBlocks)) {
+              const totalBytes = totalBlocks * 1024;
+              const usedBytes = usedBlocks * 1024;
+              diskInfo = this.formatByteUsage(usedBytes, totalBytes);
             }
           }
         } catch {
@@ -248,11 +258,7 @@ class TeleBoxSystemMonitor extends Plugin {
             if (!Number.isNaN(totalBlocks) && !Number.isNaN(usedBlocks)) {
               const totalBytes = totalBlocks * 1024;
               const usedBytes = usedBlocks * 1024;
-              let fsType = this.detectFilesystemType(targetPath) ?? "apfs";
-              if (!fsType || fsType === "/") {
-                fsType = "apfs";
-              }
-              diskInfo = `${this.formatByteUsage(usedBytes, totalBytes)} - ${fsType}`;
+              diskInfo = this.formatByteUsage(usedBytes, totalBytes);
             }
           }
         } catch {
@@ -316,6 +322,17 @@ class TeleBoxSystemMonitor extends Plugin {
     }
   }
 
+  private parseHumanReadableSize(value: string): number {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^([\d.]+)\s*([A-Za-z]+)?$/);
+    if (!match) {
+      const numeric = parseFloat(trimmed);
+      return Number.isNaN(numeric) ? 0 : numeric;
+    }
+
+    return this.unitStringToBytes(match[1], match[2]);
+  }
+
   private parseMacSwapUsage(raw: string): string | null {
     const totalMatch = raw.match(/total\s*=\s*([\d.]+)\s*([A-Za-z]+)?/i);
     const usedMatch = raw.match(/used\s*=\s*([\d.]+)\s*([A-Za-z]+)?/i);
@@ -330,29 +347,6 @@ class TeleBoxSystemMonitor extends Plugin {
     }
 
     return this.formatByteUsage(usedBytes, totalBytes);
-  }
-
-  private parseHumanReadableSize(value: string): number {
-    const trimmed = value.trim();
-    const match = trimmed.match(/^([\d.]+)\s*([A-Za-z]+)?$/);
-    if (!match) {
-      const numeric = parseFloat(trimmed);
-      return Number.isNaN(numeric) ? 0 : numeric;
-    }
-
-    return this.unitStringToBytes(match[1], match[2]);
-  }
-
-  private formatByteUsage(usedBytes: number, totalBytes: number): string {
-    const used = this.formatBytes(usedBytes);
-    const total = this.formatBytes(totalBytes);
-
-    if (totalBytes <= 0) {
-      return `${used} / ${total}`;
-    }
-
-    const percent = Math.round((usedBytes / totalBytes) * 100);
-    return `${used} / ${total} (${percent}%)`;
   }
 
   private unitStringToBytes(value: string, unit?: string): number {
@@ -407,40 +401,16 @@ class TeleBoxSystemMonitor extends Plugin {
     return `${value.toFixed(2)} ${units[unitIndex]}`;
   }
 
-  private detectFilesystemType(path: string): string | null {
-    const platform = os.platform();
+  private formatByteUsage(usedBytes: number, totalBytes: number): string {
+    const used = this.formatBytes(usedBytes);
+    const total = this.formatBytes(totalBytes);
 
-    try {
-      if (platform === "linux") {
-        const output = execSync(`stat -f -c %T ${path}`, {
-          encoding: "utf8",
-        }).trim();
-        return output || null;
-      }
-
-      if (platform === "darwin") {
-        const mountOutput = execSync("mount", { encoding: "utf8" });
-        const line = mountOutput
-          .split("\n")
-          .find((entry) => entry.includes(` on ${path} (`));
-        if (line) {
-          const match = line.match(/\(([^)]+)\)/);
-          if (match) {
-            const fsType = match[1]
-              .split(",")
-              .map((segment) => segment.trim())
-              .find((segment) => segment.length > 0);
-            if (fsType) {
-              return fsType;
-            }
-          }
-        }
-      }
-    } catch {
-      return null;
+    if (totalBytes <= 0) {
+      return "off";
     }
 
-    return null;
+    const percent = Math.round((usedBytes / totalBytes) * 100);
+    return `${used} / ${total} (${percent}%)`;
   }
 }
 
