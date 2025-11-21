@@ -183,8 +183,25 @@ class TeleBoxSystemMonitor extends Plugin {
         kernelInfo = `Darwin ${release}`;
         packages = "Homebrew";
         initSystem = "launchd";
-        processes = "Unknown";
-        diskInfo = "Unknown";
+        
+        // 进程数
+        try {
+          const count = execSync("ps aux | wc -l", { encoding: "utf8" }).trim();
+          processes = (parseInt(count) - 1).toString();
+        } catch {
+          processes = "Unknown";
+        }
+        
+        // 磁盘
+        try {
+          const dfOutput = execSync("df -h / | tail -1", {
+            encoding: "utf8",
+          }).trim();
+          const parts = dfOutput.split(/\s+/);
+          diskInfo = `${parts[2]} / ${parts[1]} (${parts[4]})`;
+        } catch {
+          diskInfo = "Unknown";
+        }
       }
     } catch (error) {
       console.log("TeleBox: 系统信息获取部分失败");
