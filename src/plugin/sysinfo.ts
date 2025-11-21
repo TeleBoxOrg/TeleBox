@@ -170,7 +170,7 @@ class TeleBoxSystemMonitor extends Plugin {
           const count = execSync("ps aux | wc -l", { encoding: "utf8" }).trim();
           processes = (parseInt(count) - 1).toString();
         } catch {
-          processes = "174";
+          processes = "Unknown";
         }
 
         // Swap信息
@@ -391,7 +391,7 @@ class TeleBoxSystemMonitor extends Plugin {
   }
 
   private formatBytes(bytes: number): string {
-    if (!Number.isFinite(bytes) || bytes <= 0) {
+    if (!Number.isFinite(bytes) || bytes < 0) {
       return "0 B";
     }
 
