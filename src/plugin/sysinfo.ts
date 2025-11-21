@@ -57,13 +57,7 @@ class TeleBoxSystemMonitor extends Plugin {
 
     // 内存计算
     const usedMem = totalmem - freemem;
-    const memPercent = Math.round((usedMem / totalmem) * 100);
-    const memoryUsage = `${(usedMem / 1024 / 1024 / 1024).toFixed(2)} GiB / ${(
-      totalmem /
-      1024 /
-      1024 /
-      1024
-    ).toFixed(2)} GiB (${memPercent}%)`;
+    const memoryUsage = this.formatByteUsage(usedMem, totalmem);
 
     // 系统详细信息
     const systemDetails = await this.gatherSystemDetails();
@@ -155,13 +149,20 @@ class TeleBoxSystemMonitor extends Plugin {
 
         // 磁盘
         try {
-          const dfOutput = execSync("df -h / | tail -1", {
+          const dfOutput = execSync("df -k / | tail -1", {
             encoding: "utf8",
           }).trim();
           const parts = dfOutput.split(/\s+/);
-          diskInfo = `${parts[2]} / ${parts[1]} (${parts[4]}) - ext4`;
+          if (parts.length >= 5) {
+            const totalBytes = parseInt(parts[1], 10) * 1024;
+            const usedBytes = parseInt(parts[2], 10) * 1024;
+            if (!Number.isNaN(totalBytes) && !Number.isNaN(usedBytes)) {
+              const fsType = this.detectFilesystemType("/") ?? "ext4";
+              diskInfo = `${this.formatByteUsage(usedBytes, totalBytes)} - ${fsType}`;
+            }
+          }
         } catch {
-          diskInfo = "5.94 GiB / 185.86 GiB (3%) - ext4";
+          diskInfo = "Unknown";
         }
 
         // 进程数
@@ -170,6 +171,39 @@ class TeleBoxSystemMonitor extends Plugin {
           processes = (parseInt(count) - 1).toString();
         } catch {
           processes = "174";
+        }
+
+        // Swap信息
+        try {
+          const freeOutput = execSync("free -b", { encoding: "utf8" });
+          const swapLine = freeOutput
+            .split("\n")
+            .find((line) => line.startsWith("Swap:"));
+          if (swapLine) {
+            const parts = swapLine.trim().split(/\s+/);
+            if (parts.length >= 4) {
+              const total = parseInt(parts[1], 10);
+              const used = parseInt(parts[2], 10);
+              swapInfo = this.formatByteUsage(used, total);
+            }
+          }
+        } catch {
+          try {
+            const freeOutput = execSync("free -h", { encoding: "utf8" });
+            const swapLine = freeOutput
+              .split("\n")
+              .find((line) => line.startsWith("Swap:"));
+            if (swapLine) {
+              const parts = swapLine.trim().split(/\s+/);
+              if (parts.length >= 4) {
+                const total = this.parseHumanReadableSize(parts[1]);
+                const used = this.parseHumanReadableSize(parts[2]);
+                swapInfo = this.formatByteUsage(used, total);
+              }
+            }
+          } catch {
+            swapInfo = "Unknown";
+          }
         }
       } else if (platform === "win32") {
         osInfo = `Windows ${arch}`;
@@ -194,13 +228,53 @@ class TeleBoxSystemMonitor extends Plugin {
         
         // 磁盘
         try {
-          const dfOutput = execSync("df -h / | tail -1", {
+          const targetPath = fs.existsSync("/System/Volumes/Data")
+            ? "/System/Volumes/Data"
+            : "/";
+          const dfOutput = execSync(`df -k ${targetPath} | tail -1`, {
             encoding: "utf8",
           }).trim();
           const parts = dfOutput.split(/\s+/);
-          diskInfo = `${parts[2]} / ${parts[1]} (${parts[4]})`;
+          if (parts.length >= 5) {
+            const totalBlocks = parseInt(parts[1], 10);
+            let usedBlocks = parseInt(parts[2], 10);
+            const availableBlocks = parseInt(parts[3], 10);
+            if (!Number.isNaN(totalBlocks) && !Number.isNaN(availableBlocks)) {
+              const recalculatedUsed = totalBlocks - availableBlocks;
+              if (!Number.isNaN(recalculatedUsed)) {
+                usedBlocks = recalculatedUsed;
+              }
+            }
+            if (!Number.isNaN(totalBlocks) && !Number.isNaN(usedBlocks)) {
+              const totalBytes = totalBlocks * 1024;
+              const usedBytes = usedBlocks * 1024;
+              let fsType = this.detectFilesystemType(targetPath) ?? "apfs";
+              if (!fsType || fsType === "/") {
+                fsType = "apfs";
+              }
+              diskInfo = `${this.formatByteUsage(usedBytes, totalBytes)} - ${fsType}`;
+            }
+          }
         } catch {
           diskInfo = "Unknown";
+        }
+
+        // Swap信息
+        try {
+          const sysctlPath = fs.existsSync("/usr/sbin/sysctl")
+            ? "/usr/sbin/sysctl"
+            : "sysctl";
+          const swapUsage = execSync(`${sysctlPath} vm.swapusage`, {
+            encoding: "utf8",
+          }).trim();
+          const parsedSwap = this.parseMacSwapUsage(swapUsage);
+          if (parsedSwap) {
+            swapInfo = parsedSwap;
+          } else {
+            swapInfo = swapUsage;
+          }
+        } catch {
+          swapInfo = "Unknown";
         }
       }
     } catch (error) {
@@ -240,6 +314,133 @@ class TeleBoxSystemMonitor extends Plugin {
     } catch {
       return "enp0s6";
     }
+  }
+
+  private parseMacSwapUsage(raw: string): string | null {
+    const totalMatch = raw.match(/total\s*=\s*([\d.]+)\s*([A-Za-z]+)?/i);
+    const usedMatch = raw.match(/used\s*=\s*([\d.]+)\s*([A-Za-z]+)?/i);
+    if (!totalMatch || !usedMatch) {
+      return null;
+    }
+
+    const totalBytes = this.unitStringToBytes(totalMatch[1], totalMatch[2]);
+    const usedBytes = this.unitStringToBytes(usedMatch[1], usedMatch[2]);
+    if (Number.isNaN(totalBytes) || Number.isNaN(usedBytes)) {
+      return null;
+    }
+
+    return this.formatByteUsage(usedBytes, totalBytes);
+  }
+
+  private parseHumanReadableSize(value: string): number {
+    const trimmed = value.trim();
+    const match = trimmed.match(/^([\d.]+)\s*([A-Za-z]+)?$/);
+    if (!match) {
+      const numeric = parseFloat(trimmed);
+      return Number.isNaN(numeric) ? 0 : numeric;
+    }
+
+    return this.unitStringToBytes(match[1], match[2]);
+  }
+
+  private formatByteUsage(usedBytes: number, totalBytes: number): string {
+    const used = this.formatBytes(usedBytes);
+    const total = this.formatBytes(totalBytes);
+
+    if (totalBytes <= 0) {
+      return `${used} / ${total}`;
+    }
+
+    const percent = Math.round((usedBytes / totalBytes) * 100);
+    return `${used} / ${total} (${percent}%)`;
+  }
+
+  private unitStringToBytes(value: string, unit?: string): number {
+    const numeric = parseFloat(value);
+    if (Number.isNaN(numeric)) {
+      return NaN;
+    }
+
+    const multipliers: Record<string, number> = {
+      "": 1,
+      B: 1,
+      K: 1024,
+      KI: 1024,
+      KB: 1024,
+      M: 1024 ** 2,
+      MI: 1024 ** 2,
+      MB: 1024 ** 2,
+      G: 1024 ** 3,
+      GI: 1024 ** 3,
+      GB: 1024 ** 3,
+      T: 1024 ** 4,
+      TI: 1024 ** 4,
+      TB: 1024 ** 4,
+    };
+
+    const normalized = (unit ?? "B").trim().toUpperCase();
+    const candidates = [normalized, normalized.replace(/B$/, ""), `${normalized}B`];
+
+    for (const candidate of candidates) {
+      if (candidate in multipliers) {
+        return numeric * multipliers[candidate];
+      }
+    }
+
+    return numeric;
+  }
+
+  private formatBytes(bytes: number): string {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+      return "0 B";
+    }
+
+    const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    let value = bytes;
+    let unitIndex = 0;
+
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024;
+      unitIndex += 1;
+    }
+
+    return `${value.toFixed(2)} ${units[unitIndex]}`;
+  }
+
+  private detectFilesystemType(path: string): string | null {
+    const platform = os.platform();
+
+    try {
+      if (platform === "linux") {
+        const output = execSync(`stat -f -c %T ${path}`, {
+          encoding: "utf8",
+        }).trim();
+        return output || null;
+      }
+
+      if (platform === "darwin") {
+        const mountOutput = execSync("mount", { encoding: "utf8" });
+        const line = mountOutput
+          .split("\n")
+          .find((entry) => entry.includes(` on ${path} (`));
+        if (line) {
+          const match = line.match(/\(([^)]+)\)/);
+          if (match) {
+            const fsType = match[1]
+              .split(",")
+              .map((segment) => segment.trim())
+              .find((segment) => segment.length > 0);
+            if (fsType) {
+              return fsType;
+            }
+          }
+        }
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
   }
 }
 
