@@ -518,7 +518,7 @@ async function installPlugin(args: string[], msg: Api.Message) {
         
         // 验证文件后缀必须为 .ts
         if (!fileName.endsWith(".ts")) {
-          await sendOrEditMessage(msg, `❌ 文件格式错误\n只能安装 .ts 格式的插件文件`);
+          await sendOrEditMessage(msg, `❌ 文件格式错误\n文件不是有效插件`);
           return;
         }
         
@@ -539,7 +539,7 @@ async function installPlugin(args: string[], msg: Api.Message) {
             if (fs.existsSync(filePath)) {
               fs.unlinkSync(filePath);
             }
-            await sendOrEditMessage(statusMsg, `❌ 插件验证失败\n文件不符合插件规范`);
+            await sendOrEditMessage(statusMsg, `❌ 插件验证失败\n文件不是有效插件`);
             return;
           }
         } catch (error) {
