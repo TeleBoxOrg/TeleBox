@@ -1,4 +1,4 @@
-import { Plugin } from "@utils/pluginBase";
+import { Plugin, isValidPlugin } from "@utils/pluginBase";
 import { loadPlugins } from "@utils/pluginManager";
 import {
   createDirectoryInTemp,
@@ -515,9 +515,44 @@ async function installPlugin(args: string[], msg: Api.Message) {
       const replied = await msg.getReplyMessage();
       if (replied?.media) {
         const fileName = await getMediaFileName(replied);
+        
+        // 验证文件后缀必须为 .ts
+        if (!fileName.endsWith(".ts")) {
+          await sendOrEditMessage(msg, `❌ 文件格式错误\n文件不是有效插件`);
+          return;
+        }
+        
         const pluginName = fileName.replace(".ts", "");
-        const statusMsg = await sendOrEditMessage(msg, `正在安装插件 ${pluginName} ...`);
+        const statusMsg = await sendOrEditMessage(msg, `🔍 正在验证插件 ${pluginName} ...`);
         const filePath = path.join(PLUGIN_PATH, fileName);
+
+        // 下载文件
+        await msg.client?.downloadMedia(replied, { outputFile: filePath });
+        
+        // 验证插件文件内容
+        try {
+          const pluginModule = require(filePath);
+          const pluginInstance = pluginModule.default || pluginModule;
+          
+          if (!isValidPlugin(pluginInstance)) {
+            // 验证失败，删除已下载的文件
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+            await sendOrEditMessage(statusMsg, `❌ 插件验证失败\n文件不是有效插件`);
+            return;
+          }
+        } catch (error) {
+          // 验证出错，删除已下载的文件
+          if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+          }
+          await sendOrEditMessage(statusMsg, `❌ 插件加载失败\n错误信息:\n${error instanceof Error ? error.message : String(error)}`);
+          return;
+        }
+
+        // 验证通过，更新状态为正在安装
+        await sendOrEditMessage(statusMsg, `✅ 验证通过，正在安装插件 ${pluginName} ...`);
 
         // 检查数据库中是否已存在同名插件
         let overrideMessage = "";
@@ -533,9 +568,8 @@ async function installPlugin(args: string[], msg: Api.Message) {
           console.error(`[TPM] 清除数据库记录失败: ${error}`);
         }
 
-        await msg.client?.downloadMedia(replied, { outputFile: filePath });
         await loadPlugins();
-        await sendOrEditMessage(statusMsg, `插件 ${pluginName} 已安装并加载成功${overrideMessage}`, { parseMode: "html" });
+        await sendOrEditMessage(statusMsg, `✅ 插件 ${pluginName} 已安装并加载成功${overrideMessage}`, { parseMode: "html" });
       } else {
         await sendOrEditMessage(msg, "请回复一个插件文件");
       }
