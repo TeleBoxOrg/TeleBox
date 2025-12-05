@@ -77,6 +77,58 @@ const fn = async (msg: Api.Message) => {
     return;
   }
 
+  if (parts.length >= 2 && parts[0].startsWith(".") && parts[1] === "clean") {
+    await msg.edit({ text: `🔍 正在搜索日志文件...` });
+
+    const { outLog, errLog } = await findLogFiles();
+    console.log("Found logs for cleaning:", { outLog, errLog });
+
+    if (!outLog && !errLog) {
+      await msg.edit({
+        text: "❌ 未找到日志文件\n\n已检查路径:\n• ~/.pm2/logs/telebox-*.log\n• ./logs/*.log\n• /var/log/telebox/*.log",
+      });
+      return;
+    }
+
+    const results: string[] = [];
+    let cleanedCount = 0;
+
+    if (outLog) {
+      try {
+        const stats = await fs.stat(outLog);
+        const sizeKB = Math.round(stats.size / 1024);
+        await fs.unlink(outLog);
+        results.push(`✅ 已删除输出日志 (${sizeKB}KB)`);
+        cleanedCount++;
+      } catch (error: any) {
+        results.push(`❌ 删除输出日志失败: ${error.message?.substring(0, 50) || "未知错误"}`);
+      }
+    }
+
+    if (errLog) {
+      try {
+        const stats = await fs.stat(errLog);
+        const sizeKB = Math.round(stats.size / 1024);
+        await fs.unlink(errLog);
+        results.push(`✅ 已删除错误日志 (${sizeKB}KB)`);
+        cleanedCount++;
+      } catch (error: any) {
+        results.push(`❌ 删除错误日志失败: ${error.message?.substring(0, 50) || "未知错误"}`);
+      }
+    }
+
+    const summaryText = [
+      cleanedCount > 0 ? "🗑️ 日志清理完成" : "⚠️ 日志清理失败",
+      "",
+      ...results,
+      "",
+      cleanedCount > 0 ? `📊 已清理 ${cleanedCount} 个日志文件` : "💡 建议检查日志文件路径和权限",
+    ].join("\n");
+
+    await msg.edit({ text: summaryText });
+    return;
+  }
+
   let target: string | number = "me";
   const db = new SendLogDB();
   target = db.getTarget();
@@ -177,7 +229,7 @@ const fn = async (msg: Api.Message) => {
 };
 
 class SendLogPlugin extends Plugin {
-  description: string = `发送日志文件到收藏夹或自定义目标\n.sendlog set <对话 ID|@用户名|me> 设置发送目标 (默认 me)`;
+  description: string = `发送日志文件到收藏夹或自定义目标\n.sendlog set <对话 ID|@用户名|me> 设置发送目标 (默认 me)\n.sendlog clean 清理日志文件`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     sendlog: fn,
     logs: fn,
