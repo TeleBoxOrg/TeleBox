@@ -396,39 +396,50 @@ class BfPlugin extends Plugin {
         const backupName = generateBackupName();
         const backupPath = path.join(os.tmpdir(), backupName);
 
-        // 确定要备份的目录
-        let dirsToBackup: string[] = [];
-        
         if (cmd === "all") {
-          // 备份整个程序目录，不排除任何文件
-          dirsToBackup = [programDir];
+          const parentDir = path.dirname(programDir);
+          const dirName = path.basename(programDir);
+          
+          await new Promise<void>((resolve, reject) => {
+            const tar = spawn("tar", [
+              "-czvf",
+              backupPath,
+              "-C",
+              parentDir,
+              dirName,
+            ]);
+
+            tar.on("close", (code) => {
+              if (code === 0) resolve();
+              else reject(new Error(`tar exited with code ${code}`));
+            });
+
+            tar.on("error", reject);
+          });
         } else {
-          // 默认只备份 plugins 和 assets
-          dirsToBackup = [
+          const dirsToBackup = [
             path.join(programDir, "plugins"),
             path.join(programDir, "assets"),
           ].filter(fs.existsSync);
-        }
 
-        if (dirsToBackup.length === 0) {
-          await msg.edit({
-            text: "❌ 没有找到可备份的目录",
-            parseMode: "html",
-          });
-          return;
-        }
+          if (dirsToBackup.length === 0) {
+            await msg.edit({
+              text: "❌ 没有找到可备份的目录",
+              parseMode: "html",
+            });
+            return;
+          }
 
-        // 创建备份
-        await createBackup(dirsToBackup, backupPath);
+          await createBackup(dirsToBackup, backupPath);
+        }
 
         await msg.edit({ text: "📤 正在上传备份...", parseMode: "html" });
 
-        // 准备标题
         const stats = fs.statSync(backupPath);
         const backupType = cmd === "all" ? "全量备份" : "标准备份";
         const contentDesc = cmd === "all" 
           ? "整个程序目录（包含所有文件）"
-          : dirsToBackup.map((d) => path.basename(d)).join(", ");
+          : "plugins, assets";
         
         const caption =
           `📦 <b>TeleBox ${backupType}</b>\n\n` +
@@ -477,9 +488,7 @@ class BfPlugin extends Plugin {
         const backupTypeDisplay = cmd === "all" ? "全量备份" : "备份";
         const contentDisplay = cmd === "all" 
           ? "整个程序目录（包含所有文件）"
-          : dirsToBackup
-              .map((d) => path.basename(d))
-              .join(", ");
+          : "plugins, assets";
         
         await msg.edit({
           text:
