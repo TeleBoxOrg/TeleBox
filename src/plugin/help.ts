@@ -12,6 +12,21 @@ import { AliasDB } from "@utils/aliasDB";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
+// 设置 <code> 标签对的总数安全阈值，超过此阈值将触发格式降级。
+const MAX_TOTAL_CODE_TAGS = 98; 
+
+/** HTML 转义。 */
+function htmlEscape(text: string): string {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/** 读取 package.json 中的版本号。 */
 function readVersion(): string {
   try {
     const packagePath = path.join(process.cwd(), "package.json");
@@ -24,45 +39,102 @@ function readVersion(): string {
   }
 }
 
-function formatBasicCommands(commands: string[]): string {
+/**
+ * 安全地格式化命令列表。如果 <code> 标签超出预算，则降级为纯文本。
+ * 别名 (alias) 也会占用标签预算。
+ */
+function formatCommandsSafely(
+  commands: string[],
+  aliasDB: AliasDB,
+  prefix: string = "",
+  availableCodeTagBudget: number = MAX_TOTAL_CODE_TAGS
+): { text: string, codeTagsUsed: number } {
+  let tagsUsed = 0;
+  const formatted: string[] = [];
+  let degradeMode = false;
+
+  for (const cmd of commands) {
+    const alias = aliasDB.getOriginal(cmd);
+    const hasAlias = alias?.length > 0;
+    
+    // 预估所需的 <code> 标签数（命令 + 所有别名）
+    const estimatedTagsNeeded = 1 + (hasAlias ? alias.length : 0);
+    
+    if (tagsUsed + estimatedTagsNeeded > availableCodeTagBudget) {
+      degradeMode = true;
+    }
+
+    let cmdPart: string;
+    
+    if (degradeMode) {
+      // 降级模式：不使用 <code>
+      cmdPart = `${prefix}${cmd}`;
+      if (hasAlias) {
+        cmdPart += ` (${alias.join(", ")})`;
+      }
+    } else {
+      // 正常模式：使用 <code>，并计入主命令标签
+      cmdPart = `<code>${prefix}${cmd}</code>`;
+      tagsUsed++;
+      
+      if (hasAlias) {
+        const aliasParts = alias.map((a) => {
+          tagsUsed++; // 计入别名标签
+          return `<code>${a}</code>`;
+        }).join(", ");
+        cmdPart += ` (${aliasParts})`;
+      }
+    }
+    formatted.push(cmdPart);
+  }
+
+  return {
+    text: formatted.join(" • "),
+    codeTagsUsed: tagsUsed,
+  };
+}
+
+
+/** 格式化基础命令列表（单命令）。 */
+function formatBasicCommands(commands: string[], budget: number): { text: string, codeTagsUsed: number } {
   const singleCommands: string[] = [];
   const aliasDB = new AliasDB();
 
-  // 筛选基础命令（非功能模块的单个命令）
+  // 筛选基础命令
   commands
     .sort((a, b) => a.localeCompare(b))
     .forEach((cmd) => {
       const pluginEntry = getPluginEntry(cmd);
       if (pluginEntry && pluginEntry.plugin.cmdHandlers) {
         const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers);
-        // 如果是单命令插件或主命令
+        // 如果是单命令插件
         if (cmdHandlerKeys.length === 1 && cmdHandlerKeys[0] === cmd) {
           singleCommands.push(cmd);
         }
       }
     });
 
-  const formattedCommands = singleCommands
-    .map((cmd) => {
-      const alias = aliasDB.getOriginal(cmd);
-      return `<code>${cmd}</code>${
-        alias?.length > 0
-          ? ` (${alias.map((a) => `<code>${a}</code>`).join(", ")})`
-          : ""
-      }`;
-    })
-    .join(" • ");
+  const { text: formattedCommands, codeTagsUsed } = formatCommandsSafely(
+    singleCommands,
+    aliasDB,
+    "",
+    budget
+  );
 
   aliasDB.close();
 
   if (formattedCommands.length === 0) {
-    return "暂无基础命令";
+    return { text: "暂无基础命令", codeTagsUsed: 0 };
   }
 
-  return `📋 <b>基础命令:</b> ${formattedCommands}`;
+  return {
+    text: `📋 <b>基础命令:</b> ${formattedCommands}`,
+    codeTagsUsed: codeTagsUsed,
+  };
 }
 
-function formatModuleCommands(commands: string[]): string {
+/** 格式化功能模块命令列表（多命令插件）。 */
+function formatModuleCommands(commands: string[], budget: number): { text: string, codeTagsUsed: number } {
   const pluginGroups = new Map<string, string[]>();
   const aliasDB = new AliasDB();
 
@@ -72,7 +144,7 @@ function formatModuleCommands(commands: string[]): string {
     .forEach((cmd) => {
       const pluginEntry = getPluginEntry(cmd);
       if (pluginEntry && pluginEntry.plugin.cmdHandlers) {
-        const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers);
+        const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers).sort();
         if (cmdHandlerKeys.length > 1) {
           const mainCommand = cmdHandlerKeys[0];
           if (!pluginGroups.has(mainCommand)) {
@@ -84,37 +156,38 @@ function formatModuleCommands(commands: string[]): string {
 
   if (pluginGroups.size === 0) {
     aliasDB.close();
-    return "";
+    return { text: "", codeTagsUsed: 0 };
   }
 
   const groupLines: string[] = [];
+  let totalCodeTagsUsed = 0;
+
   for (const [mainCommand, subCommands] of pluginGroups) {
-    const formattedSubs = subCommands
-      .map((cmd) => {
-        const alias = aliasDB.getOriginal(cmd);
-        return `<code>${cmd}</code>${
-          alias?.length > 0
-            ? ` (${alias.map((a) => `<code>${a}</code>`).join(", ")})`
-            : ""
-        }`;
-      })
-      .join(" • ");
+    // 剩余预算 = 总预算 - 已经使用的标签数
+    const remainingBudget = budget - totalCodeTagsUsed;
+    
+    // 对子命令进行安全格式化
+    const { text: formattedSubs, codeTagsUsed } = formatCommandsSafely(
+      subCommands,
+      aliasDB,
+      "",
+      remainingBudget
+    );
+    
+    totalCodeTagsUsed += codeTagsUsed;
+    
+    // 模块名 (mainCommand) 使用 <b> 标签 (高优先级，不占用 <code> 预算)
     groupLines.push(`<b>${mainCommand}:</b> ${formattedSubs}`);
   }
 
   aliasDB.close();
-  return `🔧 <b>功能模块:</b><blockquote expandable>${groupLines.join(
-    "\n"
-  )}\n</blockquote>`;
-}
-
-function htmlEscape(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+  
+  return {
+    text: `🔧 <b>功能模块:</b><blockquote expandable>${groupLines.join(
+      "\n"
+    )}\n</blockquote>`,
+    codeTagsUsed: totalCodeTagsUsed,
+  };
 }
 
 class HelpPlugin extends Plugin {
@@ -132,39 +205,52 @@ class HelpPlugin extends Plugin {
         const commands = listCommands();
         const version = readVersion();
         const totalCommands = commands.length;
+        
+        // P1: 第一条消息的固定高优先级 <code> 标签: 指令前缀 + 2 个帮助提示
+        const P1_FIXED_CODE_TAGS = prefixes.length + 2; 
+        
+        // P2: 第二条消息的固定高优先级 <code> 标签: 1 个帮助提示
+        const P2_FIXED_CODE_TAGS = 1;
 
-        // 分割消息：基础命令和功能模块分开发送
-        const basicCommandsText = formatBasicCommands(commands);
-        const moduleCommandsText = formatModuleCommands(commands);
+        // 分配给低优先级命令列表的 <code> 标签预算
+        const basicBudget = Math.max(0, MAX_TOTAL_CODE_TAGS - P1_FIXED_CODE_TAGS);
+        const moduleBudget = Math.max(0, MAX_TOTAL_CODE_TAGS - P2_FIXED_CODE_TAGS);
 
-        // 第一条消息：基础信息 + 基础命令
+
+        // 获取命令文本 (使用剩余预算进行格式化，如果超限则降级)
+        const { text: basicCommandsText } = formatBasicCommands(commands, basicBudget);
+        const { text: moduleCommandsText } = formatModuleCommands(commands, moduleBudget);
+
+        // --- 构造第一条消息 (基础信息 + 基础命令) ---
         const helpTextPart1 = [
           `🚀 <b>TeleBox v${htmlEscape(version)}</b> | ${totalCommands} 个命令`,
           "",
-          basicCommandsText,
+          basicCommandsText, 
           "",
+          // P1 高优先级 <code> 标签：指令前缀
           `❕ <b>指令前缀：</b> ${prefixes
             .map((p) => `<code>${htmlEscape(p)}</code>`)
             .join(" • ")}`,
+          // P1 高优先级 <code> 标签：帮助提示
           `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`,
+          // 帮助链接 (<a> 标签，始终保留)
           "🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a>",
         ].join("\n");
 
-        // 编辑原消息显示第一部分
         await msg.edit({
           text: helpTextPart1,
           parseMode: "html",
           linkPreview: false,
         });
 
-        // 如果有功能模块，发送第二条消息
+        // --- 构造第二条消息 (功能模块) ---
         if (moduleCommandsText && moduleCommandsText.length > 0) {
           const helpTextPart2 = [
-            moduleCommandsText,
+            moduleCommandsText, 
+            // P2 高优先级 <code> 标签：功能模块帮助提示
             `💡 使用 <code>${mainPrefix}help [模块名]</code> 查看具体模块的使用方法`,
           ].join("\n");
 
-          // 使用msg.reply()方法发送第二条消息
           await msg.reply({
             message: helpTextPart2,
             parseMode: "html",
@@ -175,7 +261,7 @@ class HelpPlugin extends Plugin {
         return;
       }
 
-      // 显示特定命令的帮助（单命令详情不受影响）
+      // --- 显示特定命令的帮助 (单命令详情) ---
       const command = args[0].toLowerCase();
       const pluginEntry = getPluginEntry(command);
 
@@ -190,20 +276,16 @@ class HelpPlugin extends Plugin {
       }
 
       const plugin = pluginEntry.plugin;
-      const commands = Object.keys(plugin.cmdHandlers);
+      const commandsInPlugin = Object.keys(plugin.cmdHandlers).sort();
 
       const aliasDB = new AliasDB();
-      const cmds = Array.isArray(commands) ? commands : [commands];
-      const cmdsText = cmds
-        .map((cmd) => {
-          const alias = aliasDB.getOriginal(cmd);
-          return `<code>${mainPrefix}${cmd}</code>${
-            alias?.length > 0
-              ? ` (${alias.map((a) => `<code>${a}</code>`).join(", ")})`
-              : ""
-          }`;
-        })
-        .join(" • ");
+      // 单个插件详情无需预算限制
+      const { text: cmdsText } = formatCommandsSafely(
+        commandsInPlugin,
+        aliasDB,
+        mainPrefix, 
+        1000 
+      );
       aliasDB.close();
 
       let description: string | void;
@@ -256,6 +338,7 @@ class HelpPlugin extends Plugin {
         linkPreview: false,
       });
     } catch (error: any) {
+      // --- 错误处理部分 ---
       console.error("Help plugin error:", error);
       const errorMsg =
         error.message?.length > 100
