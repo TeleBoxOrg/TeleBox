@@ -402,19 +402,39 @@ class BfPlugin extends Plugin {
           
           await new Promise<void>((resolve, reject) => {
             const tar = spawn("tar", [
-              "-czvf",
-              backupPath,
+              "-cf",
+              "-",
               "-C",
               parentDir,
+              "--exclude=node_modules",
+              "--exclude=.git",
+              "--exclude=my_session",
+              "--exclude=temp",
+              "--exclude=logs",
               dirName,
-            ]);
+            ], { stdio: ["pipe", "pipe", "pipe"] });
 
-            tar.on("close", (code) => {
-              if (code === 0) resolve();
-              else reject(new Error(`tar exited with code ${code}`));
-            });
+            const gzip = spawn("gzip", ["-1"], { stdio: ["pipe", "pipe", "pipe"] });
 
+            const output = fs.createWriteStream(backupPath);
+
+            tar.stdout.pipe(gzip.stdin);
+            gzip.stdout.pipe(output);
+
+            let tarError = "";
+            let gzipError = "";
+            tar.stderr.on("data", (d) => (tarError += d.toString()));
+            gzip.stderr.on("data", (d) => (gzipError += d.toString()));
+
+            output.on("finish", () => resolve());
             tar.on("error", reject);
+            gzip.on("error", reject);
+            tar.on("close", (code) => {
+              if (code !== 0) reject(new Error(`tar: ${tarError || code}`));
+            });
+            gzip.on("close", (code) => {
+              if (code !== 0) reject(new Error(`gzip: ${gzipError || code}`));
+            });
           });
         } else {
           const dirsToBackup = [
@@ -438,7 +458,7 @@ class BfPlugin extends Plugin {
         const stats = fs.statSync(backupPath);
         const backupType = cmd === "all" ? "全量备份" : "标准备份";
         const contentDesc = cmd === "all" 
-          ? "整个程序目录（包含所有文件）"
+          ? "程序目录（排除node_modules等）"
           : "plugins, assets";
         
         const caption =
@@ -480,14 +500,9 @@ class BfPlugin extends Plugin {
           }
         }
 
-        // 清理临时文件
-        try {
-          fs.unlinkSync(backupPath);
-        } catch {}
-
         const backupTypeDisplay = cmd === "all" ? "全量备份" : "备份";
         const contentDisplay = cmd === "all" 
-          ? "整个程序目录（包含所有文件）"
+          ? "程序目录（排除node_modules等）"
           : "plugins, assets";
         
         await msg.edit({
@@ -503,6 +518,16 @@ class BfPlugin extends Plugin {
           text: `❌ 备份失败: ${String(error)}`,
           parseMode: "html",
         });
+      } finally {
+        try {
+          const backupName = generateBackupName().replace(/[^a-zA-Z0-9]/g, "");
+          const tempFiles = fs.readdirSync(os.tmpdir()).filter(
+            (f) => f.includes("telebox_backup") && f.endsWith(".tar.gz")
+          );
+          for (const f of tempFiles) {
+            fs.unlinkSync(path.join(os.tmpdir(), f));
+          }
+        } catch {}
       }
     },
 
