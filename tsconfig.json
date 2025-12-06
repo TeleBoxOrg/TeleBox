@@ -12,7 +12,6 @@
     "forceConsistentCasingInFileNames": true,
     "moduleResolution": "node",
     "resolveJsonModule": true,
-    // "declaration": true,
     "skipLibCheck": true,
     "baseUrl": "./src",
     "paths": {
