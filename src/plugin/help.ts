@@ -12,8 +12,25 @@ import { AliasDB } from "@utils/aliasDB";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
-// 设置 <code> 标签对的总数安全阈值，超过此阈值将触发格式降级。
-const MAX_TOTAL_CODE_TAGS = 98; 
+// 添加 EntityManager 辅助类来管理 entities 配额
+class EntityManager {
+  private count = 0;
+  private readonly LIMIT = 95; // 预留余量
+  
+  // 检查添加指定数量的 tags 是否会超出限制
+  canAdd(tagCount: number): boolean {
+    return this.count + tagCount <= this.LIMIT;
+  }
+  
+  // 记录已添加的 tags 数量
+  add(tagCount: number) {
+    this.count += tagCount;
+  }
+  
+  getCount(): number {
+    return this.count;
+  }
+}
 
 /** HTML 转义。 */
 function htmlEscape(text: string): string {
@@ -39,50 +56,42 @@ function readVersion(): string {
   }
 }
 
-/**
- * 安全地格式化命令列表。如果 <code> 标签超出预算，则降级为纯文本。
- * 别名 (alias) 也会占用标签预算。
- */
+/** 安全地格式化命令列表。如果 <code> 标签超出预算，则降级为纯文本。 */
 function formatCommandsSafely(
   commands: string[],
   aliasDB: AliasDB,
   prefix: string = "",
-  availableCodeTagBudget: number = MAX_TOTAL_CODE_TAGS
-): { text: string, codeTagsUsed: number } {
-  let tagsUsed = 0;
+  entityMgr: EntityManager
+): { text: string } {
   const formatted: string[] = [];
-  let degradeMode = false;
-
+  
   for (const cmd of commands) {
     const alias = aliasDB.getOriginal(cmd);
     const hasAlias = alias?.length > 0;
     
     // 预估所需的 <code> 标签数（命令 + 所有别名）
-    const estimatedTagsNeeded = 1 + (hasAlias ? alias.length : 0);
+    // 每个 code 标签 = 2 entities（开始+结束）
+    const estimatedTagCount = 2 * (1 + (hasAlias ? alias.length : 0));
     
-    if (tagsUsed + estimatedTagsNeeded > availableCodeTagBudget) {
-      degradeMode = true;
-    }
-
     let cmdPart: string;
     
-    if (degradeMode) {
+    if (entityMgr.canAdd(estimatedTagCount)) {
+      // 正常模式：使用 <code>
+      cmdPart = `<code>${prefix}${htmlEscape(cmd)}</code>`;
+      entityMgr.add(2); // 主命令
+      
+      if (hasAlias) {
+        const aliasParts = alias.map((a) => {
+          entityMgr.add(2); // 每个别名
+          return `<code>${htmlEscape(a)}</code>`;
+        }).join(", ");
+        cmdPart += ` (${aliasParts})`;
+      }
+    } else {
       // 降级模式：不使用 <code>
       cmdPart = `${prefix}${cmd}`;
       if (hasAlias) {
         cmdPart += ` (${alias.join(", ")})`;
-      }
-    } else {
-      // 正常模式：使用 <code>，并计入主命令标签
-      cmdPart = `<code>${prefix}${cmd}</code>`;
-      tagsUsed++;
-      
-      if (hasAlias) {
-        const aliasParts = alias.map((a) => {
-          tagsUsed++; // 计入别名标签
-          return `<code>${a}</code>`;
-        }).join(", ");
-        cmdPart += ` (${aliasParts})`;
       }
     }
     formatted.push(cmdPart);
@@ -90,13 +99,11 @@ function formatCommandsSafely(
 
   return {
     text: formatted.join(" • "),
-    codeTagsUsed: tagsUsed,
   };
 }
 
-
 /** 格式化基础命令列表（单命令）。 */
-function formatBasicCommands(commands: string[], budget: number): { text: string, codeTagsUsed: number } {
+function formatBasicCommands(commands: string[], entityMgr: EntityManager): { text: string } {
   const singleCommands: string[] = [];
   const aliasDB = new AliasDB();
 
@@ -105,7 +112,7 @@ function formatBasicCommands(commands: string[], budget: number): { text: string
     .sort((a, b) => a.localeCompare(b))
     .forEach((cmd) => {
       const pluginEntry = getPluginEntry(cmd);
-      if (pluginEntry && pluginEntry.plugin.cmdHandlers) {
+      if (pluginEntry?.plugin?.cmdHandlers) {
         const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers);
         // 如果是单命令插件
         if (cmdHandlerKeys.length === 1 && cmdHandlerKeys[0] === cmd) {
@@ -114,27 +121,26 @@ function formatBasicCommands(commands: string[], budget: number): { text: string
       }
     });
 
-  const { text: formattedCommands, codeTagsUsed } = formatCommandsSafely(
+  const { text: formattedCommands } = formatCommandsSafely(
     singleCommands,
     aliasDB,
     "",
-    budget
+    entityMgr
   );
 
   aliasDB.close();
 
   if (formattedCommands.length === 0) {
-    return { text: "暂无基础命令", codeTagsUsed: 0 };
+    return { text: "暂无基础命令" };
   }
 
   return {
     text: `📋 <b>基础命令:</b> ${formattedCommands}`,
-    codeTagsUsed: codeTagsUsed,
   };
 }
 
 /** 格式化功能模块命令列表（多命令插件）。 */
-function formatModuleCommands(commands: string[], budget: number): { text: string, codeTagsUsed: number } {
+function formatModuleCommands(commands: string[], entityMgr: EntityManager): { text: string } {
   const pluginGroups = new Map<string, string[]>();
   const aliasDB = new AliasDB();
 
@@ -143,7 +149,7 @@ function formatModuleCommands(commands: string[], budget: number): { text: strin
     .sort((a, b) => a.localeCompare(b))
     .forEach((cmd) => {
       const pluginEntry = getPluginEntry(cmd);
-      if (pluginEntry && pluginEntry.plugin.cmdHandlers) {
+      if (pluginEntry?.plugin?.cmdHandlers) {
         const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers).sort();
         if (cmdHandlerKeys.length > 1) {
           const mainCommand = cmdHandlerKeys[0];
@@ -156,37 +162,27 @@ function formatModuleCommands(commands: string[], budget: number): { text: strin
 
   if (pluginGroups.size === 0) {
     aliasDB.close();
-    return { text: "", codeTagsUsed: 0 };
+    return { text: "" };
   }
 
   const groupLines: string[] = [];
-  let totalCodeTagsUsed = 0;
-
+  
   for (const [mainCommand, subCommands] of pluginGroups) {
-    // 剩余预算 = 总预算 - 已经使用的标签数
-    const remainingBudget = budget - totalCodeTagsUsed;
-    
-    // 对子命令进行安全格式化
-    const { text: formattedSubs, codeTagsUsed } = formatCommandsSafely(
+    const { text: formattedSubs } = formatCommandsSafely(
       subCommands,
       aliasDB,
       "",
-      remainingBudget
+      entityMgr
     );
     
-    totalCodeTagsUsed += codeTagsUsed;
-    
-    // 模块名 (mainCommand) 使用 <b> 标签 (高优先级，不占用 <code> 预算)
-    groupLines.push(`<b>${mainCommand}:</b> ${formattedSubs}`);
+    // 模块名 (mainCommand) 使用 <b> 标签 (高优先级)
+    groupLines.push(`<b>${htmlEscape(mainCommand)}:</b> ${formattedSubs}`);
   }
 
   aliasDB.close();
   
   return {
-    text: `🔧 <b>功能模块:</b><blockquote expandable>${groupLines.join(
-      "\n"
-    )}\n</blockquote>`,
-    codeTagsUsed: totalCodeTagsUsed,
+    text: `🔧 <b>功能模块:</b><blockquote expandable>${groupLines.join("\n")}\n</blockquote>`,
   };
 }
 
@@ -206,36 +202,35 @@ class HelpPlugin extends Plugin {
         const version = readVersion();
         const totalCommands = commands.length;
         
-        // P1: 第一条消息的固定高优先级 <code> 标签: 指令前缀 + 2 个帮助提示
-        const P1_FIXED_CODE_TAGS = prefixes.length + 2; 
+        // 第一条消息使用独立的 EntityManager
+        const entityMgr1 = new EntityManager();
+        const messageParts1: string[] = [];
         
-        // P2: 第二条消息的固定高优先级 <code> 标签: 1 个帮助提示
-        const P2_FIXED_CODE_TAGS = 1;
-
-        // 分配给低优先级命令列表的 <code> 标签预算
-        const basicBudget = Math.max(0, MAX_TOTAL_CODE_TAGS - P1_FIXED_CODE_TAGS);
-        const moduleBudget = Math.max(0, MAX_TOTAL_CODE_TAGS - P2_FIXED_CODE_TAGS);
-
-
-        // 获取命令文本 (使用剩余预算进行格式化，如果超限则降级)
-        const { text: basicCommandsText } = formatBasicCommands(commands, basicBudget);
-        const { text: moduleCommandsText } = formatModuleCommands(commands, moduleBudget);
-
-        // --- 构造第一条消息 (基础信息 + 基础命令) ---
-        const helpTextPart1 = [
-          `🚀 <b>TeleBox v${htmlEscape(version)}</b> | ${totalCommands} 个命令`,
-          "",
-          basicCommandsText, 
-          "",
-          // P1 高优先级 <code> 标签：指令前缀
-          `❕ <b>指令前缀：</b> ${prefixes
-            .map((p) => `<code>${htmlEscape(p)}</code>`)
-            .join(" • ")}`,
-          // P1 高优先级 <code> 标签：帮助提示
-          `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`,
-          // 帮助链接 (<a> 标签，始终保留)
-          "🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a>",
-        ].join("\n");
+        // 标题（版本和命令数）
+        messageParts1.push(`🚀 <b>TeleBox v${htmlEscape(version)}</b> | ${totalCommands} 个命令`);
+        entityMgr1.add(2); // <b>
+        
+        // 基础命令
+        const { text: basicCommandsText } = formatBasicCommands(commands, entityMgr1);
+        messageParts1.push("", basicCommandsText);
+        
+        // 添加空行，然后指令前缀
+        const prefixText = `❕ <b>指令前缀：</b> ${prefixes.map((p) => `<code>${htmlEscape(p)}</code>`).join(" • ")}`;
+        messageParts1.push("", prefixText);
+        entityMgr1.add(2); // <b>
+        entityMgr1.add(prefixes.length * 2); // 每个 prefix 的 code 标签
+        
+        // 帮助提示（不换行）
+        const helpTip = `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`;
+        messageParts1.push(helpTip);
+        entityMgr1.add(4); // 2 个 code 标签
+        
+        // 帮助链接（不换行）
+        const helpLinks = "🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a>";
+        messageParts1.push(helpLinks);
+        entityMgr1.add(8); // 4 个 a 标签
+        
+        const helpTextPart1 = messageParts1.join("\n");
 
         await msg.edit({
           text: helpTextPart1,
@@ -243,13 +238,21 @@ class HelpPlugin extends Plugin {
           linkPreview: false,
         });
 
-        // --- 构造第二条消息 (功能模块) ---
+        // 第二条消息使用全新的 EntityManager
+        const entityMgr2 = new EntityManager();
+        const { text: moduleCommandsText } = formatModuleCommands(commands, entityMgr2);
+        
         if (moduleCommandsText && moduleCommandsText.length > 0) {
-          const helpTextPart2 = [
-            moduleCommandsText, 
-            // P2 高优先级 <code> 标签：功能模块帮助提示
-            `💡 使用 <code>${mainPrefix}help [模块名]</code> 查看具体模块的使用方法`,
-          ].join("\n");
+          const messageParts2: string[] = [];
+          messageParts2.push(moduleCommandsText);
+          
+          // 功能模块帮助提示（前面只添加一个换行）
+          const moduleHelpTip = `💡 使用 <code>${mainPrefix}help [模块名]</code> 查看具体模块的使用方法`;
+          messageParts2.push(moduleHelpTip);
+          entityMgr2.add(2); // <b>
+          entityMgr2.add(2); // code 标签
+          
+          const helpTextPart2 = messageParts2.join("");
 
           await msg.reply({
             message: helpTextPart2,
@@ -280,11 +283,14 @@ class HelpPlugin extends Plugin {
 
       const aliasDB = new AliasDB();
       // 单个插件详情无需预算限制
+      const entityMgrDetail = new EntityManager();
+      entityMgrDetail.add(4096); // 设置一个很大的值，相当于无限制
+      
       const { text: cmdsText } = formatCommandsSafely(
         commandsInPlugin,
         aliasDB,
-        mainPrefix, 
-        1000 
+        mainPrefix,
+        entityMgrDetail
       );
       aliasDB.close();
 
@@ -338,7 +344,6 @@ class HelpPlugin extends Plugin {
         linkPreview: false,
       });
     } catch (error: any) {
-      // --- 错误处理部分 ---
       console.error("Help plugin error:", error);
       const errorMsg =
         error.message?.length > 100
