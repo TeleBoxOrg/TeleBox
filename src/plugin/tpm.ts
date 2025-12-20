@@ -26,6 +26,36 @@ type Database = Record<string, PluginRecord>;
 
 const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
+// 添加 EntityManager 辅助类来管理 entities 配额
+class EntityManager {
+  private count = 0;
+  private readonly LIMIT = 92; // 预留一些余量
+  private readonly IMPORTANT_TAGS = ['blockquote', 'a', 'b', 'i', 'u'];
+  
+  // 检查添加一个标签是否会超出限制
+  canAdd(tag: string): boolean {
+    if (this.IMPORTANT_TAGS.includes(tag)) {
+      return true; // 重要标签总是可以添加
+    }
+    return this.count < this.LIMIT;
+  }
+  
+  // 记录已添加的标签
+  add(tag: string) {
+    if (!this.IMPORTANT_TAGS.includes(tag)) {
+      this.count++;
+    }
+  }
+  
+  getCount(): number {
+    return this.count;
+  }
+  
+  hasReachedLimit(): boolean {
+    return this.count >= this.LIMIT;
+  }
+}
+
 // 辅助函数：智能发送或编辑消息，支持群组话题和回复
 async function sendOrEditMessage(
   msg: Api.Message, 
@@ -849,12 +879,14 @@ async function search(msg: Api.Message) {
     // 获取本地插件文件列表
     const localPlugins = new Set<string>();
     try {
-      const files = fs.readdirSync(PLUGIN_PATH);
-      files.forEach((file) => {
-        if (file.endsWith(".ts") && !file.includes("backup")) {
-          localPlugins.add(file.replace(".ts", ""));
-        }
-      });
+      if (fs.existsSync(PLUGIN_PATH)) {
+        const files = fs.readdirSync(PLUGIN_PATH);
+        files.forEach((file) => {
+          if (file.endsWith(".ts") && !file.includes("backup")) {
+            localPlugins.add(file.replace(".ts", ""));
+          }
+        });
+      }
     } catch (error) {
       console.error("[TPM] 读取本地插件失败:", error);
     }
@@ -867,6 +899,29 @@ async function search(msg: Api.Message) {
     let installedCount = 0;
     let localOnlyCount = 0;
     let notInstalledCount = 0;
+
+    // 初始化 EntityManager
+    const entityMgr = new EntityManager();
+    
+    // 预计算底部内容所需标签数量（优先保证这些标签）
+    // installTip 中有 6 个 <code> 标签
+    entityMgr.add('code'); // tpm i <名称>
+    entityMgr.add('code'); // tpm i all
+    entityMgr.add('code'); // tpm update
+    entityMgr.add('code'); // tpm ls
+    entityMgr.add('code'); // tpm rm <名称>
+    entityMgr.add('code'); // tpm rm all
+    
+    // repoLink 中有 1 个 <b> 和 1 个 <a> 标签
+    entityMgr.add('b');    // 插件仓库
+    entityMgr.add('a');    // 链接
+    
+    // 统计信息的 b 标签
+    entityMgr.add('b'); // 插件统计
+    entityMgr.add('b'); // 远程插件列表
+    
+    // blockquote 标签
+    entityMgr.add('blockquote'); // 插件列表区块
 
     // 判断插件状态的函数（统计 + 返回标签）
     function getPluginStatus(pluginName: string, remoteUrl: string) {
@@ -889,19 +944,32 @@ async function search(msg: Api.Message) {
     }
 
     // 生成完整的插件行（保持远程列表原始顺序，不分组）并缓存状态，避免重复统计
-    const pluginEntries: { name: string; status: string; desc: string }[] = [];
+    const pluginEntries: { name: string; status: string; desc: string; rawName: string }[] = [];
     for (const plugin of pluginNames) {
       const pluginData = remotePlugins[plugin];
       const remoteUrl = pluginData?.url || "";
       const { status } = getPluginStatus(plugin, remoteUrl);
       const description = pluginData?.desc || "暂无描述";
-      pluginEntries.push({ name: plugin, status, desc: description });
+      pluginEntries.push({ 
+        name: plugin, 
+        status, 
+        desc: description,
+        rawName: plugin 
+      });
     }
     
-    // 保留完整描述的插件列表
-    const pluginLines: string[] = pluginEntries.map(
-      (p) => `${p.status} <code>${p.name}</code> - ${p.desc}`
-    );
+    // 构建插件列表，智能控制 code 标签
+    const pluginLines: string[] = [];
+    for (const entry of pluginEntries) {
+      const allowCodeTag = entityMgr.canAdd('code');
+      const nameTag = allowCodeTag ? `<code>${entry.name}</code>` : entry.name;
+      
+      pluginLines.push(`${entry.status} ${nameTag} - ${entry.desc}`);
+      
+      if (allowCodeTag) {
+        entityMgr.add('code'); // 插件名
+      }
+    }
 
     const statsInfo =
       `📊 <b>插件统计:</b>\n` +
@@ -911,7 +979,7 @@ async function search(msg: Api.Message) {
       `• ❌ 未安装: ${notInstalledCount} 个`;
 
     const installTip =
-      `\n💡 <b>快捷操作:</b>\n` +
+      `💡 <b>快捷操作:</b>\n` +
       `• <code>${mainPrefix}tpm i &lt;名称 [名称2 ...]&gt;</code> 安装/批量安装\n` +
       `• <code>${mainPrefix}tpm i all</code> 全部安装\n` +
       `• <code>${mainPrefix}tpm update</code> 更新已装\n` +
@@ -974,28 +1042,64 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       .map((name) => ({ name, ...db.data[name] }))
       .sort((a, b) => b._updatedAt - a._updatedAt);
 
-    // 生成两种展示（简洁/详细），尽量减少空行
-    const dbLinesSimple = sortedPlugins.map((p) =>
-      `<code>${p.name}</code>${p.desc ? ` - ${p.desc}` : ""}`
-    );
-    const dbLinesVerbose = sortedPlugins.map((p) => {
-      const updateTime = new Date(p._updatedAt).toLocaleString("zh-CN");
-      const desc = p.desc ? `\n📝 ${p.desc}` : "";
-      return `<code>${p.name}</code> 🕒 ${updateTime}${desc}\n🔗 <a href="${p.url}">URL</a>`;
-    });
+    // 初始化 EntityManager
+    const entityMgr = new EntityManager();
+    
+    // 预计算重要标签数量
+    entityMgr.add('blockquote'); // 远程插件区块
+    entityMgr.add('blockquote'); // 本地插件区块
+    entityMgr.add('b'); // 标题
+    entityMgr.add('b'); // 统计标题
+    entityMgr.add('b'); // 总计标题
 
-    const localLinesSimple = notInDb.map((name) => `<code>${name}</code>`);
-    const localLinesVerbose = notInDb.map((name) => {
-      const filePath = path.join(PLUGIN_PATH, `${name}.ts`);
-      let mtime = "未知";
-      try {
-        const stat = fs.statSync(filePath);
-        mtime = stat.mtime.toLocaleString("zh-CN");
-      } catch {}
-      return `<code>${name}</code> 🗄 ${mtime}`;
-    });
+    // 生成两种展示（简洁/详细），使用 EntityManager 控制标签
+    const dbLinesSimple: string[] = [];
+    const dbLinesVerbose: string[] = [];
+    
+    for (const p of sortedPlugins) {
+      const allowCodeTag = entityMgr.canAdd('code');
+      
+      if (verbose) {
+        const updateTime = new Date(p._updatedAt).toLocaleString("zh-CN");
+        const desc = p.desc ? `\n📝 ${p.desc}` : "";
+        const nameTag = allowCodeTag ? `<code>${p.name}</code>` : p.name;
+        const urlTag = allowCodeTag ? `<code>${p.url}</code>` : p.url;
+        dbLinesVerbose.push(`${nameTag} 🕒 ${updateTime}${desc}\n🔗 ${urlTag}`);
+      } else {
+        const nameTag = allowCodeTag ? `<code>${p.name}</code>` : p.name;
+        dbLinesSimple.push(`${nameTag}${p.desc ? ` - ${p.desc}` : ""}`);
+      }
+      
+      if (allowCodeTag) {
+        entityMgr.add('code'); // 插件名
+        if (verbose) entityMgr.add('code'); // URL
+      }
+    }
 
-    // 生成消息
+    const localLinesSimple: string[] = [];
+    const localLinesVerbose: string[] = [];
+    
+    for (const name of notInDb) {
+      const allowCodeTag = entityMgr.canAdd('code');
+      const nameTag = allowCodeTag ? `<code>${name}</code>` : name;
+      
+      if (verbose) {
+        const filePath = path.join(PLUGIN_PATH, `${name}.ts`);
+        let mtime = "未知";
+        try {
+          const stat = fs.statSync(filePath);
+          mtime = stat.mtime.toLocaleString("zh-CN");
+        } catch {}
+        localLinesVerbose.push(`${nameTag} 🗄 ${mtime}`);
+      } else {
+        localLinesSimple.push(nameTag);
+      }
+      
+      if (allowCodeTag) {
+        entityMgr.add('code');
+      }
+    }
+
     const tip = verbose
       ? ""
       : `💡 可使用 <code>${mainPrefix}tpm ls -v</code> 查看详情信息`;
@@ -1005,7 +1109,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
     const localLines = verbose ? localLinesVerbose : localLinesSimple;
 
     // 构建完整消息
-    const messageParts = [];
+    const messageParts: string[] = [];
     
     messageParts.push(`📚 <b>插件记录</b>`);
     messageParts.push(`━━━━━━━━━━━━━━━━━`);
