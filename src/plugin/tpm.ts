@@ -13,34 +13,30 @@ import { getPrefixes } from "@utils/pluginManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
-const MAX_MESSAGE_LENGTH = 4000; // Telegram 消息长度限制（留有余地）
+const MAX_MESSAGE_LENGTH = 4000;
 
-// 数据库类型定义 (精简: 直接用 根对象 { [name]: PluginRecord })
 interface PluginRecord {
   url: string;
-  desc?: string; // 插件描述
-  _updatedAt: number; // 时间戳
+  desc?: string;
+  _updatedAt: number;
 }
 
 type Database = Record<string, PluginRecord>;
 
 const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
-// 添加 EntityManager 辅助类来管理 entities 配额
 class EntityManager {
   private count = 0;
-  private readonly LIMIT = 92; // 预留一些余量
+  private readonly LIMIT = 92;
   private readonly IMPORTANT_TAGS = ['blockquote', 'a', 'b', 'i', 'u'];
   
-  // 检查添加一个标签是否会超出限制
   canAdd(tag: string): boolean {
     if (this.IMPORTANT_TAGS.includes(tag)) {
-      return true; // 重要标签总是可以添加
+      return true;
     }
     return this.count < this.LIMIT;
   }
   
-  // 记录已添加的标签
   add(tag: string) {
     if (!this.IMPORTANT_TAGS.includes(tag)) {
       this.count++;
@@ -56,7 +52,6 @@ class EntityManager {
   }
 }
 
-// 辅助函数：智能发送或编辑消息，支持群组话题和回复
 async function sendOrEditMessage(
   msg: Api.Message, 
   text: string, 
@@ -68,7 +63,6 @@ async function sendOrEditMessage(
     linkPreview: options?.linkPreview !== false,
   };
 
-  // 优先尝试编辑消息（私聊、自己发送的消息、或bot消息）
   try {
     await msg.edit(messageOptions);
     return msg;
@@ -76,14 +70,12 @@ async function sendOrEditMessage(
     console.log(`[TPM] 编辑消息失败，尝试发送新消息: ${error}`);
   }
 
-  // 编辑失败时，在群组中发送新消息，保持话题上下文
   const sendOptions: any = {
     message: text,
     parseMode: options?.parseMode || undefined,
     linkPreview: options?.linkPreview !== false,
   };
 
-  // 如果原消息是回复消息，保持回复关系
   if (msg.replyTo?.replyToMsgId) {
     sendOptions.replyTo = msg.replyTo.replyToMsgId;
   }
@@ -92,7 +84,6 @@ async function sendOrEditMessage(
   return newMsg || msg;
 }
 
-// 专用于更新进度的函数：只编辑，失败则静默
 async function updateProgressMessage(
   msg: Api.Message, 
   text: string, 
@@ -113,7 +104,6 @@ async function updateProgressMessage(
   }
 }
 
-// 分割长文本为多个消息
 function splitLongText(text: string, maxLength: number = MAX_MESSAGE_LENGTH): string[] {
   if (text.length <= maxLength) {
     return [text];
@@ -124,20 +114,17 @@ function splitLongText(text: string, maxLength: number = MAX_MESSAGE_LENGTH): st
   let currentMessage = '';
 
   for (const line of lines) {
-    // 如果单行就超过限制，需要强制分割
     if (line.length > maxLength) {
       if (currentMessage) {
         messages.push(currentMessage);
         currentMessage = '';
       }
-      // 强制分割超长行
       for (let i = 0; i < line.length; i += maxLength) {
         messages.push(line.substring(i, i + maxLength));
       }
       continue;
     }
 
-    // 如果加上这一行会超过限制
     if (currentMessage.length + line.length + 1 > maxLength) {
       messages.push(currentMessage);
       currentMessage = line;
@@ -153,7 +140,6 @@ function splitLongText(text: string, maxLength: number = MAX_MESSAGE_LENGTH): st
   return messages;
 }
 
-// 发送长文本（自动分段）
 async function sendLongMessage(
   msg: Api.Message,
   text: string,
@@ -171,7 +157,6 @@ async function sendLongMessage(
     linkPreview: options?.linkPreview !== false,
   };
 
-  // 第一条消息编辑原消息或发送新消息
   if (isEdit) {
     try {
       await msg.edit({
@@ -179,7 +164,6 @@ async function sendLongMessage(
         ...messageOptions,
       });
     } catch (error) {
-      // 编辑失败则发送新消息
       await msg.client?.sendMessage(msg.peerId, {
         message: messages[0],
         ...messageOptions,
@@ -194,7 +178,6 @@ async function sendLongMessage(
     });
   }
 
-  // 后续消息作为回复发送
   for (let i = 1; i < messages.length; i++) {
     await msg.reply({
       message: `📋 <b>续 (${i}/${messages.length - 1}):</b>\n\n${messages[i]}`,
@@ -203,7 +186,6 @@ async function sendLongMessage(
   }
 }
 
-// 初始化数据库 (并迁移旧结构 { plugins: {...} } 到扁平结构)
 async function getDatabase() {
   const filePath = path.join(createDirectoryInAssets("tpm"), "plugins.json");
   const db = await JSONFilePreset<Database>(filePath, {});
@@ -386,7 +368,7 @@ async function installAllPlugins(msg: Api.Message) {
 async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
   const totalPlugins = pluginNames.length;
   if (totalPlugins === 0) {
-    const statusMsg = await sendOrEditMessage(msg, "❌ 未提供要安装的插件名称");
+    await sendOrEditMessage(msg, "❌ 未提供要安装的插件名称");
     return;
   }
 
@@ -413,14 +395,12 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
       const progressBar = generateProgressBar(progress);
 
       try {
-        // 更新进度显示
         if ([0, pluginNames.length - 1].includes(i) || i % 2 === 0) {
           await sendOrEditMessage(statusMsg, `📦 正在安装插件: <code>${pluginName}</code>\n\n${progressBar}\n🔄 进度: ${
               i + 1
             }/${totalPlugins} (${progress}%)\n✅ 成功: ${installedCount}\n❌ 失败: ${failedCount}`, { parseMode: "html" });
         }
 
-        // 检查插件是否存在于远程库
         if (!res.data[pluginName]) {
           failedCount++;
           notFoundPlugins.push(pluginName);
@@ -445,7 +425,6 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
         const filePath = path.join(PLUGIN_PATH, `${pluginName}.ts`);
         const oldBackupPath = path.join(PLUGIN_PATH, `${pluginName}.ts.backup`);
 
-        // 备份现有插件
         if (fs.existsSync(filePath)) {
           const cacheDir = createDirectoryInTemp("plugin_backups");
           const timestamp = new Date()
@@ -460,16 +439,13 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
           console.log(`[TPM] 旧插件已转移到缓存: ${backupPath}`);
         }
 
-        // 清理旧备份文件
         if (fs.existsSync(oldBackupPath)) {
           fs.unlinkSync(oldBackupPath);
           console.log(`[TPM] 已清理旧备份文件: ${oldBackupPath}`);
         }
 
-        // 写入新插件文件
         fs.writeFileSync(filePath, response.data);
 
-        // 更新数据库记录
         try {
           const db = await getDatabase();
           db.data[pluginName] = {
@@ -492,18 +468,15 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
       }
     }
 
-    // 重新加载插件
     try {
       await loadPlugins();
     } catch (error) {
       console.error("[TPM] 重新加载插件失败:", error);
     }
 
-    // 生成结果消息
     const successBar = generateProgressBar(100);
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
 
-    // 添加未找到的插件列表
     if (notFoundPlugins.length > 0) {
       const notFoundList = notFoundPlugins.slice(0, 5).join("\n• ");
       const moreNotFound =
@@ -513,7 +486,6 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
       resultMsg += `\n\n🔍 <b>未找到的插件:</b>\n• ${notFoundList}${moreNotFound}`;
     }
 
-    // 添加其他失败的插件列表
     if (failedPlugins.length > 0) {
       const failedList = failedPlugins.slice(0, 5).join("\n• ");
       const moreFailures =
@@ -546,7 +518,6 @@ async function installPlugin(args: string[], msg: Api.Message) {
       if (replied?.media) {
         const fileName = await getMediaFileName(replied);
         
-        // 验证文件后缀必须为 .ts
         if (!fileName.endsWith(".ts")) {
           await sendOrEditMessage(msg, `❌ 文件格式错误\n文件不是有效插件`);
           return;
@@ -556,16 +527,13 @@ async function installPlugin(args: string[], msg: Api.Message) {
         const statusMsg = await sendOrEditMessage(msg, `🔍 正在验证插件 ${pluginName} ...`);
         const filePath = path.join(PLUGIN_PATH, fileName);
 
-        // 下载文件
         await msg.client?.downloadMedia(replied, { outputFile: filePath });
         
-        // 验证插件文件内容
         try {
           const pluginModule = require(filePath);
           const pluginInstance = pluginModule.default || pluginModule;
           
           if (!isValidPlugin(pluginInstance)) {
-            // 验证失败，删除已下载的文件
             if (fs.existsSync(filePath)) {
               fs.unlinkSync(filePath);
             }
@@ -573,7 +541,6 @@ async function installPlugin(args: string[], msg: Api.Message) {
             return;
           }
         } catch (error) {
-          // 验证出错，删除已下载的文件
           if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
           }
@@ -581,10 +548,8 @@ async function installPlugin(args: string[], msg: Api.Message) {
           return;
         }
 
-        // 验证通过，更新状态为正在安装
         await sendOrEditMessage(statusMsg, `✅ 验证通过，正在安装插件 ${pluginName} ...`);
 
-        // 检查数据库中是否已存在同名插件
         let overrideMessage = "";
         try {
           const db = await getDatabase();
@@ -607,17 +572,13 @@ async function installPlugin(args: string[], msg: Api.Message) {
       await sendOrEditMessage(msg, "请回复某个插件文件或提供 tpm 包名");
     }
   } else {
-    // 获取所有插件名称参数（从args[1]开始）
     const pluginNames = args.slice(1);
 
-    // 检查是否包含特殊命令
     if (pluginNames.length === 1 && pluginNames[0] === "all") {
       await installAllPlugins(msg);
     } else if (pluginNames.length === 1) {
-      // 单个插件安装
       await installRemotePlugin(pluginNames[0], msg);
     } else {
-      // 多个插件安装
       await installMultiplePlugins(pluginNames, msg);
     }
   }
@@ -662,7 +623,6 @@ async function uninstallMultiplePlugins(
   let processedCount = 0;
   const totalCount = pluginNames.length;
 
-  // 初始消息
   const statusMsg = await sendOrEditMessage(msg, `开始卸载 ${totalCount} 个插件...\n${generateProgressBar(
       0
     )} 0/${totalCount}`);
@@ -686,15 +646,11 @@ async function uninstallMultiplePlugins(
 
       if (fs.existsSync(pluginPath)) {
         try {
-          // 删除文件
           fs.unlinkSync(pluginPath);
-
-          // 从数据库中删除记录
           if (db.data[trimmedName]) {
             delete db.data[trimmedName];
             console.log(`[TPM] 已从数据库中删除插件记录: ${trimmedName}`);
           }
-
           results.push({ name: trimmedName, success: true });
         } catch (error) {
           console.error(`[TPM] 卸载插件 ${trimmedName} 失败:`, error);
@@ -717,13 +673,11 @@ async function uninstallMultiplePlugins(
       processedCount++;
       const percentage = Math.round((processedCount / totalCount) * 100);
 
-      // 更新进度
       await sendOrEditMessage(statusMsg, `卸载插件中...\n${generateProgressBar(
           percentage
         )} ${processedCount}/${totalCount}\n当前: ${trimmedName}`);
     }
 
-    // 保存数据库更改
     await db.write();
   } catch (error) {
     console.error(`[TPM] 批量卸载过程中发生错误:`, error);
@@ -733,10 +687,8 @@ async function uninstallMultiplePlugins(
     return;
   }
 
-  // 重新加载插件
   await loadPlugins();
 
-  // 生成结果报告
   const successCount = results.filter((r) => r.success).length;
   const failedCount = results.filter((r) => !r.success).length;
 
@@ -761,7 +713,6 @@ async function uninstallMultiplePlugins(
   await sendOrEditMessage(statusMsg, resultText);
 }
 
-// 清空插件目录并刷新本地缓存
 async function uninstallAllPlugins(msg: Api.Message) {
   try {
     const statusMsg = await sendOrEditMessage(msg, "⚠️ 正在清空插件目录并刷新缓存...");
@@ -769,7 +720,6 @@ async function uninstallAllPlugins(msg: Api.Message) {
     let removed = 0;
     let failed: string[] = [];
 
-    // 删除 plugins 目录下的 .ts 插件文件（排除备份、声明文件和下划线前缀）
     try {
       if (fs.existsSync(PLUGIN_PATH)) {
         const files = fs.readdirSync(PLUGIN_PATH);
@@ -793,7 +743,6 @@ async function uninstallAllPlugins(msg: Api.Message) {
       console.error("[TPM] 扫描插件目录失败:", e);
     }
 
-    // 清空数据库
     try {
       const db = await getDatabase();
       for (const k of Object.keys(db.data)) delete db.data[k];
@@ -802,7 +751,6 @@ async function uninstallAllPlugins(msg: Api.Message) {
       console.error("[TPM] 清空数据库失败:", e);
     }
 
-    // 重新加载插件
     try {
       await loadPlugins();
     } catch (e) {
@@ -837,21 +785,18 @@ async function uploadPlugin(args: string[], msg: Api.Message) {
   
   const statusMsg = await sendOrEditMessage(msg, `正在上传插件 ${pluginName}...`);
   
-  // 构建发送选项
   const sendOptions: any = {
     file: pluginPath,
     thumb: path.join(process.cwd(), "telebox.png"),
     caption: `**TeleBox_Plugin ${pluginName} plugin.**`,
   };
 
-  // 如果原消息是回复消息，则上传的文件也作为回复发送
   if (msg.replyTo?.replyToMsgId) {
     sendOptions.replyTo = msg.replyTo.replyToMsgId;
   }
 
   await msg.client?.sendFile(msg.peerId, sendOptions);
   
-  // 删除状态消息
   if (statusMsg.id !== msg.id) {
     await statusMsg.delete();
   } else {
@@ -860,9 +805,13 @@ async function uploadPlugin(args: string[], msg: Api.Message) {
 }
 
 async function search(msg: Api.Message) {
+  const text = msg.message;
+  const parts = text.trim().split(/\s+/);
+  const keyword = parts.length > 2 ? parts[2].toLowerCase() : "";
+  
   const url = `https://github.com/TeleBoxDev/TeleBox_Plugins/blob/main/plugins.json?raw=true`;
   try {
-    const statusMsg = await sendOrEditMessage(msg, "🔍 正在获取插件列表...");
+    const statusMsg = await sendOrEditMessage(msg, keyword ? `🔍 正在搜索插件: ${keyword}` : "🔍 正在获取插件列表...");
     const res = await axios.get(url, {
       headers: {
         'Cache-Control': 'no-cache',
@@ -876,7 +825,6 @@ async function search(msg: Api.Message) {
     const remotePlugins = res.data;
     const pluginNames = Object.keys(remotePlugins);
 
-    // 获取本地插件文件列表
     const localPlugins = new Set<string>();
     try {
       if (fs.existsSync(PLUGIN_PATH)) {
@@ -891,95 +839,95 @@ async function search(msg: Api.Message) {
       console.error("[TPM] 读取本地插件失败:", error);
     }
 
-    // 获取数据库记录
     const db = await getDatabase();
     const dbPlugins = db.data;
 
-    const totalPlugins = pluginNames.length;
+    const filteredPlugins = keyword 
+      ? pluginNames.filter(name => {
+          const pluginData = remotePlugins[name];
+          const nameMatch = name.toLowerCase().includes(keyword);
+          const descMatch = pluginData?.desc?.toLowerCase().includes(keyword) || false;
+          return nameMatch || descMatch;
+        })
+      : pluginNames;
+    
+    const totalPlugins = filteredPlugins.length;
+    
+    if (totalPlugins === 0 && keyword) {
+      await sendOrEditMessage(statusMsg, `🔍 未找到包含 "<b>${keyword}</b>" 的插件`, { parseMode: "html" });
+      return;
+    }
+
     let installedCount = 0;
     let localOnlyCount = 0;
     let notInstalledCount = 0;
 
-    // 初始化 EntityManager
     const entityMgr = new EntityManager();
     
-    // 预计算底部内容所需标签数量（优先保证这些标签）
-    // installTip 中有 6 个 <code> 标签
-    entityMgr.add('code'); // tpm i <名称>
-    entityMgr.add('code'); // tpm i all
-    entityMgr.add('code'); // tpm update
-    entityMgr.add('code'); // tpm ls
-    entityMgr.add('code'); // tpm rm <名称>
-    entityMgr.add('code'); // tpm rm all
-    
-    // repoLink 中有 1 个 <b> 和 1 个 <a> 标签
-    entityMgr.add('b');    // 插件仓库
-    entityMgr.add('a');    // 链接
-    
-    // 统计信息的 b 标签
-    entityMgr.add('b'); // 插件统计
-    entityMgr.add('b'); // 远程插件列表
-    
-    // blockquote 标签
-    entityMgr.add('blockquote'); // 插件列表区块
+    entityMgr.add('code');
+    entityMgr.add('code');
+    entityMgr.add('code');
+    entityMgr.add('code');
+    entityMgr.add('code');
+    entityMgr.add('code');
+    entityMgr.add('b');
+    entityMgr.add('a');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('blockquote');
 
-    // 判断插件状态的函数（统计 + 返回标签）
+    const highlightMatch = (text: string) => {
+      if (!keyword) return text;
+      const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      return text.replace(regex, '<b>$1</b>');
+    };
+
     function getPluginStatus(pluginName: string, remoteUrl: string) {
       const hasLocal = localPlugins.has(pluginName);
       const dbRecord = dbPlugins[pluginName];
 
       if (hasLocal && dbRecord && dbRecord.url === remoteUrl) {
-        // 已安装: 本地有文件 + 数据库有记录 + URL匹配
         installedCount++;
         return { status: "✅", label: "已安装" } as const;
       } else if (hasLocal && !dbRecord) {
-        // 本地同名插件: 本地有文件但数据库无记录
         localOnlyCount++;
         return { status: "🔶", label: "本地同名" } as const;
       } else {
-        // 未安装: 本地无文件或URL不匹配
         notInstalledCount++;
         return { status: "❌", label: "未安装" } as const;
       }
     }
 
-    // 生成完整的插件行（保持远程列表原始顺序，不分组）并缓存状态，避免重复统计
-    const pluginEntries: { name: string; status: string; desc: string; rawName: string }[] = [];
-    for (const plugin of pluginNames) {
+    const pluginLines: string[] = [];
+    for (const plugin of filteredPlugins) {
       const pluginData = remotePlugins[plugin];
       const remoteUrl = pluginData?.url || "";
       const { status } = getPluginStatus(plugin, remoteUrl);
       const description = pluginData?.desc || "暂无描述";
-      pluginEntries.push({ 
-        name: plugin, 
-        status, 
-        desc: description,
-        rawName: plugin 
-      });
-    }
-    
-    // 构建插件列表，智能控制 code 标签
-    const pluginLines: string[] = [];
-    for (const entry of pluginEntries) {
-      const allowCodeTag = entityMgr.canAdd('code');
-      const nameTag = allowCodeTag ? `<code>${entry.name}</code>` : entry.name;
       
-      pluginLines.push(`${entry.status} ${nameTag} - ${entry.desc}`);
+      const highlightedName = highlightMatch(plugin);
+      const highlightedDesc = highlightMatch(description);
+      
+      const allowCodeTag = entityMgr.canAdd('code');
+      const nameTag = allowCodeTag ? `<code>${highlightedName}</code>` : highlightedName;
+      
+      pluginLines.push(`${status} ${nameTag} - ${highlightedDesc}`);
       
       if (allowCodeTag) {
-        entityMgr.add('code'); // 插件名
+        entityMgr.add('code');
       }
     }
 
-    const statsInfo =
-      `📊 <b>插件统计:</b>\n` +
-      `• 总计: ${totalPlugins} 个插件\n` +
-      `• ✅ 已安装: ${installedCount} 个\n` +
-      `• 🔶 本地同名: ${localOnlyCount} 个\n` +
-      `• ❌ 未安装: ${notInstalledCount} 个`;
+    let statsInfo = `📊 <b>插件统计:</b>\n`;
+    if (keyword) {
+      statsInfo += `• 搜索关键词: "<b>${keyword}</b>"\n`;
+    }
+    statsInfo += `• 总计: ${totalPlugins} 个插件\n`;
+    statsInfo += `• ✅ 已安装: ${installedCount} 个\n`;
+    statsInfo += `• 🔶 本地同名: ${localOnlyCount} 个\n`;
+    statsInfo += `• ❌ 未安装: ${notInstalledCount} 个`;
 
-    const installTip =
-      `💡 <b>快捷操作:</b>\n` +
+    const installTip = `\n💡 <b>快捷操作:</b>\n` +
       `• <code>${mainPrefix}tpm i &lt;名称 [名称2 ...]&gt;</code> 安装/批量安装\n` +
       `• <code>${mainPrefix}tpm i all</code> 全部安装\n` +
       `• <code>${mainPrefix}tpm update</code> 更新已装\n` +
@@ -989,20 +937,19 @@ async function search(msg: Api.Message) {
 
     const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxDev/TeleBox_Plugins">TeleBox_Plugins</a>`;
 
-    // 构建完整消息，使用折叠展示插件列表
+    const title = keyword ? `🔍 搜索 "${keyword}" 结果` : `🔍 远程插件列表`;
     const fullMessage = [
-      `🔍 <b>远程插件列表</b>`,
+      `${title}`,
       `━━━━━━━━━━━━━━━━━`,
       "",
       statsInfo,
       "",
-      `📦 <b>插件详情（点击展开）:</b>`,
+      keyword ? `📦 <b>搜索结果:</b>` : `📦 <b>插件详情:</b>`,
       `<blockquote expandable>${pluginLines.join("\n")}</blockquote>`,
       installTip,
       repoLink
     ].join("\n");
 
-    // 使用自动分段发送功能，确保插件描述不会丢失
     await sendLongMessage(statusMsg, fullMessage, { parseMode: "html", linkPreview: false }, true);
   } catch (error) {
     console.error("[TPM] 搜索插件失败:", error);
@@ -1016,7 +963,6 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
     const db = await getDatabase();
     const dbNames = Object.keys(db.data);
 
-    // 读取本地插件目录
     let filePlugins: string[] = [];
     try {
       if (fs.existsSync(PLUGIN_PATH)) {
@@ -1037,22 +983,18 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
 
     const notInDb = filePlugins.filter((n) => !dbNames.includes(n));
 
-    // 构建数据库记录列表（按更新时间降序）
     const sortedPlugins = dbNames
       .map((name) => ({ name, ...db.data[name] }))
       .sort((a, b) => b._updatedAt - a._updatedAt);
 
-    // 初始化 EntityManager
     const entityMgr = new EntityManager();
     
-    // 预计算重要标签数量
-    entityMgr.add('blockquote'); // 远程插件区块
-    entityMgr.add('blockquote'); // 本地插件区块
-    entityMgr.add('b'); // 标题
-    entityMgr.add('b'); // 统计标题
-    entityMgr.add('b'); // 总计标题
+    entityMgr.add('blockquote');
+    entityMgr.add('blockquote');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
 
-    // 生成两种展示（简洁/详细），使用 EntityManager 控制标签
     const dbLinesSimple: string[] = [];
     const dbLinesVerbose: string[] = [];
     
@@ -1071,8 +1013,8 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       }
       
       if (allowCodeTag) {
-        entityMgr.add('code'); // 插件名
-        if (verbose) entityMgr.add('code'); // URL
+        entityMgr.add('code');
+        if (verbose) entityMgr.add('code');
       }
     }
 
@@ -1104,11 +1046,9 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       ? ""
       : `💡 可使用 <code>${mainPrefix}tpm ls -v</code> 查看详情信息`;
 
-    // 选择显示模式
     const dbLines = verbose ? dbLinesVerbose : dbLinesSimple;
     const localLines = verbose ? localLinesVerbose : localLinesSimple;
 
-    // 构建完整消息
     const messageParts: string[] = [];
     
     messageParts.push(`📚 <b>插件记录</b>`);
@@ -1118,7 +1058,6 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       messageParts.push("", tip);
     }
     
-    // 远程插件记录
     if (dbNames.length > 0) {
       messageParts.push("", `📦 <b>远程插件记录 (${dbNames.length}个):</b>`);
       messageParts.push(`<blockquote expandable>${dbLines.join("\n")}</blockquote>`);
@@ -1126,7 +1065,6 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       messageParts.push("", `📦 <b>远程插件记录:</b> (空)`);
     }
     
-    // 本地插件
     if (notInDb.length > 0) {
       messageParts.push("", `🗂 <b>本地插件 (${notInDb.length}个):</b>`);
       messageParts.push(`<blockquote expandable>${localLines.join("\n")}</blockquote>`);
@@ -1137,7 +1075,6 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
     
     const fullMessage = messageParts.join("\n");
     
-    // 使用自动分段发送功能
     await sendLongMessage(statusMsg, fullMessage, { parseMode: "html", linkPreview: false }, true);
   } catch (error) {
     console.error("[TPM] 读取插件数据库失败:", error);
@@ -1147,7 +1084,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
 
 async function updateAllPlugins(msg: Api.Message) {
   const statusMsg = await sendOrEditMessage(msg, "🔍 正在检查待更新的插件...");
-  let canEdit = true; // 跟踪是否还能编辑消息
+  let canEdit = true;
   
   try {
     const db = await getDatabase();
@@ -1175,7 +1112,6 @@ async function updateAllPlugins(msg: Api.Message) {
       const progressBar = generateProgressBar(progress);
 
       try {
-        // 只在能编辑且需要更新进度时才尝试编辑
         if (canEdit && ([0, dbPlugins.length - 1].includes(i) || i % 2 === 0)) {
           canEdit = await updateProgressMessage(statusMsg, `📦 正在更新插件: <code>${pluginName}</code>\n\n${progressBar}\n🔄 进度: ${
               i + 1
@@ -1188,7 +1124,6 @@ async function updateAllPlugins(msg: Api.Message) {
           continue;
         }
 
-        // 下载最新版本
         const response = await axios.get(pluginRecord.url);
         if (response.status !== 200) {
           failedCount++;
@@ -1198,14 +1133,12 @@ async function updateAllPlugins(msg: Api.Message) {
 
         const filePath = path.join(PLUGIN_PATH, `${pluginName}.ts`);
 
-        // 检查文件是否存在
         if (!fs.existsSync(filePath)) {
           skipCount++;
           console.log(`[TPM] 跳过更新插件 ${pluginName}: 本地文件不存在`);
           continue;
         }
 
-        // 检查内容是否有变化
         const currentContent = fs.readFileSync(filePath, "utf8");
         if (currentContent === response.data) {
           skipCount++;
@@ -1213,7 +1146,6 @@ async function updateAllPlugins(msg: Api.Message) {
           continue;
         }
 
-        // 备份旧版本
         const cacheDir = createDirectoryInTemp("plugin_backups");
         const timestamp = new Date()
           .toISOString()
@@ -1223,10 +1155,8 @@ async function updateAllPlugins(msg: Api.Message) {
         fs.copyFileSync(filePath, backupPath);
         console.log(`[TPM] 旧版本已备份到: ${backupPath}`);
 
-        // 写入新版本
         fs.writeFileSync(filePath, response.data);
 
-        // 更新数据库记录
         try {
           db.data[pluginName]._updatedAt = Date.now();
           await db.write();
@@ -1244,20 +1174,17 @@ async function updateAllPlugins(msg: Api.Message) {
       }
     }
 
-    // 重新加载插件
     try {
       await loadPlugins();
     } catch (error) {
       console.error("[TPM] 重新加载插件失败:", error);
     }
 
-    // 更新完成后删除状态消息
     try {
       await statusMsg.delete();
-      console.log(`[TPM] 更新完成，已删除状态消息。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
+      console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
     } catch (error) {
       console.log(`[TPM] 删除状态消息失败: ${error}`);
-      // 如果删除失败，尝试最后一次编辑显示完成状态
       try {
         await statusMsg.edit({ 
           text: `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`, 
@@ -1269,7 +1196,6 @@ async function updateAllPlugins(msg: Api.Message) {
     }
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
-    // 发生错误时尝试删除消息，如果删除失败则显示错误
     try {
       await statusMsg.delete();
     } catch (deleteError) {
@@ -1360,14 +1286,9 @@ class TpmPlugin extends Plugin {
 export default new TpmPlugin();
 
 if (require.main === module) {
-  console.log("TeleBox Plugin Manager (TPM) - Command Line Mode");
-  // console.log("Command line arguments:", process.argv.slice(2));
-
   const args = process.argv.slice(2);
   if (args.length === 0 || args?.[0] !== "install" || args?.length < 2) {
-    console.log("Usage: node tpm.ts <command> [options]");
-    console.log("Available commands:");
-    console.log("  install <plugin1> <plugin2> ...   - Install plugins");
+    console.log("Usage: node tpm.ts install <plugin1> <plugin2> ...");
   }
   installPlugin(args, {
     edit: async ({ text }: any) => {
@@ -1375,9 +1296,9 @@ if (require.main === module) {
     },
   } as any)
     .then(() => {
-      console.log("Plugins installed successfully");
+      console.log("Plugins processed successfully");
     })
     .catch((error) => {
-      console.error("Error installing plugins:", error);
+      console.error("Error processing plugins:", error);
     });
 }
