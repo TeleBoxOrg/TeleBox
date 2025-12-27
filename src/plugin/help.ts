@@ -9,32 +9,29 @@ import path from "path";
 import { Api } from "telegram";
 import { AliasDB } from "@utils/aliasDB";
 
-const prefixes = getPrefixes();
-const mainPrefix = prefixes[0];
+/* ============================================================
+ * Entity Planner: 管理 Telegram 100 个 Entity 的限制
+ * ============================================================ */
 
-// 添加 EntityManager 辅助类来管理 entities 配额
-class EntityManager {
-  private count = 0;
-  private readonly LIMIT = 95; // 预留余量
-  
-  // 检查添加指定数量的 tags 是否会超出限制
-  canAdd(tagCount: number): boolean {
-    return this.count + tagCount <= this.LIMIT;
+class EntityPlanner {
+  private readonly LIMIT = 95;
+  private used = 0;
+
+  consume(count: number) {
+    this.used += count;
   }
-  
-  // 记录已添加的 tags 数量
-  add(tagCount: number) {
-    this.count += tagCount;
-  }
-  
-  getCount(): number {
-    return this.count;
+
+  canFit(count: number): boolean {
+    return this.used + count <= this.LIMIT;
   }
 }
 
-/** HTML 转义。 */
+/* ============================================================
+ * Utils
+ * ============================================================ */
+
 function htmlEscape(text: string): string {
-  if (typeof text !== 'string') return '';
+  if (typeof text !== "string") return "";
   return text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -43,312 +40,229 @@ function htmlEscape(text: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** 读取 package.json 中的版本号。 */
 function readVersion(): string {
   try {
-    const packagePath = path.join(process.cwd(), "package.json");
-    const packageJson = fs.readFileSync(packagePath, "utf-8");
-    const packageData = JSON.parse(packageJson);
-    return packageData.version || "未知版本";
-  } catch (error) {
-    console.error("Failed to read version:", error);
+    const pkg = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), "package.json"), "utf-8")
+    );
+    return pkg.version || "未知版本";
+  } catch {
     return "未知版本";
   }
 }
 
-/** 安全地格式化命令列表。如果 <code> 标签超出预算，则降级为纯文本。 */
+/* ============================================================
+ * Formatter Logic
+ * ============================================================ */
+
 function formatCommandsSafely(
   commands: string[],
   aliasDB: AliasDB,
-  prefix: string = "",
-  entityMgr: EntityManager
+  prefix: string,
+  planner: EntityPlanner
 ): { text: string } {
-  const formatted: string[] = [];
-  
+  const result: string[] = [];
+
   for (const cmd of commands) {
-    const alias = aliasDB.getOriginal(cmd);
-    const hasAlias = alias?.length > 0;
-    
-    // 预估所需的 <code> 标签数（命令 + 所有别名）
-    // 每个 code 标签 = 2 entities（开始+结束）
-    const estimatedTagCount = 2 * (1 + (hasAlias ? alias.length : 0));
-    
-    let cmdPart: string;
-    
-    if (entityMgr.canAdd(estimatedTagCount)) {
-      // 正常模式：使用 <code>
-      cmdPart = `<code>${prefix}${htmlEscape(cmd)}</code>`;
-      entityMgr.add(2); // 主命令
-      
-      if (hasAlias) {
-        const aliasParts = alias.map((a) => {
-          entityMgr.add(2); // 每个别名
+    const alias = aliasDB.getOriginal(cmd) || [];
+    const need = 1 + alias.length;
+    let text = "";
+
+    if (planner.canFit(need)) {
+      planner.consume(1);
+      text = `<code>${prefix}${htmlEscape(cmd)}</code>`;
+      if (alias.length) {
+        const aliasText = alias.map(a => {
+          planner.consume(1);
           return `<code>${htmlEscape(a)}</code>`;
         }).join(", ");
-        cmdPart += ` (${aliasParts})`;
+        text += ` (${aliasText})`;
       }
     } else {
-      // 降级模式：不使用 <code>
-      cmdPart = `${prefix}${cmd}`;
-      if (hasAlias) {
-        cmdPart += ` (${alias.join(", ")})`;
-      }
+      text = `${prefix}${cmd}`;
+      if (alias.length) text += ` (${alias.join(", ")})`;
     }
-    formatted.push(cmdPart);
+    result.push(text);
   }
 
-  return {
-    text: formatted.join(" • "),
-  };
+  return { text: result.join(" • ") };
 }
 
-/** 格式化基础命令列表（单命令）。 */
-function formatBasicCommands(commands: string[], entityMgr: EntityManager): { text: string } {
-  const singleCommands: string[] = [];
+function formatBasicCommands(
+  commands: string[],
+  planner: EntityPlanner
+): { text: string } {
   const aliasDB = new AliasDB();
+  const singles: string[] = [];
 
-  // 筛选基础命令
-  commands
-    .sort((a, b) => a.localeCompare(b))
-    .forEach((cmd) => {
-      const pluginEntry = getPluginEntry(cmd);
-      if (pluginEntry?.plugin?.cmdHandlers) {
-        const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers);
-        // 如果是单命令插件
-        if (cmdHandlerKeys.length === 1 && cmdHandlerKeys[0] === cmd) {
-          singleCommands.push(cmd);
-        }
-      }
-    });
+  for (const cmd of commands.sort()) {
+    const entry = getPluginEntry(cmd);
+    if (!entry?.plugin?.cmdHandlers) continue;
+    const keys = Object.keys(entry.plugin.cmdHandlers);
+    if (keys.length === 1 && keys[0] === cmd) {
+      singles.push(cmd);
+    }
+  }
 
-  const { text: formattedCommands } = formatCommandsSafely(
-    singleCommands,
-    aliasDB,
-    "",
-    entityMgr
-  );
-
+  planner.consume(1); 
+  const { text } = formatCommandsSafely(singles, aliasDB, "", planner);
   aliasDB.close();
 
-  if (formattedCommands.length === 0) {
-    return { text: "暂无基础命令" };
-  }
-
-  return {
-    text: `📋 <b>基础命令:</b> ${formattedCommands}`,
-  };
+  if (!text) return { text: "暂无基础命令" };
+  return { text: `📋 <b>基础命令:</b> ${text}` };
 }
 
-/** 格式化功能模块命令列表（多命令插件）。 */
-function formatModuleCommands(commands: string[], entityMgr: EntityManager): { text: string } {
-  const pluginGroups = new Map<string, string[]>();
+function formatModuleCommands(
+  commands: string[],
+  planner: EntityPlanner
+): { text: string } {
   const aliasDB = new AliasDB();
+  const groups = new Map<string, string[]>();
 
-  // 分组多命令插件
-  commands
-    .sort((a, b) => a.localeCompare(b))
-    .forEach((cmd) => {
-      const pluginEntry = getPluginEntry(cmd);
-      if (pluginEntry?.plugin?.cmdHandlers) {
-        const cmdHandlerKeys = Object.keys(pluginEntry.plugin.cmdHandlers).sort();
-        if (cmdHandlerKeys.length > 1) {
-          const mainCommand = cmdHandlerKeys[0];
-          if (!pluginGroups.has(mainCommand)) {
-            pluginGroups.set(mainCommand, cmdHandlerKeys);
-          }
-        }
-      }
-    });
+  for (const cmd of commands.sort()) {
+    const entry = getPluginEntry(cmd);
+    if (!entry?.plugin?.cmdHandlers) continue;
+    const keys = Object.keys(entry.plugin.cmdHandlers).sort();
+    if (keys.length > 1) {
+      groups.set(keys[0], keys);
+    }
+  }
 
-  if (pluginGroups.size === 0) {
+  if (!groups.size) {
     aliasDB.close();
     return { text: "" };
   }
 
-  const groupLines: string[] = [];
-  
-  for (const [mainCommand, subCommands] of pluginGroups) {
-    const { text: formattedSubs } = formatCommandsSafely(
-      subCommands,
-      aliasDB,
-      "",
-      entityMgr
-    );
-    
-    // 模块名 (mainCommand) 使用 <b> 标签 (高优先级)
-    groupLines.push(`<b>${htmlEscape(mainCommand)}:</b> ${formattedSubs}`);
+  // 优先级预留：1.顶部BOLD 2.blockquote 3.结尾提示CODE
+  planner.consume(3);
+  for (const _ of groups.keys()) {
+    if (planner.canFit(1)) planner.consume(1);
+  }
+
+  const lines: string[] = [];
+  for (const [main, subs] of groups) {
+    const { text } = formatCommandsSafely(subs, aliasDB, "", planner);
+    lines.push(`<b>${htmlEscape(main)}:</b> ${text}`);
   }
 
   aliasDB.close();
-  
   return {
-    text: `🔧 <b>功能模块:</b><blockquote expandable>${groupLines.join("\n")}\n</blockquote>`,
+    text: `🔧 <b>功能模块:</b>\n<blockquote expandable>${lines.join("\n")}\n</blockquote>`,
   };
 }
 
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
+
 class HelpPlugin extends Plugin {
-  description: string = "查看帮助信息和可用命令列表";
-  cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
+  description = "查看帮助信息和可用命令列表";
+
+  cmdHandlers = {
     help: this.handleHelp,
     h: this.handleHelp,
   };
 
-  private async handleHelp(msg: Api.Message): Promise<void> {
+  private async handleHelp(msg: Api.Message) {
     try {
       const args = msg.text.split(" ").slice(1);
+      const commands = listCommands();
 
+      /* ================= 主帮助信息 (消息1) ================= */
       if (args.length === 0) {
-        const commands = listCommands();
-        const version = readVersion();
-        const totalCommands = commands.length;
-        
-        // 第一条消息使用独立的 EntityManager
-        const entityMgr1 = new EntityManager();
-        const messageParts1: string[] = [];
-        
-        // 标题（版本和命令数）
-        messageParts1.push(`🚀 <b>TeleBox v${htmlEscape(version)}</b> | ${totalCommands} 个命令`);
-        entityMgr1.add(2); // <b>
-        
-        // 基础命令
-        const { text: basicCommandsText } = formatBasicCommands(commands, entityMgr1);
-        messageParts1.push("", basicCommandsText);
-        
-        // 添加空行，然后指令前缀
-        const prefixText = `❕ <b>指令前缀：</b> ${prefixes.map((p) => `<code>${htmlEscape(p)}</code>`).join(" • ")}`;
-        messageParts1.push("", prefixText);
-        entityMgr1.add(2); // <b>
-        entityMgr1.add(prefixes.length * 2); // 每个 prefix 的 code 标签
-        
-        // 帮助提示（不换行）
+        const mainPlanner = new EntityPlanner();
+        mainPlanner.consume(1 + prefixes.length + 1 + 2 + 4);
+
+        const header = `🚀 <b>TeleBox v${htmlEscape(readVersion())}</b> | ${commands.length} 个命令`;
+        const basic = formatBasicCommands(commands, mainPlanner);
+        const prefixLine = `❕ <b>指令前缀：</b> ${prefixes.map(p => `<code>${htmlEscape(p)}</code>`).join(" • ")}`;
         const helpTip = `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`;
-        messageParts1.push(helpTip);
-        entityMgr1.add(4); // 2 个 code 标签
-        
-        // 帮助链接（不换行）
-        const helpLinks = "🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a>";
-        messageParts1.push(helpLinks);
-        entityMgr1.add(8); // 4 个 a 标签
-        
-        const helpTextPart1 = messageParts1.join("\n");
+        const links = `🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a>`;
 
         await msg.edit({
-          text: helpTextPart1,
+          text: [header, "", basic.text, "", prefixLine, helpTip, links].join("\n"),
           parseMode: "html",
           linkPreview: false,
         });
 
-        // 第二条消息使用全新的 EntityManager
-        const entityMgr2 = new EntityManager();
-        const { text: moduleCommandsText } = formatModuleCommands(commands, entityMgr2);
-        
-        if (moduleCommandsText && moduleCommandsText.length > 0) {
-          const messageParts2: string[] = [];
-          messageParts2.push(moduleCommandsText);
-          
-          // 功能模块帮助提示（前面只添加一个换行）
-          const moduleHelpTip = `💡 使用 <code>${mainPrefix}help [模块名]</code> 查看具体模块的使用方法`;
-          messageParts2.push(moduleHelpTip);
-          entityMgr2.add(2); // <b>
-          entityMgr2.add(2); // code 标签
-          
-          const helpTextPart2 = messageParts2.join("");
+        /* ================= 模块列表 (消息2) ================= */
+        const modulePlanner = new EntityPlanner();
+        const modules = formatModuleCommands(commands, modulePlanner);
 
+        if (modules.text) {
           await msg.reply({
-            message: helpTextPart2,
+            message: modules.text + `\n💡 使用 <i><code>${mainPrefix}help [模块名]</code></i> 查看具体模块的使用方法`,
             parseMode: "html",
             linkPreview: false,
           });
         }
-
         return;
       }
 
-      // --- 显示特定命令的帮助 (单命令详情) ---
+      /* ================= 单个命令/模块详情 ================= */
       const command = args[0].toLowerCase();
       const pluginEntry = getPluginEntry(command);
 
       if (!pluginEntry?.plugin) {
         await msg.edit({
-          text: `❌ 未找到命令 <code>${htmlEscape(
-            command
-          )}</code>\n\n💡 使用 <code>${mainPrefix}help</code> 查看所有命令`,
+          text: `❌ 未找到命令 <code>${htmlEscape(command)}</code>\n\n💡 使用 <code>${mainPrefix}help</code> 查看所有命令`,
           parseMode: "html",
         });
         return;
       }
 
       const plugin = pluginEntry.plugin;
-      const commandsInPlugin = Object.keys(plugin.cmdHandlers).sort();
-
       const aliasDB = new AliasDB();
-      // 单个插件详情无需预算限制
-      const entityMgrDetail = new EntityManager();
-      entityMgrDetail.add(4096); // 设置一个很大的值，相当于无限制
-      
-      const { text: cmdsText } = formatCommandsSafely(
-        commandsInPlugin,
+      const planner = new EntityPlanner();
+      planner.consume(6);
+
+      const { text: cmdText } = formatCommandsSafely(
+        Object.keys(plugin.cmdHandlers).sort(),
         aliasDB,
         mainPrefix,
-        entityMgrDetail
+        planner
       );
       aliasDB.close();
 
-      let description: string | void;
-
-      if (!plugin.description) {
-        description = "暂无描述信息";
-      } else if (typeof plugin.description === "string") {
-        description = plugin.description;
-      } else {
+      let description: string;
+      if (!plugin.description) description = "暂无描述信息";
+      else if (typeof plugin.description === "string") description = plugin.description;
+      else {
         try {
-          description =
-            (await plugin.description({ plugin: pluginEntry })) ||
-            "暂无描述信息";
-        } catch (e: any) {
-          console.error("Error getting plugin description:", e);
-          description = `生成描述信息出错: ${e?.message || "未知错误"}`;
+          description = await plugin.description({ plugin: pluginEntry });
+        } catch {
+          description = "生成描述信息出错";
         }
       }
 
-      let cronTasksInfo = "";
-      if (plugin.cronTasks && Object.keys(plugin.cronTasks).length > 0) {
+      let cronInfo = "";
+      if (plugin.cronTasks && Object.keys(plugin.cronTasks).length) {
         const cronTasks = Object.entries(plugin.cronTasks)
-          .map(([key, task]) => {
-            return `• <code><b>${htmlEscape(key)}:</b></code> ${
-              task.description
-            } <code>(${htmlEscape(task.cron)})</code>`;
-          })
+          .map(([k, v]) => `• <code><b>${htmlEscape(k)}:</b></code> ${v.description} <code>(${htmlEscape(v.cron)})</code>`)
           .join("\n");
-        cronTasksInfo = `\n📅 <b>定时任务:</b>\n${cronTasks}\n`;
+        cronInfo = `\n📅 <b>定时任务:</b>\n${cronTasks}\n`;
       }
 
-      const commandHelpText = [
-        `🔧 <b>${htmlEscape(command.toUpperCase())}</b>`,
-        "",
-        `📝 <b>功能描述:</b>`,
-        `${description || "暂无描述信息"}`,
-        "",
-        `🏷️ <b>命令:</b>`,
-        `${cmdsText}`,
-        "",
-        `⚡ <b>使用方法:</b>`,
-        `<code>${mainPrefix}${command} [参数]</code>`,
-        cronTasksInfo,
-        `💡 <i>提示: 使用</i> <code>${mainPrefix}help</code> <i>查看所有命令</i>`,
-      ].join("\n");
-
       await msg.edit({
-        text: commandHelpText,
+        text: [
+          `🔧 <b>${htmlEscape(command.toUpperCase())}</b>`,
+          "",
+          `📝 <b>功能描述:</b>`,
+          description,
+          "",
+          `🏷️ <b>命令:</b>`,
+          cmdText,
+          "",
+          `⚡ <b>使用方法:</b>`,
+          `<code>${mainPrefix}${command} [参数]</code>`,
+          cronInfo,
+          `💡 <i>提示: 使用</i> <code>${mainPrefix}help</code> <i>查看所有命令</i>`,
+        ].join("\n"),
         parseMode: "html",
         linkPreview: false,
       });
-    } catch (error: any) {
-      console.error("Help plugin error:", error);
-      const errorMsg =
-        error.message?.length > 100
-          ? error.message.substring(0, 100) + "..."
-          : error.message;
+    } catch (e: any) {
+      console.error("Help plugin error:", e);
+      const errorMsg = e.message?.length > 100 ? e.message.substring(0, 100) + "..." : e.message;
       await msg.edit({
         text: [
           "⚠️ <b>系统错误</b>",
@@ -358,10 +272,8 @@ class HelpPlugin extends Plugin {
           "",
           "🔧 <b>解决方案:</b>",
           "• 稍后重试命令",
-          "• 重启 TeleBox 服务",
-          "• 检查系统日志",
-          "",
-          "🆘 <a href='https://github.com/TeleBoxDev/TeleBox/issues'>反馈问题</a>",
+          "• 检查插件配置是否正确",
+          "• 查看控制台获取详细日志",
         ].join("\n"),
         parseMode: "html",
       });
@@ -369,6 +281,4 @@ class HelpPlugin extends Plugin {
   }
 }
 
-const helpPlugin = new HelpPlugin();
-
-export default helpPlugin;
+export default new HelpPlugin();
