@@ -27,7 +27,7 @@ const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
 class EntityManager {
   private count = 0;
-  private readonly LIMIT = 92;
+  private readonly LIMIT = 95;
   private readonly IMPORTANT_TAGS = ['blockquote', 'a', 'b', 'i', 'u'];
   
   canAdd(tag: string): boolean {
@@ -38,9 +38,7 @@ class EntityManager {
   }
   
   add(tag: string) {
-    if (!this.IMPORTANT_TAGS.includes(tag)) {
-      this.count++;
-    }
+    this.count++;
   }
   
   getCount(): number {
@@ -508,7 +506,7 @@ function generateProgressBar(percentage: number, length: number = 20): string {
   const filled = Math.round((percentage / 100) * length);
   const empty = length - filled;
   const bar = "█".repeat(filled) + "░".repeat(empty);
-  return `🔄 <b>进度条:</b> [${bar}] ${percentage}%`;
+  return `🔄 当前进度: [${bar}] ${percentage}%`;
 }
 
 async function installPlugin(args: string[], msg: Api.Message) {
@@ -864,12 +862,12 @@ async function search(msg: Api.Message) {
 
     const entityMgr = new EntityManager();
     
-    entityMgr.add('code');
-    entityMgr.add('code');
-    entityMgr.add('code');
-    entityMgr.add('code');
-    entityMgr.add('code');
-    entityMgr.add('code');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
     entityMgr.add('b');
     entityMgr.add('a');
     entityMgr.add('b');
@@ -915,6 +913,10 @@ async function search(msg: Api.Message) {
       
       if (allowCodeTag) {
         entityMgr.add('code');
+      }
+      
+      if (keyword) {
+        entityMgr.add('b');
       }
     }
 
@@ -985,15 +987,17 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
 
     const sortedPlugins = dbNames
       .map((name) => ({ name, ...db.data[name] }))
-      .sort((a, b) => b._updatedAt - a._updatedAt);
+      .sort((a, b) => a._updatedAt - b._updatedAt);
 
     const entityMgr = new EntityManager();
     
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
+    entityMgr.add('b');
     entityMgr.add('blockquote');
     entityMgr.add('blockquote');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('b');
 
     const dbLinesSimple: string[] = [];
     const dbLinesVerbose: string[] = [];
@@ -1007,14 +1011,18 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
         const nameTag = allowCodeTag ? `<code>${p.name}</code>` : p.name;
         const urlTag = allowCodeTag ? `<code>${p.url}</code>` : p.url;
         dbLinesVerbose.push(`${nameTag} 🕒 ${updateTime}${desc}\n🔗 ${urlTag}`);
+        
+        if (allowCodeTag) {
+          entityMgr.add('code');
+          entityMgr.add('code');
+        }
       } else {
         const nameTag = allowCodeTag ? `<code>${p.name}</code>` : p.name;
         dbLinesSimple.push(`${nameTag}${p.desc ? ` - ${p.desc}` : ""}`);
-      }
-      
-      if (allowCodeTag) {
-        entityMgr.add('code');
-        if (verbose) entityMgr.add('code');
+        
+        if (allowCodeTag) {
+          entityMgr.add('code');
+        }
       }
     }
 
@@ -1056,6 +1064,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
     
     if (tip) {
       messageParts.push("", tip);
+      entityMgr.add('code');
     }
     
     if (dbNames.length > 0) {
