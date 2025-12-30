@@ -272,8 +272,11 @@ class HelpPlugin extends Plugin {
           "",
           "🔧 <b>解决方案:</b>",
           "• 稍后重试命令",
+          "• 重启 TeleBox 服务",
           "• 检查插件配置是否正确",
           "• 查看控制台获取详细日志",
+          "",
+          "🆘 <a href='https://github.com/TeleBoxDev/TeleBox/issues'>反馈问题</a>",
         ].join("\n"),
         parseMode: "html",
       });
