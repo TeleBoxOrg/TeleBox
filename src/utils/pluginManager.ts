@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient, cleanupGlobalClient, unregisterAllEventHandlers } from "@utils/globalClient";
 import { NewMessageEvent, NewMessage } from "telegram/events";
 import { AliasDB } from "./aliasDB";
 import { Api, TelegramClient } from "telegram";
@@ -15,13 +15,10 @@ type PluginEntry = {
   original?: string; // 主要用于重定向命令找到初始命令，从而可以调用相应的命令函数，不是重定向的可以不填写
   plugin: Plugin;
 };
-
 const validPlugins: Plugin[] = []; // 用来存储有效的插件，防止随意安装东西引起崩溃
 const plugins: Map<string, PluginEntry> = new Map();
-
 const USER_PLUGIN_PATH = path.join(process.cwd(), "plugins");
 const DEFAUTL_PLUGIN_PATH = path.join(process.cwd(), "src", "plugin");
-
 let prefixes = [".", "。", "$"];
 const envPrefixes =
   process.env.TB_PREFIX?.split(/\s+/g).filter((p) => p.length > 0) || [];
@@ -46,7 +43,13 @@ function setPrefixes(newList: string[]): void {
 
 function dynamicRequireWithDeps(filePath: string) {
   try {
-    delete require.cache[require.resolve(filePath)];
+    // 清除模块缓存，确保重新加载
+    Object.keys(require.cache).forEach(key => {
+      if (key.includes(filePath) || key.includes(path.dirname(filePath))) {
+        delete require.cache[key];
+      }
+    });
+    
     return require(filePath);
   } catch (err) {
     console.error(`Failed to require ${filePath}:`, err);
@@ -57,16 +60,18 @@ function dynamicRequireWithDeps(filePath: string) {
 async function setPlugins(basePath: string) {
   const files = fs.readdirSync(basePath).filter((file) => file.endsWith(".ts"));
   const aliasDB = new AliasDB();
+  
   for await (const file of files) {
     const pluginPath = path.resolve(basePath, file);
     const mod = await dynamicRequireWithDeps(pluginPath);
     if (!mod) continue;
+    
     const plugin = mod.default;
     if (plugin instanceof Plugin && isValidPlugin(plugin)) {
       if (!plugin.name) {
         plugin.name = path.basename(file, ".ts");
       }
-
+      
       validPlugins.push(plugin);
       const cmds = Object.keys(plugin.cmdHandlers);
       for (const cmd of cmds) {
@@ -78,6 +83,8 @@ async function setPlugins(basePath: string) {
           });
         }
       }
+      
+      console.log(`[PluginManager] Loaded plugin: ${plugin.name}`);
     }
   }
   aliasDB.close();
@@ -117,9 +124,7 @@ function getCommandFromMessage(msg: Api.Message | string, diyPrefixes?: string[]
   const [cmd] = rest.split(/\s+/);
   if (!cmd) return null;
   if (/^[a-z0-9_]+$/i.test(cmd)) return cmd;
-
   const aliasDB = new AliasDB();
-
   if (aliasDB.get(cmd)) {
     aliasDB.close();
     return cmd;
@@ -183,7 +188,6 @@ const listenerHandleEdited =
   process.env.TB_LISTENER_HANDLE_EDITED?.split(/\s+/g).filter(
     (p) => p.length > 0
   ) || [];
-
 console.log(
   `[LISTENER_HANDLE_EDITED] 不忽略监听编辑的消息的插件: ${
     listenerHandleEdited.length === 0
@@ -203,6 +207,7 @@ function dealListenMessagePlugin(client: TelegramClient): void {
           console.log("listenMessageHandler NewMessageerror:", error);
         }
       }, new NewMessage());
+      
       if (
         !plugin.listenMessageHandlerIgnoreEdited ||
         (plugin.name && listenerHandleEdited.includes(plugin.name))
@@ -218,6 +223,7 @@ function dealListenMessagePlugin(client: TelegramClient): void {
         }, new EditedMessage({}));
       }
     }
+    
     const eventHandlers = plugin.eventHandlers;
     if (Array.isArray(eventHandlers) && eventHandlers.length > 0) {
       for (const { event, handler } of eventHandlers) {
@@ -240,44 +246,102 @@ function dealCronPlugin(client: TelegramClient): void {
       const keys = Object.keys(cronTasks);
       for (const key of keys) {
         const cronTask = cronTasks[key];
-        cronManager.set(key, cronTask.cron, async () => {
-          await cronTask.handler(client);
+        // 添加插件名称前缀，便于清理
+        const taskName = plugin.name ? `${plugin.name}_${key}` : key;
+        cronManager.set(taskName, cronTask.cron, async () => {
+          try {
+            await cronTask.handler(client);
+          } catch (error) {
+            console.error(`Cron task "${taskName}" error:`, error);
+          }
         });
       }
     }
   }
 }
 
+/**
+ * 清理所有插件
+ * @description 调用每个插件的 cleanup() 方法，然后清理事件处理器和 cron 任务
+ */
 async function clearPlugins() {
+  // 1. 调用每个插件的 cleanup() 方法
+  const cleanupPromises = validPlugins.map(async (plugin) => {
+    try {
+      console.log(`[PluginManager] Cleaning up plugin: ${plugin.name || 'unnamed'}`);
+      if (typeof plugin.cleanup === 'function') {
+        await plugin.cleanup();
+        console.log(`[PluginManager] Plugin "${plugin.name || 'unnamed'}" cleanup completed`);
+      } else {
+        console.warn(`[PluginManager] ⚠️ Plugin "${plugin.name || 'unnamed'}" has no cleanup method`);
+      }
+    } catch (error) {
+      console.error(`[PluginManager] Error cleaning up plugin "${plugin.name || 'unnamed'}":`, error);
+    }
+  });
+  
+  // 等待所有插件清理完成
+  await Promise.all(cleanupPromises);
+  
+  // 2. 清理事件处理器
+  let removedHandlers = 0;
+  try {
+    removedHandlers = await unregisterAllEventHandlers();
+    console.log(`[PluginManager] Removed ${removedHandlers} event handlers`);
+  } catch (error) {
+    console.error('[PluginManager] Error removing event handlers:', error);
+  }
+  
+  // 3. 清理 cron 任务
+  let removedCrons = 0;
+  try {
+    removedCrons = cronManager.clear();
+    console.log(`[PluginManager] Removed ${removedCrons} cron tasks`);
+  } catch (error) {
+    console.error('[PluginManager] Error clearing cron tasks:', error);
+  }
+  
+  // 4. 清空插件列表
   validPlugins.length = 0;
   plugins.clear();
-
-  let client = await getGlobalClient();
-  let handlers = client.listEventHandlers();
-  for (const handler of handlers) {
-    client.removeEventHandler(handler[1], handler[0]);
-  }
+  
+  console.log(`[PluginManager] Cleanup completed. Removed ${removedHandlers} handlers and ${removedCrons} cron tasks.`);
 }
 
 async function loadPlugins() {
-  // 清空现有插件
-  await clearPlugins();
-  // 清空所有 cron 任务
-  cronManager.clear();
-
-  // 设置插件路径
-  await setPlugins(USER_PLUGIN_PATH);
-  await setPlugins(DEFAUTL_PLUGIN_PATH);
-
-  let client = await getGlobalClient();
-  // 注册插件命令处理器
-  client.addEventHandler(dealNewMsgEvent, new NewMessage());
-  // 注册编辑消息处理器 (用于处理编辑后的命令)
-  client.addEventHandler(dealEditedMsgEvent, new EditedMessage({}));
-  // 添加监听新消息事件的处理器
-  dealListenMessagePlugin(client);
-  // 添加cron事件
-  dealCronPlugin(client);
+  console.log('[PluginManager] Starting plugin loading...');
+  const startTime = Date.now();
+  
+  try {
+    // 1. 清空现有插件
+    await clearPlugins();
+    
+    // 2. 设置插件路径
+    await setPlugins(USER_PLUGIN_PATH);
+    await setPlugins(DEFAUTL_PLUGIN_PATH);
+    
+    // 3. 获取客户端
+    let client = await getGlobalClient();
+    
+    // 4. 注册插件命令处理器
+    client.addEventHandler(dealNewMsgEvent, new NewMessage());
+    
+    // 5. 注册编辑消息处理器 (用于处理编辑后的命令)
+    client.addEventHandler(dealEditedMsgEvent, new EditedMessage({}));
+    
+    // 6. 添加监听新消息事件的处理器
+    dealListenMessagePlugin(client);
+    
+    // 7. 添加cron事件
+    dealCronPlugin(client);
+    
+    const loadTime = Date.now() - startTime;
+    console.log(`[PluginManager] Plugin loading completed in ${loadTime}ms. Loaded ${validPlugins.length} plugins.`);
+    
+  } catch (error) {
+    console.error('[PluginManager] Error loading plugins:', error);
+    throw error;
+  }
 }
 
 export {
@@ -288,4 +352,5 @@ export {
   getPluginEntry,
   dealCommandPluginWithMessage,
   getCommandFromMessage,
+  clearPlugins,
 };
