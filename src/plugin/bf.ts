@@ -552,4 +552,36 @@ async function formatEntity(target: any, mention?: boolean, throwErrorIfFailed?:
   let entity: any;
   
   try {
-    entity = target
+    entity = target?.className ? target : await client.getEntity(target);
+    if (!entity) throw new Error("无法获取 entity");
+    id = entity.id;
+    if (!id) throw new Error("无法获取 entity id");
+  } catch (e: any) {
+    console.error(e);
+    if (throwErrorIfFailed) {
+      throw new Error(`无法获取 ${target} 的 entity：${e?.message || "未知错误"}`);
+    }
+  }
+
+  const displayParts: string[] = [];
+  if (entity?.title) displayParts.push(entity.title);
+  if (entity?.firstName) displayParts.push(entity.firstName);
+  if (entity?.lastName) displayParts.push(entity.lastName);
+  if (entity?.username) {
+    displayParts.push(mention ? `@${entity.username}` : `<code>@${entity.username}</code>`);
+  }
+
+  if (id) {
+    displayParts.push(
+      entity instanceof Api.User
+        ? `<a href="tg://user?id=${id}">${id}</a>`
+        : `<a href="https://t.me/c/${id}">${id}</a>`
+    );
+  } else if (!target?.className) {
+    displayParts.push(`<code>${target}</code>`);
+  }
+
+  return { id, entity, display: displayParts.join(" ").trim() };
+}
+
+export default new BfPlugin();
