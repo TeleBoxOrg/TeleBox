@@ -1,15 +1,45 @@
 import { getPrefixes } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
-import { Api, client, TelegramClient } from "telegram";
+import { Api, TelegramClient } from "telegram";
 import { RPCError } from "telegram/errors";
+
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
+
+// HTML转义函数
+const htmlEscape = (text: string): string =>
+  text.replace(/[&<>"']/g, (m) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
+  );
+
 class RePlugin extends Plugin {
-  description: string = `复读\n回复一条消息即可复读\n<code>${mainPrefix}re [消息数] [复读次数]</code>`;
-  cmdHandlers: Record<
-    string,
-    (msg: Api.Message, trigger?: Api.Message) => Promise<void>
-  > = {
+  name = "re";
+  description = `🔁 消息复读插件
+
+<b>📝 功能描述：</b>
+• 复读回复的消息
+• 支持批量复读多条消息
+• 支持重复发送多次
+• 自动处理禁止转发的消息（复制发送）
+
+<b>🔧 使用方法：</b>
+• <code>${mainPrefix}re</code> - 复读1条消息1次
+• <code>${mainPrefix}re [消息数]</code> - 复读N条消息
+• <code>${mainPrefix}re [消息数] [复读次数]</code> - 复读N条消息M次
+
+<b>💡 示例：</b>
+• <code>${mainPrefix}re</code> - 复读1条消息1次
+• <code>${mainPrefix}re 5</code> - 复读5条消息各1次
+• <code>${mainPrefix}re 3 2</code> - 复读3条消息各2次
+
+<b>⚠️ 注意事项：</b>
+• 必须回复一条消息才能使用
+• 在禁止转发的群组会自动使用复制模式
+• 频繁使用可能被Telegram限制`;
+
+  private activeTimers: NodeJS.Timeout[] = [];
+
+  cmdHandlers: Record<string, (msg: Api.Message, trigger?: Api.Message) => Promise<void>> = {
     re: async (msg, trigger) => {
       const [, ...args] = msg.text.slice(1).split(" ");
       const count = parseInt(args[0]) || 1;
@@ -17,35 +47,34 @@ class RePlugin extends Plugin {
 
       try {
         if (!msg.isReply) {
-          await msg.edit({ text: "你必须回复一条消息才能够进行复读" });
+          await msg.edit({ text: "❌ 你必须回复一条消息才能复读", parseMode: "html" });
           return;
         }
-        let replied = await msg.getReplyMessage();
+
+        const replied = await msg.getReplyMessage();
         const messages = await msg.client?.getMessages(replied?.peerId, {
           offsetId: replied!.id - 1,
           limit: count,
           reverse: true,
         });
+
         await msg.delete();
-        
-        // 尝试使用转发方式复读
         let forwardFailed = false;
+
+        // 尝试转发方式
         for (let i = 0; i < repeat; i++) {
           if (messages && messages.length > 0) {
             try {
-              // 使用原始 API 以支持论坛话题 (topMsgId)
               const toPeer = await msg.getInputChat();
               const fromPeer = await replied!.getInputChat();
               const ids = messages.map((m) => m.id);
-              const topMsgId =
-                replied?.replyTo?.replyToTopId || replied?.replyTo?.replyToMsgId;
+              const topMsgId = replied?.replyTo?.replyToTopId || replied?.replyTo?.replyToMsgId;
 
               await msg.client?.invoke(
                 new Api.messages.ForwardMessages({
                   fromPeer,
                   id: ids,
                   toPeer,
-                  // 如果在论坛话题中，指定话题的顶层消息 ID
                   ...(topMsgId ? { topMsgId } : {}),
                 })
               );
@@ -59,8 +88,8 @@ class RePlugin extends Plugin {
             }
           }
         }
-        
-        // 如果转发失败（群组禁止转发），使用复制方式
+
+        // 如果转发失败，使用复制方式
         if (forwardFailed && messages && messages.length > 0) {
           for (let i = 0; i < repeat; i++) {
             for (const message of messages) {
@@ -78,13 +107,14 @@ class RePlugin extends Plugin {
             message: "发生未知错误，无法复读消息。请稍后再试。",
           });
         }
+      } finally {
+        if (trigger) {
+          try {
+            await trigger.delete();
+          } catch (e) {}
+        }
       }
-      if (trigger) {
-        try {
-          await trigger.delete();
-        } catch (e) {}
-      }
-    },
+    }
   };
 
   // 复制消息内容并发送（用于禁止转发的群组）
@@ -99,36 +129,37 @@ class RePlugin extends Plugin {
         ...(topMsgId ? { replyTo: topMsgId } : {}),
       };
 
-      // 处理不同类型的消息
       if (message.media) {
-        // 有媒体的消息
         sendOptions.file = message.media;
         sendOptions.message = message.message || "";
-        
-        // 复制消息格式（加粗、斜体等）
         if (message.entities && message.entities.length > 0) {
           sendOptions.formattingEntities = message.entities;
         }
-        
         await client.sendFile(peerId, sendOptions);
       } else if (message.message) {
-        // 纯文本消息
         sendOptions.message = message.message;
-        
-        // 复制消息格式
         if (message.entities && message.entities.length > 0) {
           sendOptions.formattingEntities = message.entities;
         }
-        
         await client.sendMessage(peerId, sendOptions);
       }
     } catch (error) {
-      console.error("复制消息失败:", error);
+      console.error("[RePlugin] 复制消息失败:", error);
       throw error;
+    }
+  }
+  
+  async cleanup(): Promise<void> {
+    try {
+      for (const timer of this.activeTimers) {
+        clearTimeout(timer);
+      }
+      this.activeTimers = [];
+      console.log("[RePlugin] Cleanup completed");
+    } catch (error) {
+      console.error("[RePlugin] Error during cleanup:", error);
     }
   }
 }
 
-const plugin = new RePlugin();
-
-export default plugin;
+export default new RePlugin();
