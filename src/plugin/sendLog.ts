@@ -4,11 +4,17 @@ import path from "path";
 import fs from "fs/promises";
 import { SendLogDB } from "@utils/sendLogDB";
 import { Api } from "telegram";
+import { getPrefixes } from "@utils/pluginManager";
 
+// HTML转义函数
 const htmlEscape = (text: string): string =>
   text.replace(/[&<>"']/g, (m) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
   );
+
+// 获取主前缀
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
 
 // 查找日志文件
 async function findLogFiles(): Promise<{ outLog: string | null; errLog: string | null }> {
@@ -53,14 +59,14 @@ class SendLogPlugin extends Plugin {
 • 清理过大日志文件
 
 <b>🔧 使用方法：</b>
-• <code>${getPrefixes()[0]}sendlog</code> - 发送日志到默认目标（me）
-• <code>${getPrefixes()[0]}sendlog set &lt;目标&gt;</code> - 设置发送目标
-• <code>${getPrefixes()[0]}sendlog clean</code> - 清理日志文件
+• <code>${mainPrefix}sendlog</code> - 发送日志到默认目标（me）
+• <code>${mainPrefix}sendlog set &lt;目标&gt;</code> - 设置发送目标
+• <code>${mainPrefix}sendlog clean</code> - 清理日志文件
 
 <b>💡 示例：</b>
-• <code>${getPrefixes()[0]}sendlog set me</code> - 设置发送到收藏夹
-• <code>${getPrefixes()[0]}sendlog set -100123456789</code> - 设置发送到指定频道
-• <code>${getPrefixes()[0]}sendlog clean</code> - 清理日志文件释放空间
+• <code>${mainPrefix}sendlog set me</code> - 设置发送到收藏夹
+• <code>${mainPrefix}sendlog set -100123456789</code> - 设置发送到指定频道
+• <code>${mainPrefix}sendlog clean</code> - 清理日志文件释放空间
 
 <b>📁 支持的日志路径：</b>
 • ~/.pm2/logs/telebox-*.log
