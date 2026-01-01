@@ -377,11 +377,8 @@ class SurePlugin extends Plugin {
   
   async cleanup(): Promise<void> {
     try {
-      for (const timer of this.activeTimers) {
-        clearTimeout(timer);
-      }
-      this.activeTimers = [];
-      
+      // 修复：移除了未定义的 activeTimers 相关代码
+      // 只保留数据库连接清理
       for (const db of this.dbConnections) {
         try {
           db.close();
