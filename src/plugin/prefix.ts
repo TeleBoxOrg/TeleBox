@@ -4,48 +4,55 @@ import { getPrefixes, loadPlugins } from "@utils/pluginManager";
 import fs from "fs";
 import path from "path";
 
-const htmlEscape = (t: string) =>
-  t.replace(/[&<>"']/g, (m) =>
+// HTML转义函数
+const htmlEscape = (text: string): string =>
+  text.replace(/[&<>"']/g, (m) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
   );
+
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
-const help_text = `🛠 <b>前缀管理</b>
 
-• <code>${htmlEscape(mainPrefix)}prefix</code> - 查看当前前缀
-• <code>${htmlEscape(mainPrefix)}prefix set [前缀...]</code> - 设置并持久化
-• <code>${htmlEscape(mainPrefix)}prefix add [前缀...]</code> - 追加前缀
-• <code>${htmlEscape(mainPrefix)}prefix del [前缀...]</code> - 删除前缀`;
+const help_text = `🛠️ <b>前缀管理插件</b>
+
+<b>📝 功能描述：</b>
+• 动态修改命令前缀
+• 支持多个前缀同时使用
+• 配置持久化到 .env 文件
+• 实时生效无需重启
+
+<b>🔧 使用方法：</b>
+• <code>${mainPrefix}prefix</code> - 查看当前前缀
+• <code>${mainPrefix}prefix set [前缀...]</code> - 设置并持久化
+• <code>${mainPrefix}prefix add [前缀...]</code> - 追加前缀
+• <code>${mainPrefix}prefix del [前缀...]</code> - 删除前缀
+• <code>${mainPrefix}prefix help</code> - 显示此帮助
+
+<b>💡 示例：</b>
+• <code>${mainPrefix}prefix set . !</code> - 设置前缀为 . 和 !
+• <code>${mainPrefix}prefix add 。</code> - 添加中文句号作为前缀
+• <code>${mainPrefix}prefix del !</code> - 删除 ! 前缀
+
+<b>⚠️ 注意事项：</b>
+• 至少保留一个前缀
+• 修改后自动重载所有插件`;
 
 class PrefixPlugin extends Plugin {
-  description: string = help_text;
+  name = "prefix";
+  description = help_text;
+
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     prefix: async (msg) => {
       const lines = msg.text?.trim()?.split(/\r?\n/g) || [];
       const parts = lines?.[0]?.split(/\s+/) || [];
       const [, ...args] = parts;
       const sub = (args[0] || "").toLowerCase();
-      if (!sub) {
-        const ps = getPrefixes();
-        await msg.edit({
-          text: `🔧 当前前缀: ${ps
-            .map((p) => `<code>${htmlEscape(p)}</code>`)
-            .join(" • ")}\n用法: <code>${htmlEscape(ps[0])}prefix set . ！</code>`,
-          parseMode: "html",
-        });
-        return;
-      }
-      if (sub === "help" || sub === "h") {
+
+      if (!sub || sub === "help" || sub === "h") {
         await msg.edit({ text: help_text, parseMode: "html" });
         return;
       }
-      if (
-        args[1] &&
-        (args[1].toLowerCase() === "help" || args[1].toLowerCase() === "h")
-      ) {
-        await msg.edit({ text: help_text, parseMode: "html" });
-        return;
-      }
+
       let base: string[] | undefined;
       if (sub === "add") {
         const adds = args.slice(1).filter(Boolean);
@@ -54,8 +61,7 @@ class PrefixPlugin extends Plugin {
           return;
         }
         base = Array.from(new Set([...getPrefixes(), ...adds]));
-      }
-      if (sub === "del") {
+      } else if (sub === "del") {
         const dels = new Set(args.slice(1).filter(Boolean));
         if (dels.size === 0) {
           await msg.edit({ text: `❌ 参数不足\n\n${help_text}`, parseMode: "html" });
@@ -66,27 +72,28 @@ class PrefixPlugin extends Plugin {
           await msg.edit({ text: "❌ 至少保留一个前缀", parseMode: "html" });
           return;
         }
-      }
-      if (sub !== "set" && !base) {
+      } else if (sub !== "set") {
         await msg.edit({ text: help_text, parseMode: "html" });
         return;
       }
+
       const list = (base ?? args.slice(1)).filter(Boolean);
       if (list.length === 0) {
         await msg.edit({ text: `❌ 参数不足\n\n${help_text}`, parseMode: "html" });
         return;
       }
+
       const uniq = Array.from(new Set(list));
-      // 直接设置前缀以避免缓存问题
       const pluginManager = require("@utils/pluginManager");
       if (pluginManager.setPrefixes) {
         pluginManager.setPrefixes(uniq);
       } else {
-        // 备用方案：修改环境变量后重载
-        console.log('[prefix] setPrefixes 不可用，使用备用方案');
+        console.log('[PrefixPlugin] setPrefixes 不可用，使用备用方案');
       }
+      
       const value = uniq.join(" ");
       (process.env as any).TB_PREFIX = value;
+
       let persisted = true;
       try {
         const envPath = path.join(process.cwd(), ".env");
@@ -101,16 +108,21 @@ class PrefixPlugin extends Plugin {
         fs.writeFileSync(envPath, content, "utf-8");
       } catch (e) {
         persisted = false;
+        console.error("[PrefixPlugin] Failed to persist to .env:", e);
       }
+
       await loadPlugins();
       await msg.edit({
-        text: `✅ 已设置前缀: ${uniq
-          .map((p) => `<code>${htmlEscape(p)}</code>`)
-          .join(" • ")} ${persisted ? "(已写入 .env)" : "(.env 写入失败, 仅本次生效)"}`,
-        parseMode: "html",
+        text: `✅ 已设置前缀：${uniq.map((p) => `<code>${htmlEscape(p)}</code>`).join(" • ")} ${persisted ? "（已写入 .env）" : "（.env写入失败，仅本次生效）"}`,
+        parseMode: "html"
       });
-    },
+    }
   };
+  
+  async cleanup(): Promise<void> {
+    // Prefix 配置是全局的，不需要插件级清理
+    console.log("[PrefixPlugin] Cleanup completed");
+  }
 }
 
 export default new PrefixPlugin();
