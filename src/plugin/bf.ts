@@ -14,62 +14,17 @@ import { getPrefixes } from "@utils/pluginManager";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
+// HTML转义函数
+const htmlEscape = (text: string): string =>
+  text.replace(/[&<>"']/g, (m) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
+  );
+
 // 时区设置
 const CN_TIME_ZONE = "Asia/Shanghai";
 
 function formatCN(date: Date): string {
   return date.toLocaleString("zh-CN", { timeZone: CN_TIME_ZONE });
-}
-
-async function formatEntity(
-  target: any,
-  mention?: boolean,
-  throwErrorIfFailed?: boolean
-) {
-  const client = await getGlobalClient();
-  if (!client) throw new Error("Telegram 客户端未初始化");
-  if (!target) throw new Error("无效的目标");
-  let id: any;
-  let entity: any;
-  try {
-    entity = target?.className
-      ? target
-      : ((await client?.getEntity(target)) as any);
-    if (!entity) throw new Error("无法获取 entity");
-    id = entity.id;
-    if (!id) throw new Error("无法获取 entity id");
-  } catch (e: any) {
-    console.error(e);
-    if (throwErrorIfFailed)
-      throw new Error(
-        `无法获取 ${target} 的 entity: ${e?.message || "未知错误"}`
-      );
-  }
-  const displayParts: string[] = [];
-
-  if (entity?.title) displayParts.push(entity.title);
-  if (entity?.firstName) displayParts.push(entity.firstName);
-  if (entity?.lastName) displayParts.push(entity.lastName);
-  if (entity?.username)
-    displayParts.push(
-      mention ? `@${entity.username}` : `<code>@${entity.username}</code>`
-    );
-
-  if (id) {
-    displayParts.push(
-      entity instanceof Api.User
-        ? `<a href="tg://user?id=${id}">${id}</a>`
-        : `<a href="https://t.me/c/${id}">${id}</a>`
-    );
-  } else if (!target?.className) {
-    displayParts.push(`<code>${target}</code>`);
-  }
-
-  return {
-    id,
-    entity,
-    display: displayParts.join(" ").trim(),
-  };
 }
 
 // 类型定义
@@ -88,6 +43,7 @@ interface FileInfo {
 // 配置管理类
 class ConfigManager {
   private static db: Low<BackupConfig> | null = null;
+  private static resourceTrackers = new Set<string>();
 
   static async getDB(): Promise<Low<BackupConfig>> {
     if (!this.db) {
@@ -128,6 +84,14 @@ class ConfigManager {
     await this.setTargets(filtered);
     return filtered;
   }
+  
+  static trackResource(resourceId: string): void {
+    this.resourceTrackers.add(resourceId);
+  }
+
+  static untrackResource(resourceId: string): void {
+    this.resourceTrackers.delete(resourceId);
+  }
 }
 
 // 工具函数
@@ -154,20 +118,15 @@ async function createBackup(dirs: string[], outputPath: string): Promise<void> {
   const backupDir = path.join(tempDir, "telebox_backup");
 
   try {
-    // 创建临时目录
     fs.mkdirSync(backupDir, { recursive: true });
 
-    // 复制目录
     for (const dir of dirs) {
       if (!fs.existsSync(dir)) continue;
-
       const baseName = path.basename(dir);
       const targetDir = path.join(backupDir, baseName);
-
       copyDirRecursive(dir, targetDir);
     }
 
-    // 创建tar.gz
     await new Promise<void>((resolve, reject) => {
       const tar = spawn("tar", [
         "-czf",
@@ -185,7 +144,6 @@ async function createBackup(dirs: string[], outputPath: string): Promise<void> {
       tar.on("error", reject);
     });
   } finally {
-    // 清理临时目录
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
     } catch {}
@@ -195,7 +153,6 @@ async function createBackup(dirs: string[], outputPath: string): Promise<void> {
 // 递归复制目录
 function copyDirRecursive(src: string, dest: string): void {
   fs.mkdirSync(dest, { recursive: true });
-
   const entries = fs.readdirSync(src, { withFileTypes: true });
 
   for (const entry of entries) {
@@ -238,54 +195,51 @@ async function restoreBackup(extractPath: string): Promise<void> {
     throw new Error("无效的备份文件格式");
   }
 
-  // 创建当前状态备份
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, -5);
-  const currentBackupDir = path.join(
-    programDir,
-    `_restore_backup_${timestamp}`
-  );
+  const currentBackupDir = path.join(programDir, `_restore_backup_${timestamp}`);
   fs.mkdirSync(currentBackupDir, { recursive: true });
 
-  // 恢复 plugins 和 assets
   const dirs = ["plugins", "assets"];
-
   for (const dir of dirs) {
     const currentPath = path.join(programDir, dir);
     const backupPath = path.join(backupRoot, dir);
     const savePath = path.join(currentBackupDir, dir);
 
-    // 备份当前目录
     if (fs.existsSync(currentPath)) {
       copyDirRecursive(currentPath, savePath);
       fs.rmSync(currentPath, { recursive: true, force: true });
     }
 
-    // 恢复备份
     if (fs.existsSync(backupPath)) {
       copyDirRecursive(backupPath, currentPath);
     }
   }
 
-  console.log(`恢复完成，原文件备份在: ${currentBackupDir}`);
+  console.log(`✅ 恢复完成，原文件备份在: ${currentBackupDir}`);
 }
 
-const help_text = `<code>${mainPrefix}bf</code> 备份 plugins + assets 目录
-<code>${mainPrefix}bf all</code> - 备份整个程序（包含所有文件）
-<code>${mainPrefix}bf set 对话ID</code> - 设置备份发送到的目标对话
-<code>${mainPrefix}bf to 对话ID</code> - 仅本次备份发送到目标对话
-<code>${mainPrefix}bf del 对话ID/all</code> - 删除备份发送到的目标对话
-<code>${mainPrefix}hf</code> 恢复备份`;
-
-// 插件类
 class BfPlugin extends Plugin {
-  description = `\n📦 备份插件\n\n${help_text}
+  name = "bf";
+  description = `📦 备份与恢复插件
 
-若想实现定时备份, 可安装并使用 <code>${mainPrefix}tpm i acron</code>
-每天2点自动备份(调用 <code>${mainPrefix}bf</code> 命令)
+<b>📝 功能描述：</b>
+• 备份 plugins 和 assets 目录到压缩包
+• 一键恢复历史备份
+• 支持定时自动备份
+• 自动上传到指定对话
 
+<b>🔧 使用方法：</b>
+• <code>${mainPrefix}bf</code> - 备份 plugins + assets
+• <code>${mainPrefix}bf all</code> - 完整程序备份（排除node_modules等）
+• <code>${mainPrefix}bf set &lt;对话ID&gt;</code> - 设置备份目标
+• <code>${mainPrefix}bf to &lt;对话ID&gt;</code> - 单次备份到目标
+• <code>${mainPrefix}bf del &lt;对话ID&gt;|all</code> - 删除备份目标
+• <code>${mainPrefix}hf</code> - 恢复备份
+
+<b>💡 定时备份：</b>
+配合 acron 插件可实现定时备份：
 <pre>${mainPrefix}acron cmd 0 0 2 * * * me 定时备份
-.bf</pre>
-`;
+.bf</pre>`;
 
   cmdHandlers = {
     bf: async (msg: Api.Message) => {
@@ -295,10 +249,7 @@ class BfPlugin extends Plugin {
       // 设置目标
       if (cmd === "set") {
         if (args.length < 2) {
-          await msg.edit({
-            text: help_text,
-            parseMode: "html",
-          });
+          await msg.edit({ text: this.description, parseMode: "html" });
           return;
         }
 
@@ -307,26 +258,19 @@ class BfPlugin extends Plugin {
           .join(" ")
           .replace(/,/g, " ")
           .split(/\s+/)
-          .filter(Boolean);
-        const valid = ids
+          .filter(Boolean)
           .filter((id) => /^-?\d+$/.test(id))
-          .map((id) => {
-            // 自动转换100开头的频道ID为负数
-            if (/^100\d+$/.test(id)) {
-              return `-${id}`;
-            }
-            return id;
-          });
+          .map((id) => (/^100\d+$/.test(id) ? `-${id}` : id));
 
-        if (valid.length === 0) {
+        if (ids.length === 0) {
           await msg.edit({ text: "❌ 无效的聊天ID", parseMode: "html" });
           return;
         }
 
-        const targets = await ConfigManager.addTargets(valid);
+        const targets = await ConfigManager.addTargets(ids);
         await msg.edit({
-          text: `✅ 目标已更新: ${targets.join(", ") || "无"}`,
-          parseMode: "html",
+          text: `✅ 备份目标已更新：<code>${targets.join(", ") || "无"}</code>`,
+          parseMode: "html"
         });
         return;
       }
@@ -334,10 +278,7 @@ class BfPlugin extends Plugin {
       // 删除目标
       if (cmd === "del") {
         if (args.length < 2) {
-          await msg.edit({
-            text: help_text,
-            parseMode: "html",
-          });
+          await msg.edit({ text: this.description, parseMode: "html" });
           return;
         }
 
@@ -345,40 +286,30 @@ class BfPlugin extends Plugin {
         const remaining = await ConfigManager.removeTarget(target);
 
         await msg.edit({
-          text:
-            target === "all"
-              ? "✅ 已清空所有目标"
-              : `✅ 已删除 ${target}\n当前目标: ${
-                  remaining.join(", ") || "无"
-                }`,
-          parseMode: "html",
+          text: target === "all"
+              ? "✅ 已清空所有备份目标"
+              : `✅ 已删除 <code>${htmlEscape(target)}</code>\n当前目标：<code>${remaining.join(", ") || "无"}</code>`,
+          parseMode: "html"
         });
         return;
       }
 
-      // 支持一次性目标: .bf to 对话ID
+      // 单次目标
       let oneTimeTargets: string[] | null = null;
       if (cmd === "to") {
         if (args.length < 2) {
-          await msg.edit({
-            text: help_text,
-            parseMode: "html",
-          });
+          await msg.edit({ text: this.description, parseMode: "html" });
           return;
         }
+        
         const ids = args
           .slice(1)
           .join(" ")
           .replace(/,/g, " ")
           .split(/\s+/)
           .filter(Boolean)
-          .map((id) => {
-            // 自动转换100开头的频道ID为负数
-            if (/^100\d+$/.test(id)) {
-              return `-${id}`;
-            }
-            return id;
-          });
+          .map((id) => (/^100\d+$/.test(id) ? `-${id}` : id));
+          
         if (ids.length === 0) {
           await msg.edit({ text: "❌ 无效的聊天ID", parseMode: "html" });
           return;
@@ -388,7 +319,6 @@ class BfPlugin extends Plugin {
 
       // 执行备份
       const client = await getGlobalClient();
-
       try {
         await msg.edit({ text: "🔄 正在创建备份...", parseMode: "html" });
 
@@ -399,30 +329,22 @@ class BfPlugin extends Plugin {
         if (cmd === "all") {
           const parentDir = path.dirname(programDir);
           const dirName = path.basename(programDir);
-          
+
           await new Promise<void>((resolve, reject) => {
             const tar = spawn("tar", [
-              "-cf",
-              "-",
-              "-C",
-              parentDir,
-              "--exclude=node_modules",
-              "--exclude=.git",
-              "--exclude=my_session",
-              "--exclude=temp",
-              "--exclude=logs",
-              dirName,
+              "-cf", "-", "-C", parentDir,
+              "--exclude=node_modules", "--exclude=.git",
+              "--exclude=my_session", "--exclude=temp", "--exclude=logs",
+              dirName
             ], { stdio: ["pipe", "pipe", "pipe"] });
 
             const gzip = spawn("gzip", ["-1"], { stdio: ["pipe", "pipe", "pipe"] });
-
             const output = fs.createWriteStream(backupPath);
 
             tar.stdout.pipe(gzip.stdin);
             gzip.stdout.pipe(output);
 
-            let tarError = "";
-            let gzipError = "";
+            let tarError = "", gzipError = "";
             tar.stderr.on("data", (d) => (tarError += d.toString()));
             gzip.stderr.on("data", (d) => (gzipError += d.toString()));
 
@@ -439,13 +361,13 @@ class BfPlugin extends Plugin {
         } else {
           const dirsToBackup = [
             path.join(programDir, "plugins"),
-            path.join(programDir, "assets"),
+            path.join(programDir, "assets")
           ].filter(fs.existsSync);
 
           if (dirsToBackup.length === 0) {
             await msg.edit({
-              text: "❌ 没有找到可备份的目录",
-              parseMode: "html",
+              text: "❌ 未找到可备份的目录",
+              parseMode: "html"
             });
             return;
           }
@@ -460,23 +382,22 @@ class BfPlugin extends Plugin {
         const contentDesc = cmd === "all" 
           ? "程序目录（排除node_modules等）"
           : "plugins, assets";
-        
-        const caption =
-          `📦 <b>TeleBox ${backupType}</b>\n\n` +
-          `🕐 <b>时间</b>: ${formatCN(new Date())}\n` +
-          `📊 <b>大小</b>: ${(stats.size / 1024 / 1024).toFixed(2)} MB\n` +
-          `📋 <b>内容</b>: ${contentDesc}`;
 
-        // 上传文件
+        const caption = [
+          `📦 <b>TeleBox ${backupType}</b>\n\n`,
+          `🕐 <b>时间：</b> ${formatCN(new Date())}\n`,
+          `📊 <b>大小：</b> ${(stats.size / 1024 / 1024).toFixed(2)} MB\n`,
+          `📋 <b>内容：</b> ${contentDesc}`
+        ].join("");
+
         const savedTargets = await ConfigManager.getTargets();
-        const destinations =
-          oneTimeTargets && oneTimeTargets.length > 0
-            ? oneTimeTargets
-            : savedTargets.length > 0
-            ? savedTargets
-            : ["me"];
-        const destDisplays = [];
+        const destinations = oneTimeTargets && oneTimeTargets.length > 0
+          ? oneTimeTargets
+          : savedTargets.length > 0
+          ? savedTargets
+          : ["me"];
 
+        const destDisplays: string[] = [];
         for (const dest of destinations) {
           const { display } = await formatEntity(dest);
           destDisplays.push(display);
@@ -485,42 +406,38 @@ class BfPlugin extends Plugin {
               file: backupPath,
               caption,
               forceDocument: true,
-              parseMode: "html",
+              parseMode: "html"
             });
           } catch (err) {
             console.error(`发送到 ${dest} 失败:`, err);
             if (dest !== "me") {
               await client.sendFile("me", {
                 file: backupPath,
-                caption: `⚠️ 发送到 ${dest} 失败\n\n${caption}`,
+                caption: `⚠️ 发送到 <code>${htmlEscape(dest)}</code> 失败\n\n${caption}`,
                 forceDocument: true,
-                parseMode: "html",
+                parseMode: "html"
               });
             }
           }
         }
 
-        const backupTypeDisplay = cmd === "all" ? "全量备份" : "备份";
-        const contentDisplay = cmd === "all" 
-          ? "程序目录（排除node_modules等）"
-          : "plugins, assets";
-        
         await msg.edit({
-          text:
-            `✅ <b>${backupTypeDisplay}完成</b>\n\n` +
-            `🎯 <b>发送到</b>: ${destDisplays.join(", ")}\n` +
-            `📦 <b>内容</b>: ${contentDisplay}\n` +
-            `💾 <b>大小</b>: ${(stats.size / 1024 / 1024).toFixed(2)} MB`,
-          parseMode: "html",
+          text: [
+            `✅ <b>${backupType}完成</b>\n\n`,
+            `🎯 <b>发送到：</b> ${destDisplays.join(", ")}\n`,
+            `📦 <b>内容：</b> ${contentDesc}\n`,
+            `💾 <b>大小：</b> ${(stats.size / 1024 / 1024).toFixed(2)} MB`
+          ].join(""),
+          parseMode: "html"
         });
       } catch (error) {
         await msg.edit({
-          text: `❌ 备份失败: ${String(error)}`,
-          parseMode: "html",
+          text: `❌ 备份失败：<code>${htmlEscape(String(error))}</code>`,
+          parseMode: "html"
         });
       } finally {
+        // 清理临时文件
         try {
-          const backupName = generateBackupName().replace(/[^a-zA-Z0-9]/g, "");
           const tempFiles = fs.readdirSync(os.tmpdir()).filter(
             (f) => f.includes("telebox_backup") && f.endsWith(".tar.gz")
           );
@@ -537,12 +454,8 @@ class BfPlugin extends Plugin {
 
       if (cmd === "help" || cmd === "帮助") {
         await msg.edit({
-          text:
-            "🔄 <b>TeleBox 恢复系统</b>\n\n" +
-            "📁 回复备份文件消息，发送 <code>hf</code> 恢复\n" +
-            "📦 支持格式: .tar.gz 备份文件\n" +
-            "🔄 恢复后会自动重载插件",
-          parseMode: "html",
+          text: "🔄 <b>TeleBox 恢复系统</b>\n\n📁 回复备份文件消息后使用 <code>hf</code> 恢复\n📦 支持格式：.tar.gz 备份文件\n🔄 恢复后会自动重载插件",
+          parseMode: "html"
         });
         return;
       }
@@ -550,15 +463,15 @@ class BfPlugin extends Plugin {
       if (!msg.replyTo) {
         await msg.edit({
           text: "❌ 请回复一个备份文件消息后使用 <code>hf</code>",
-          parseMode: "html",
+          parseMode: "html"
         });
         return;
       }
 
       const client = await getGlobalClient();
-
       try {
-        // 获取回复的消息
+        await msg.edit({ text: "📥 正在下载备份...", parseMode: "html" });
+
         const messages = await client.getMessages(msg.peerId, {
           ids: [msg.replyTo.replyToMsgId!],
         });
@@ -567,31 +480,21 @@ class BfPlugin extends Plugin {
         if (!backupMsg?.file?.name?.endsWith(".tar.gz")) {
           await msg.edit({
             text: "❌ 回复的消息不是有效的备份文件",
-            parseMode: "html",
+            parseMode: "html"
           });
           return;
         }
 
-        await msg.edit({ text: "📥 正在下载备份...", parseMode: "html" });
-
-        // 下载文件
         const tempPath = path.join(os.tmpdir(), `restore_${Date.now()}.tar.gz`);
         const buffer = await client.downloadMedia(backupMsg);
-
-        if (!buffer) {
-          throw new Error("下载失败");
-        }
+        if (!buffer) throw new Error("下载失败");
 
         fs.writeFileSync(tempPath, buffer);
 
         await msg.edit({ text: "📦 正在解压备份...", parseMode: "html" });
-
-        // 解压文件
         const extractPath = await extractBackup(tempPath);
 
         await msg.edit({ text: "🔄 正在恢复备份...", parseMode: "html" });
-
-        // 恢复备份
         await restoreBackup(extractPath);
 
         // 清理临时文件
@@ -600,35 +503,53 @@ class BfPlugin extends Plugin {
           fs.rmSync(extractPath, { recursive: true, force: true });
         } catch {}
 
-        // 尝试重载插件
+        // 重载插件
         try {
           const pluginManager = require("@utils/pluginManager");
           if (pluginManager.loadPlugins) {
             await pluginManager.loadPlugins();
             await msg.edit({
               text: "✅ 恢复完成并已重载插件",
-              parseMode: "html",
+              parseMode: "html"
             });
           } else {
             await msg.edit({
               text: "✅ 恢复完成，请重启程序",
-              parseMode: "html",
+              parseMode: "html"
             });
           }
         } catch {
           await msg.edit({
             text: "✅ 恢复完成，请重启程序",
-            parseMode: "html",
+            parseMode: "html"
           });
         }
       } catch (error) {
         await msg.edit({
-          text: `❌ 恢复失败: ${String(error)}`,
-          parseMode: "html",
+          text: `❌ 恢复失败：<code>${htmlEscape(String(error))}</code>`,
+          parseMode: "html"
         });
       }
-    },
+    }
   };
+  
+  async cleanup(): Promise<void> {
+    // 清理所有跟踪的资源
+    for (const resourceId of ConfigManager['resourceTrackers']) {
+      ConfigManager.untrackResource(resourceId);
+    }
+    console.log("[BfPlugin] Cleanup completed");
+  }
 }
 
-export default new BfPlugin();
+// 格式化实体信息
+async function formatEntity(target: any, mention?: boolean, throwErrorIfFailed?: boolean) {
+  const client = await getGlobalClient();
+  if (!client) throw new Error("Telegram 客户端未初始化");
+  if (!target) throw new Error("无效的目标");
+
+  let id: any;
+  let entity: any;
+  
+  try {
+    entity = target
