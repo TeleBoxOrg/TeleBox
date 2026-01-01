@@ -2,13 +2,17 @@ import { Plugin } from "@utils/pluginBase";
 import { Api } from "telegram";
 import { SureDB } from "@utils/sureDB";
 import { sleep } from "telegram/Helpers";
-import { dealCommandPluginWithMessage, getCommandFromMessage } from "@utils/pluginManager";
+import { dealCommandPluginWithMessage, getCommandFromMessage, getPrefixes } from "@utils/pluginManager";
 
 // HTML转义函数
 const htmlEscape = (text: string): string =>
   text.replace(/[&<>"']/g, (m) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
   );
+
+// 获取主前缀
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
 
 // Sure用户、对话和消息缓存
 let sureCache = { ids: [] as number[], cids: [] as number[], msgs: [] as any[], ts: 0 };
