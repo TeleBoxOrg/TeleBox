@@ -2,13 +2,17 @@ import { Plugin } from "@utils/pluginBase";
 import { Api } from "telegram";
 import { SudoDB } from "@utils/sudoDB";
 import { sleep } from "telegram/Helpers";
-import { dealCommandPluginWithMessage, getCommandFromMessage } from "@utils/pluginManager";
+import { dealCommandPluginWithMessage, getCommandFromMessage, getPrefixes } from "@utils/pluginManager";
 
 // HTML转义函数
 const htmlEscape = (text: string): string =>
   text.replace(/[&<>"']/g, (m) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
   );
+
+// 获取主前缀
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
 
 // 环境变量中的sudo前缀
 const envPrefixes = process.env.TB_SUDO_PREFIX?.split(/\s+/g).filter((p) => p.length > 0) || [];
