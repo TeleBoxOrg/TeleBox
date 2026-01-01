@@ -2,13 +2,19 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { Plugin } from "@utils/pluginBase";
 import { Api } from "telegram";
+import { getPrefixes } from "@utils/pluginManager";
 
 const execAsync = promisify(exec);
 
+// HTML转义函数
 const htmlEscape = (text: string): string =>
   text.replace(/[&<>"']/g, (m) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
   );
+
+// 获取主前缀
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
 
 async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
   const { msg, shellCommand } = params;
@@ -37,7 +43,7 @@ class ExecPlugin extends Plugin {
 • 支持所有系统命令
 
 <b>🔧 使用方法：</b>
-• <code>${getPrefixes()[0]}exec &lt;命令&gt;</code> - 执行 Shell 命令
+• <code>${mainPrefix}exec &lt;命令&gt;</code> - 执行 Shell 命令
 
 <b>⚠️ 安全警告：</b>
 • 仅授权可信用户使用
