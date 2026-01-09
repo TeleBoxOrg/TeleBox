@@ -1,7 +1,8 @@
 import { Api } from "telegram";
 import { getGlobalClient } from "@utils/globalClient";
 import { StringSession } from "telegram/sessions";
-import input from "input";
+import { createInterface, Interface } from "readline/promises";
+import { stdin as input, stdout as output } from "process";
 import qr from "qrcode-terminal";
 import { Logger } from "telegram/extensions";
 import { storeStringSession } from "./apiConfig";
@@ -11,7 +12,32 @@ Logger.setLevel("error");
 const QR_REFRESH_INTERVAL = 2000;
 const QR_TIMEOUT_MS = 90_000;
 
-export async function login() {
+// 创建 readline 接口
+let rl: Interface | null = null;
+
+// 获取 readline 接口的辅助函数
+function getReadlineInterface(): Interface {
+  if (!rl) {
+    rl = createInterface({ input, output });
+  }
+  return rl;
+}
+
+// 关闭 readline 接口
+function closeReadlineInterface(): void {
+  if (rl) {
+    rl.close();
+    rl = null;
+  }
+}
+
+// 获取用户输入的辅助函数
+async function getUserInput(prompt: string): Promise<string> {
+  const readline = getReadlineInterface();
+  return await readline.question(prompt);
+}
+
+export async function login(): Promise<void> {
   console.log("Connecting to Telegram...");
 
   const client = await getGlobalClient();
@@ -19,10 +45,11 @@ export async function login() {
 
   if (await client.checkAuthorization()) {
     console.log("✅ Existing session detected. Logged in successfully.");
+    closeReadlineInterface();
     return;
   }
 
-  const useQr = await input.text("Use QR code login? [y/N]: ");
+  const useQr = await getUserInput("Use QR code login? [y/N]: ");
 
   let loggedIn = false;
 
@@ -39,14 +66,18 @@ export async function login() {
   storeStringSession(session);
 
   console.log("✅ Login completed. Session saved.");
+  closeReadlineInterface();
 }
 
-async function loginWithPhone(client: any) {
+async function loginWithPhone(client: any): Promise<void> {
   await client.start({
-    phoneNumber: async () => await input.text("Enter phone number (+86...): "),
-    password: async () => await input.text("Enter 2FA password (if any): "),
-    phoneCode: async () => await input.text("Enter the verification code: "),
-    onError: (err) => console.error("❌ Login error:", err),
+    phoneNumber: async () => await getUserInput("Enter phone number (+86...): "),
+    password: async () => await getUserInput("Enter 2FA password (if any): "),
+    phoneCode: async () => await getUserInput("Enter the verification code: "),
+    onError: (err: Error) => {
+      console.error("❌ Login error:", err);
+      closeReadlineInterface();
+    },
   });
 }
 
@@ -120,7 +151,7 @@ async function loginWithQr(client: any): Promise<boolean> {
   return false;
 }
 
-function renderProgressBar(remaining: number, total: number) {
+function renderProgressBar(remaining: number, total: number): void {
   const width = 20;
   const progress = Math.round(((total - remaining) / total) * width);
   const bar =
@@ -129,6 +160,6 @@ function renderProgressBar(remaining: number, total: number) {
   process.stdout.write(`\r${bar}  ${remaining}s remaining`);
 }
 
-function delay(ms: number) {
+function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
