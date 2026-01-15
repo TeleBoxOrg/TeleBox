@@ -228,7 +228,8 @@ class HelpPlugin extends Plugin {
       else if (typeof plugin.description === "string") description = plugin.description;
       else {
         try {
-          description = await plugin.description({ plugin: pluginEntry });
+          const d = await plugin.description({ plugin: pluginEntry });
+          description = typeof d === "string" ? d : "生成描述信息出错";
         } catch {
           description = "生成描述信息出错";
         }

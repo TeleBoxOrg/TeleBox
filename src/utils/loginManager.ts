@@ -4,10 +4,8 @@ import { StringSession } from "telegram/sessions";
 import { createInterface, Interface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
 import qr from "qrcode-terminal";
-import { Logger } from "telegram/extensions";
 import { storeStringSession } from "./apiConfig";
 
-Logger.setLevel("error");
 
 const QR_REFRESH_INTERVAL = 2000;
 const QR_TIMEOUT_MS = 90_000;
@@ -89,7 +87,7 @@ async function loginWithQr(client: any): Promise<boolean> {
   let lastRenderedSecond = -1;
 
   while (Date.now() - startTime < QR_TIMEOUT_MS) {
-    let result: Api.TypeLoginToken;
+    let result: Api.auth.LoginToken | Api.auth.LoginTokenSuccess | Api.auth.LoginTokenMigrateTo;
 
     try {
       result = await client.invoke(
@@ -133,8 +131,9 @@ async function loginWithQr(client: any): Promise<boolean> {
 
     if (result instanceof Api.auth.LoginTokenSuccess) {
       process.stdout.write("\n");
-      console.log(`✅ Login successful. Welcome, ${result.user.firstName}.`);
-      await client.getMe();
+      const me = await client.getMe();
+      const name = me && "firstName" in me ? me.firstName : "";
+      console.log(`✅ Login successful. Welcome, ${name}.`);
       return true;
     }
 
