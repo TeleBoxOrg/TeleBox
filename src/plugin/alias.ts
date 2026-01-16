@@ -64,8 +64,16 @@ async function setAlias(args: string[], msg: Api.Message) {
   }
 
   const db = new AliasDB();
+  const list = db.list();
+  for (const rec of list) {
+    if (rec.final === original) {
+      db.del(rec.original);
+    }
+  }
+
   db.set(final, original);
   db.close();
+
   await loadPlugins();
 
   await msg.edit({ text: `插件命令重命名成功，${final} -> ${original}` });
@@ -109,7 +117,7 @@ async function listAlias(args: string[], msg: Api.Message) {
 
 class AliasPlugin extends Plugin {
   description: string = `插件命名重命名
-<code>${mainPrefix}alias set a b</code> - 使用别名 <code>a</code> 执行 <code>b</code>
+<code>${mainPrefix}alias set a b</code> - 使用别名 <code>a</code> 执行 <code>b</code>（同一原命令只保留一个别名，新设置会覆盖旧别名）
 <code>${mainPrefix}alias del a</code> - 删除别名
 <code>${mainPrefix}alias ls</code> - 查看所有别名`;
 
