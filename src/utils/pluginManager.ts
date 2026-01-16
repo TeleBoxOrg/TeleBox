@@ -12,11 +12,12 @@ import {
 } from "telegram/events/EditedMessage";
 
 type PluginEntry = {
-  original?: string; // 主要用于重定向命令找到初始命令，从而可以调用相应的命令函数，不是重定向的可以不填写
+  original?: string;
+  aliasFinal?: string;
   plugin: Plugin;
 };
 
-const validPlugins: Plugin[] = []; // 用来存储有效的插件，防止随意安装东西引起崩溃
+const validPlugins: Plugin[] = [];
 const plugins: Map<string, PluginEntry> = new Map();
 
 const USER_PLUGIN_PATH = path.join(process.cwd(), "plugins");
@@ -50,18 +51,25 @@ function dynamicRequireWithDeps(filePath: string) {
     return require(filePath);
   } catch (err) {
     console.error(`Failed to require ${filePath}:`, err);
-    return null; // 或者 throw err，看你想如何处理
+    return null;
   }
 }
 
 async function setPlugins(basePath: string) {
-  const files = fs.readdirSync(basePath).filter((file) => file.endsWith(".ts"));
+  const files = fs
+    .readdirSync(basePath)
+    .filter((file) => file.endsWith(".ts"));
+
   const aliasDB = new AliasDB();
+  const aliasList = aliasDB.list();
+  aliasDB.close();
+
   for await (const file of files) {
     const pluginPath = path.resolve(basePath, file);
-    const mod = await dynamicRequireWithDeps(pluginPath);
+    const mod = dynamicRequireWithDeps(pluginPath);
     if (!mod) continue;
     const plugin = mod.default;
+
     if (plugin instanceof Plugin && isValidPlugin(plugin)) {
       if (!plugin.name) {
         plugin.name = path.basename(file, ".ts");
@@ -69,18 +77,24 @@ async function setPlugins(basePath: string) {
 
       validPlugins.push(plugin);
       const cmds = Object.keys(plugin.cmdHandlers);
+
       for (const cmd of cmds) {
         plugins.set(cmd, { plugin });
-        const alias = aliasDB.getOriginal(cmd);
-        if (alias?.length > 0) {
-          alias.forEach((a) => {
-            plugins.set(a, { original: cmd, plugin });
+
+        const relatedAliases = aliasList.filter(
+          (rec) => rec.final === cmd || rec.final.startsWith(cmd + " ")
+        );
+
+        for (const rec of relatedAliases) {
+          plugins.set(rec.original, {
+            plugin,
+            original: cmd,
+            aliasFinal: rec.final,
           });
         }
       }
     }
   }
-  aliasDB.close();
 }
 
 function getPluginEntry(command: string): PluginEntry | undefined {
@@ -100,33 +114,44 @@ function listCommands(): string[] {
   return Array.from(cmds.values()).sort((a, b) => a.localeCompare(b));
 }
 
-function getCommandFromMessage(msg: Api.Message | string, diyPrefixes?: string[]): string | null {
-  let prefixes = getPrefixes();
+function getCommandFromMessage(
+  msg: Api.Message | string,
+  diyPrefixes?: string[]
+): string | null {
+  let pfs = getPrefixes();
   if (diyPrefixes && diyPrefixes.length > 0) {
-    prefixes = diyPrefixes;
+    pfs = diyPrefixes;
   }
   const text = typeof msg === "string" ? msg : msg.message;
-  // 如果发送的是 `!h`
-  // console.log(msg?.message); // 这里是 !h
-  // console.log(msg?.text); // 这里是 `!h`
-  // 目前是认为可以执行
-  // 仅当消息以任一前缀开头时才解析
-  const matched = prefixes.find((p) => text.startsWith(p));
+
+  const matched = pfs.find((p) => text.startsWith(p));
   if (!matched) return null;
+
   const rest = text.slice(matched.length).trim();
-  const [cmd] = rest.split(/\s+/);
-  if (!cmd) return null;
-  if (/^[a-z0-9_]+$/i.test(cmd)) return cmd;
+  if (!rest) return null;
+
+  const parts = rest.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return null;
 
   const aliasDB = new AliasDB();
-
-  if (aliasDB.get(cmd)) {
-    aliasDB.close();
-    return cmd;
-  } else {
-    aliasDB.close();
-    return null;
+  let aliasCandidate: string | null = null;
+  for (let i = parts.length; i >= 1; i--) {
+    const candidate = parts.slice(0, i).join(" ");
+    if (aliasDB.get(candidate)) {
+      aliasCandidate = candidate;
+      break;
+    }
   }
+  aliasDB.close();
+
+  if (aliasCandidate) {
+    return aliasCandidate;
+  }
+
+  const cmd = parts[0];
+  if (/^[a-z0-9_]+$/i.test(cmd)) return cmd;
+
+  return null;
 }
 
 async function dealCommandPluginWithMessage(param: {
@@ -137,18 +162,58 @@ async function dealCommandPluginWithMessage(param: {
 }) {
   const { cmd, msg, isEdited, trigger } = param;
   const pluginEntry = getPluginEntry(cmd);
+
   try {
-    if (pluginEntry) {
-      if (isEdited && pluginEntry.plugin.ignoreEdited) {
-        // console.log(`插件 ${pluginEntry.plugin.constructor.name} 忽略编辑的消息`);
-        return;
+    if (!pluginEntry) return;
+
+    if (isEdited && pluginEntry.plugin.ignoreEdited) {
+      return;
+    }
+
+    const original = pluginEntry.original;
+    let targetCmd = original || cmd;
+    let targetMsg: Api.Message = msg;
+
+    if (original && pluginEntry.aliasFinal && pluginEntry.aliasFinal !== original) {
+      const pfs = getPrefixes();
+      const base: any = msg;
+      const text: string = base.message || base.text || "";
+      const matched = pfs.find((p) => text.startsWith(p)) || "";
+      const rest = text.slice(matched.length).trim();
+      const parts = rest.split(/\s+/).filter(Boolean);
+
+      const aliasParts = cmd.split(/\s+/).filter(Boolean);
+      const finalParts = pluginEntry.aliasFinal.split(/\s+/).filter(Boolean);
+
+      if (
+        parts.length >= aliasParts.length &&
+        aliasParts.every((w, idx) => parts[idx] === w)
+      ) {
+        const extraParts = parts.slice(aliasParts.length);
+        const newRest = [...finalParts, ...extraParts].join(" ");
+        const newText = matched + newRest;
+
+        const newMsg: any = Object.create(Object.getPrototypeOf(base));
+        Object.assign(newMsg, base);
+
+        Object.defineProperty(newMsg, "message", {
+          value: newText,
+          writable: true,
+          configurable: true,
+        });
+        Object.defineProperty(newMsg, "text", {
+          value: newText,
+          writable: true,
+          configurable: true,
+        });
+
+        targetMsg = newMsg as Api.Message;
       }
-      const original = pluginEntry.original;
-      if (original) {
-        await pluginEntry.plugin.cmdHandlers[original](msg, trigger);
-      } else {
-        await pluginEntry.plugin.cmdHandlers[cmd](msg, trigger);
-      }
+    }
+
+    const handler = pluginEntry.plugin.cmdHandlers[targetCmd];
+    if (handler) {
+      await handler(targetMsg, trigger);
     }
   } catch (error) {
     console.log(error);
@@ -160,7 +225,6 @@ async function dealCommandPlugin(
   event: NewMessageEvent | EditedMessageEvent
 ): Promise<void> {
   const msg = event.message;
-  // 检查是否发送到 收藏信息
   const savedMessage = (msg as any).savedPeerId;
   if (msg.out || savedMessage) {
     const cmd = getCommandFromMessage(msg);
@@ -196,38 +260,47 @@ function dealListenMessagePlugin(client: TelegramClient): void {
   for (const plugin of validPlugins) {
     const messageHandler = plugin.listenMessageHandler;
     if (messageHandler) {
-      client.addEventHandler(async (event: NewMessageEvent) => {
-        try {
-          await messageHandler(event.message);
-        } catch (error) {
-          console.log("listenMessageHandler NewMessageerror:", error);
-        }
-      }, new NewMessage());
+      client.addEventHandler(
+        async (event: NewMessageEvent) => {
+          try {
+            await messageHandler(event.message);
+          } catch (error) {
+            console.log("listenMessageHandler NewMessage error:", error);
+          }
+        },
+        new NewMessage()
+      );
+
       if (
         !plugin.listenMessageHandlerIgnoreEdited ||
         (plugin.name && listenerHandleEdited.includes(plugin.name))
       ) {
-        client.addEventHandler(async (event: any) => {
-          try {
-            await messageHandler(event.message, {
-              isEdited: true,
-            });
-          } catch (error) {
-            console.log("listenMessageHandler EditedMessage error:", error);
-          }
-        }, new EditedMessage({}));
+        client.addEventHandler(
+          async (event: any) => {
+            try {
+              await messageHandler(event.message, { isEdited: true });
+            } catch (error) {
+              console.log("listenMessageHandler EditedMessage error:", error);
+            }
+          },
+          new EditedMessage({})
+        );
       }
     }
+
     const eventHandlers = plugin.eventHandlers;
     if (Array.isArray(eventHandlers) && eventHandlers.length > 0) {
       for (const { event, handler } of eventHandlers) {
-        client.addEventHandler(async (event: any) => {
-          try {
-            await handler(event);
-          } catch (error) {
-            console.log("eventHandler error:", error);
-          }
-        }, event);
+        client.addEventHandler(
+          async (ev: any) => {
+            try {
+              await handler(ev);
+            } catch (error) {
+              console.log("eventHandler error:", error);
+            }
+          },
+          event
+        );
       }
     }
   }
@@ -252,31 +325,24 @@ async function clearPlugins() {
   validPlugins.length = 0;
   plugins.clear();
 
-  let client = await getGlobalClient();
-  let handlers = client.listEventHandlers();
+  const client = await getGlobalClient();
+  const handlers = client.listEventHandlers();
   for (const handler of handlers) {
     client.removeEventHandler(handler[1], handler[0]);
   }
 }
 
 async function loadPlugins() {
-  // 清空现有插件
   await clearPlugins();
-  // 清空所有 cron 任务
   cronManager.clear();
 
-  // 设置插件路径
   await setPlugins(USER_PLUGIN_PATH);
   await setPlugins(DEFAUTL_PLUGIN_PATH);
 
-  let client = await getGlobalClient();
-  // 注册插件命令处理器
+  const client = await getGlobalClient();
   client.addEventHandler(dealNewMsgEvent, new NewMessage());
-  // 注册编辑消息处理器 (用于处理编辑后的命令)
   client.addEventHandler(dealEditedMsgEvent, new EditedMessage({}));
-  // 添加监听新消息事件的处理器
   dealListenMessagePlugin(client);
-  // 添加cron事件
   dealCronPlugin(client);
 }
 
