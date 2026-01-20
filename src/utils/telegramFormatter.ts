@@ -5,7 +5,12 @@ export class TelegramFormatter {
   /** 将Markdown转换为HTML */
   static markdownToHtml(md: string, options?: { collapseSafe?: boolean }): string {
     const collapseSafe = options?.collapseSafe === true;
-    const src = (md || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const src = (md || "")
+      .replace(/<\s*\/?\s*cite\s*>|<\s*cite\s*\/\s*>/gi, "")
+      .replace(/&lt;\s*\/?\s*cite\s*&gt;|&lt;\s*cite\s*\/\s*&gt;/gi, "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
+
     const lines = src.split("\n");
     const blocks: string[] = [];
     let i = 0;
@@ -236,7 +241,7 @@ export class TelegramFormatter {
       return `${prefix}${rendered}`;
     });
 
-    return `<blockquote>${htmlLines.join("<br>")}</blockquote>`;
+    return `<blockquote>${htmlLines.join("\n")}</blockquote>`;
   }
 
   /** 规范化引用内部的列表标记（把 - / * / + 转成 •，支持 > * / >> * 等） */
