@@ -1,9 +1,14 @@
 import { getPrefixes } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
-import { Api, client, TelegramClient } from "telegram";
+import { Api, TelegramClient } from "telegram";
 import { RPCError } from "telegram/errors";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
+
+function shouldRevokeDelete(message?: Api.Message): boolean {
+  return Boolean(message?.isPrivate);
+}
+
 class RePlugin extends Plugin {
   description: string = `复读\n回复一条消息即可复读\n<code>${mainPrefix}re [消息数] [复读次数]</code>`;
   cmdHandlers: Record<
@@ -26,7 +31,9 @@ class RePlugin extends Plugin {
           limit: count,
           reverse: true,
         });
-        await msg.delete();
+
+        // 私聊中需要双向删除命令消息，群聊则保持原有行为（仅本端删除）
+        await msg.safeDelete({ revoke: shouldRevokeDelete(msg) });
         
         // 尝试使用转发方式复读
         let forwardFailed = false;
@@ -80,9 +87,7 @@ class RePlugin extends Plugin {
         }
       }
       if (trigger) {
-        try {
-          await trigger.delete();
-        } catch (e) {}
+        await trigger.safeDelete({ revoke: shouldRevokeDelete(trigger) });
       }
     },
   };
