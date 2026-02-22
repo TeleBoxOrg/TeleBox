@@ -145,16 +145,18 @@ async function memoryMonitorTask() {
 }
 
 const HELP_TEXT = `🔄 Reload - 插件重载与内存管理
+
 🔧 核心命令:
-• \`${mainPrefix}reload\` - 重新加载所有插件
-• \`${mainPrefix}exit\` - 退出进程
-• \`${mainPrefix}pmr\` - PM2 进程重启
-• \`${mainPrefix}health\` - 查看内存使用情况
+• <code> ${mainPrefix}reload </code> - 重新加载所有插件
+• <code> ${mainPrefix}exit </code> - 退出进程
+• <code> ${mainPrefix}pmr </code> - PM2 进程重启
+• <code> ${mainPrefix}health </code> - 查看内存使用情况
+
 🛡️ 内存泄露修复:可用命令:
-• \`${mainPrefix}leakfix on\` - 启用 LeakFix
-• \`${mainPrefix}leakfix off\` - 禁用 LeakFix
-• \`${mainPrefix}leakfix set [MB]\` - 设置内存阈值（默认150 MB）
-• \`${mainPrefix}leakfix status\` - 查看状态
+• <code> ${mainPrefix}leakfix on </code> - 启用 LeakFix
+• <code> ${mainPrefix}leakfix off </code> - 禁用 LeakFix
+• <code> ${mainPrefix}leakfix set [MB] </code> - 设置内存阈值（默认150 MB）
+• <code> ${mainPrefix}leakfix status </code> - 查看状态
 启用后效果:
 ✅ 每小时自动检查内存占用，超过阈值时自动重启 TeleBox
 ✅ 重新加载后自动检测内存增长情况`;
