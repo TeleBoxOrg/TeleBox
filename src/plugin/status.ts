@@ -46,13 +46,9 @@ const DEFAULT_TEMPLATE = `📊 TeleBox 运行状态
 /** 帮助文本 */
 const HELP_TEXT = `⚙️ <b>Status 系统状态插件</b>
 
-<b>📝 功能描述:</b>
-• 显示系统详细信息与TeleBox运行状态
-• 支持自定义显示模板
-• 实时监控资源使用情况
-
 <b>🔧 使用方法:</b>
-• <code>.status</code> - 显示当前系统状态
+• <code>.sysinfo</code> - 显示当前的系统状态
+• <code>.status</code> - 显示当前的状态
 • <code>.status set</code> - 回复一条包含模板的消息，设置自定义格式
 • <code>.status reset</code> - 重置为默认模板
 
@@ -101,9 +97,8 @@ CPU: {cpuUsage}% | 内存: {memPercent}%
 回复该消息，发送 <code>.status set</code>
 
 <b>⚠️ 注意事项:</b>
-• 模板必须包含有效的HTML标签（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code> 等）
-• 标签名称区分大小写，必须完全匹配
-• 如需恢复默认模板，使用 <code>.status reset</code>`;
+• 模板必须包含的HTML标签必须有效（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code> 等）
+• 标签名称必须完全匹配`;
 
 /** 系统命令执行超时配置 (毫秒) */
 const EXEC_TIMEOUT = 5000;
