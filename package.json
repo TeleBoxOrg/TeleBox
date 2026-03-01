@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/TeleBoxDev/TeleBox#readme",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/archiver": "^6.0.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cron": "^2.0.1",
