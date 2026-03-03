@@ -27,7 +27,7 @@ const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
 class EntityManager {
   private count = 0;
-  private readonly LIMIT = 95;
+  private readonly LIMIT = 100;
   private readonly IMPORTANT_TAGS = ['blockquote', 'a', 'b', 'i', 'u'];
   
   canAdd(tag: string): boolean {
