@@ -7,101 +7,114 @@ import * as path from "path";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 
-// ==================== 常量定义 ====================
+// ==================== 常量 ====================
 const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b>
 <b>🏠 主机信息</b>
 • <b>主机名:</b> <code>{hostname}</code>
 • <b>平台:</b> <code>{platform} {arch}</code>
-• <b>内核:</b> <code>{kernelInfo}</code>
+• <b>内核:</b> <code>{kernel}</code>
 • <b>语言环境:</b> <code>{locale}</code>
 
 <b>📦 版本信息</b>
-• <b>Node.js:</b> <code>{nodejsVersion}</code>
-• <b>Telegram:</b> <code>{telegramVersion}</code>
-• <b>TeleBox:</b> <code>{teleboxVersion}</code>
+• <b>Node.js版本:</b> <code>{nodejs}</code>
+• <b>Telegram版本:</b <code>{telegram}</code>
+• <b>TeleBox版本:</b> <code>{telebox}</code>
 
 <b>📈 资源使用</b>
-• <b>CPU:</b> <code>{cpuUsage}%</code> (系统) / <code>{processCpuUsage}%</code> (进程)
-• <b>内存:</b> <code>{memPercent}%</code> (系统) / <code>{processMemPercent}%</code> (进程)
-• <b>SWAP:</b> <code>{swapInfo}</code>
-• <b>磁盘:</b> <code>{diskInfo}</code>
-• <b>网络接口:</b> <code>{networkInterface}</code>
+• <b>CPU:</b> <code>{cpu}%</code> (系统) / <code>{processcpu}%</code> (进程)
+  系统CPU: {cpubar}
+  进程CPU: {processcpubar}
+• <b>内存:</b> <code>{mem}%</code> (系统) / <code>{processmem}%</code> (进程)
+  系统内存: {membar}
+  进程内存: {processmembar}
+• <b>SWAP:</b> <code>{swap}</code>
+• <b>磁盘:</b> <code>{disk}</code>
+  磁盘使用: {diskbar}
+• <b>网络接口:</b> <code>{network}</code>
 
 <b>⚙️ 系统详情</b>
-• <b>OS:</b> <code>{osInfo}</code>
-• <b>负载平均:</b> <code>{loadavgStr}</code>
+• <b>OS:</b> <code>{os}</code>
+• <b>负载平均:</b> <code>{loadaverage}</code>
 • <b>包数量:</b> <code>{packages}</code>
-• <b>Init:</b> <code>{initSystem}</code>
-• <b>进程数:</b> <code>{processes}</code>
+• <b>Init:</b> <code>{init}</code>
+• <b>进程数:</b> <code>{process}</code>
 
 <b>⏱️ 运行状态</b>
-• <b>运行时间:</b> <code>{uptimeStr}</code>
-• <b>扫描耗时:</b> <code>{scanTime}ms</code>`;
+• <b>运行时间:</b> <code>{uptime}</code>
+• <b>扫描耗时:</b> <code>{scantime}ms</code>`;
 
-/** 帮助文本 */
+// 帮助文本
 const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 
 <b>🔧 使用方法:</b>
-• <code>.sysinfo</code> - 显示当前的系统状态
-• <code>.status</code> - 显示当前的状态
-• <code>.status set</code> - 回复一条包含模板的消息，设置自定义格式
-• <code>.status reset</code> - 重置为默认模板
+• <code>.sysinfo</code> - 显示当前系统状态
+• <code>.status</code> - 显示当前状态
+• <code>.status set</code> - 回复模板消息，设置自定义格式
+• <code>.status reset</code> - 重置默认模板
 
 <b>💡 模板标签说明:</b>
-可在模板中使用以下标签，系统会自动替换为对应值：
-
+可用标签：
 <blockquote expandable><b>🏠 主机信息</b>
 • <code>{hostname}</code> - <b>主机名</b>
 • <code>{platform}</code> - <b>系统平台</b> (linux/win32/darwin)
 • <code>{arch}</code> - <b>系统架构</b> (x64/arm64等)
-• <code>{kernelInfo}</code> - <b>内核版本</b>
+• <code>{kernel}</code> - <b>内核版本</b>
 • <code>{locale}</code> - <b>语言环境</b>
 
 <b>📦 版本信息</b>
-• <code>{nodejsVersion}</code> - <b>Node.js版本</b>
-• <code>{telegramVersion}</code> - <b>Telegram库版本</b>
-• <code>{teleboxVersion}</code> - <b>TeleBox版本</b>
+• <code>{nodejs}</code> - <b>Node.js版本</b>
+• <code>{telegram}</code> - <b>Telegram库版本</b>
+• <code>{telebox}</code> - <b>TeleBox版本</b>
 
 <b>📈 资源使用</b>
-• <code>{cpuUsage}</code> - <b>系统CPU使用率</b> (%)
-• <code>{processCpuUsage}</code> - <b>进程CPU使用率</b> (%)
-• <code>{memPercent}</code> - <b>系统内存使用率</b> (%)
-• <code>{processMemPercent}</code> - <b>进程内存使用率</b> (%)
-• <code>{swapInfo}</code> - <b>SWAP使用情况</b>
-• <code>{diskInfo}</code> - <b>磁盘使用情况</b>
-• <code>{networkInterface}</code> - <b>主网络接口名称</b>
+• <code>{cpu}</code> - <b>系统CPU使用率</b> (%)
+• <code>{processcpu}</code> - <b>进程CPU使用率</b> (%)
+• <code>{mem}</code> - <b>系统内存使用率</b> (%)
+• <code>{processmem}</code> - <b>进程内存使用率</b> (%)
+• <code>{swap}</code> - <b>SWAP使用情况</b>
+• <code>{disk}</code> - <b>磁盘使用情况</b>
+• <code>{network}</code> - <b>主网络接口名称</b>
+• <b>进度条标签:</b>
+  <code>{cpubar}</code> - 系统CPU进度条
+  <code>{processcpubar}</code> - 进程CPU进度条
+  <code>{membar}</code> - 系统内存进度条
+  <code>{processmembar}</code> - 进程内存进度条
+  <code>{diskbar}</code> - 磁盘进度条
 
 <b>⚙️ 系统详情</b>
-• <code>{osInfo}</code> - <b>操作系统信息</b>
-• <code>{loadavgStr}</code> - <b>负载平均值</b>
+• <code>{os}</code> - <b>操作系统信息</b>
+• <code>{loadaverage}</code> - <b>负载平均值</b>
 • <code>{packages}</code> - <b>已安装包数量</b>
-• <code>{initSystem}</code> - <b>初始化系统</b> (systemd/pm2等)
-• <code>{processes}</code> - <b>进程数量</b>
+• <code>{init}</code> - <b>初始化系统</b> (systemd/pm2等)
+• <code>{process}</code> - <b>进程数量</b>
 
 <b>⏱️ 运行状态</b>
-• <code>{uptimeStr}</code> - <b>运行时间</b> (格式: Xd Yh Zm)
-• <code>{scanTime}</code> - <b>扫描耗时</b> (毫秒)</blockquote>
+• <code>{uptime}</code> - <b>运行时间</b> (Xd Yh Zm)
+• <code>{scantime}</code> - <b>扫描耗时</b> (毫秒)</blockquote>
 
 <b>📝 模板设置示例:</b>
 发送一条消息，内容为自定义模板：
 <code>&lt;b&gt;📊 系统状态&lt;/b&gt;
-CPU: {cpuUsage}% | 内存: {memPercent}%
-运行时间: {uptimeStr}</code>
+CPU: {cpu}% {cpubar}
+内存: {mem}% {membar}
+磁盘: {disk} {diskbar}
+运行时间: {uptime}</code>
 回复该消息，发送 <code>.status set</code>
 <b>⚠️ 注意事项:</b>
-• 模板必须包含的HTML标签必须有效（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code> 等）
+• 模板必须包含有效的HTML标签（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code>）
 • 标签名称必须完全匹配`;
 
-/** 系统命令执行超时配置 (毫秒) */
+// 系统命令执行超时 (ms)
 const EXEC_TIMEOUT = 5000;
 
-// ==================== 类型定义 ====================
+// ==================== 类型 ====================
 interface StatusData {
+  // 旧字段（向后兼容）
   hostname: string;
   platform: string;
   arch: string;
-  uptime: string;
-  uptimeStr: string;
+  uptime: string;            // 原始秒数
+  uptimeStr: string;         // 格式化运行时间
   totalmem: string;
   freemem: string;
   usedMem: string;
@@ -124,7 +137,32 @@ interface StatusData {
   swapInfo: string;
   loadavgStr: string;
   networkInterface: string;
-  scanTime: string;
+  scanTime: string;           // 扫描耗时 (ms)
+
+  // 新字段（匹配简化标签）
+  kernel: string;             // 内核版本
+  nodejs: string;             // Node.js版本
+  telegram: string;           // Telegram库版本
+  telebox: string;            // TeleBox版本
+  os: string;                 // 操作系统信息
+  loadaverage: string;        // 负载平均
+  init: string;               // 初始化系统
+  process: string;            // 进程数
+  scantime: string;           // 扫描耗时 (同 scanTime)
+  network: string;            // 主网络接口名
+  cpu: string;                // 系统CPU使用率
+  processcpu: string;         // 进程CPU使用率
+  mem: string;                // 系统内存使用率
+  processmem: string;         // 进程内存使用率
+  swap: string;               // SWAP使用情况
+  disk: string;               // 磁盘使用情况
+
+  // 进度条标签
+  cpubar: string;             // 系统CPU进度条
+  processcpubar: string;      // 进程CPU进度条
+  membar: string;             // 系统内存进度条
+  processmembar: string;      // 进程内存进度条
+  diskbar: string;            // 磁盘进度条
 }
 
 interface SystemDetails {
@@ -160,7 +198,7 @@ class TeleBoxSystemMonitor extends Plugin {
     this.initDB();
   }
 
-  /** 初始化数据库 */
+  // 初始化数据库
   private async initDB(): Promise<void> {
     try {
       this.db = await JSONFilePreset(this.DB_PATH, {
@@ -178,16 +216,12 @@ class TeleBoxSystemMonitor extends Plugin {
     sysinfo: this.handleSysInfo.bind(this),
   };
 
-  /**
-   * 处理 status 命令
-   * @param msg - Telegram 消息对象
-   */
+  // 处理 status 命令
   private async handleStatus(msg: Api.Message): Promise<void> {
     try {
       const parts = msg.text?.trim().split(/\s+/) || [];
       const subCommand = parts[1]?.toLowerCase();
 
-      // 子命令路由
       switch (subCommand) {
         case "set":
           await this.handleSetTemplate(msg);
@@ -203,10 +237,7 @@ class TeleBoxSystemMonitor extends Plugin {
     }
   }
 
-  /**
-   * 处理 sysinfo 命令
-   * @param msg - Telegram 消息对象
-   */
+  // 处理 sysinfo 命令
   private async handleSysInfo(msg: Api.Message): Promise<void> {
     try {
       await msg.edit({
@@ -224,10 +255,7 @@ class TeleBoxSystemMonitor extends Plugin {
   }
 
   // ==================== 状态显示 ====================
-  /**
-   * 显示系统状态
-   * @param msg - Telegram 消息对象
-   */
+  // 显示系统状态
   private async showStatus(msg: Api.Message): Promise<void> {
     await msg.edit({
       text: "🔄 正在获取状态信息...",
@@ -237,7 +265,9 @@ class TeleBoxSystemMonitor extends Plugin {
     const template = this.db?.data?.template || DEFAULT_TEMPLATE;
     const statusData = await this.getStatusData();
     const scanTime = Date.now() - startTime;
+    // 同时更新新旧字段
     statusData.scanTime = scanTime.toString();
+    statusData.scantime = scanTime.toString();
 
     const rendered = this.renderTemplate(template, statusData);
     await msg.edit({
@@ -246,10 +276,15 @@ class TeleBoxSystemMonitor extends Plugin {
     });
   }
 
-  /**
-   * 获取状态数据
-   * @returns 状态数据对象
-   */
+  // 生成进度条字符串
+  private generateProgressBar(percentage: number, length: number = 20): string {
+    const filled = Math.round((percentage / 100) * length);
+    const empty = length - filled;
+    const bar = "█".repeat(filled) + "░".repeat(empty);
+    return `[${bar}] ${percentage}%`;
+  }
+
+  // 获取状态数据
   private async getStatusData(): Promise<StatusData> {
     const hostname = os.hostname();
     const platform = os.platform();
@@ -259,34 +294,44 @@ class TeleBoxSystemMonitor extends Plugin {
     const freemem = os.freemem();
     const loadavg = os.loadavg();
 
-    // 运行时间格式化
     const uptimeStr = this.formatUptime(uptime);
 
-    // 内存计算
     const usedMem = totalmem - freemem;
     const memPercent = Math.round((usedMem / totalmem) * 100);
     const processMemUsage = process.memoryUsage();
     const processMemPercent = Math.round((processMemUsage.rss / totalmem) * 1000) / 10;
 
-    // CPU使用率
     const cpuUsage = await this.getCpuUsage();
     const processCpuUsage = await this.getProcessCpuUsage();
 
-    // 系统详情
     const systemDetails = await this.gatherSysInfoDetails();
 
-    // 负载平均
     const loadavgStr = platform === "win32"
       ? "N/A"
       : loadavg.map((load) => load.toFixed(2)).join(", ");
 
-    // 语言环境
     const locale = process.env.LANG || process.env.LC_ALL || "en_US.UTF-8";
 
-    // 版本信息
     const versions = await this.getVersionInfo();
 
-    return {
+    const cpuPercentNum = parseFloat(cpuUsage) || 0;
+    const processCpuNum = parseFloat(processCpuUsage) || 0;
+    const memPercentNum = parseInt(memPercent) || 0;
+    const processMemNum = parseFloat(processMemPercent) || 0;
+    
+    let diskPercentNum = 0;
+    const diskMatch = systemDetails.diskInfo.match(/\((\d+)%\)/);
+    if (diskMatch) {
+      diskPercentNum = parseInt(diskMatch[1], 10);
+    }
+
+    const cpubar = this.generateProgressBar(cpuPercentNum);
+    const processcpubar = this.generateProgressBar(processCpuNum);
+    const membar = this.generateProgressBar(memPercentNum);
+    const processmembar = this.generateProgressBar(processMemNum);
+    const diskbar = this.generateProgressBar(diskPercentNum);
+
+    const baseData = {
       hostname,
       platform,
       arch,
@@ -314,15 +359,38 @@ class TeleBoxSystemMonitor extends Plugin {
       swapInfo: systemDetails.swapInfo,
       loadavgStr,
       networkInterface: this.getMainInterface(),
-      scanTime: "0", // 将在外部计算
+      scanTime: "0",
+    };
+
+    return {
+      ...baseData,
+      kernel: baseData.kernelInfo,
+      nodejs: baseData.nodejsVersion,
+      telegram: baseData.telegramVersion,
+      telebox: baseData.teleboxVersion,
+      os: baseData.osInfo,
+      loadaverage: baseData.loadavgStr,
+      init: baseData.initSystem,
+      process: baseData.processes,
+      uptime: baseData.uptimeStr,
+      scantime: baseData.scanTime,
+      network: baseData.networkInterface,
+      cpu: baseData.cpuUsage,
+      processcpu: baseData.processCpuUsage,
+      mem: baseData.memPercent,
+      processmem: baseData.processMemPercent,
+      swap: baseData.swapInfo,
+      disk: baseData.diskInfo,
+      cpubar,
+      processcpubar,
+      membar,
+      processmembar,
+      diskbar,
     };
   }
 
   // ==================== 模板管理 ====================
-  /**
-   * 设置自定义模板
-   * @param msg - Telegram 消息对象
-   */
+  // 设置自定义模板
   private async handleSetTemplate(msg: Api.Message): Promise<void> {
     const replyMsg = await msg.getReplyMessage();
     if (!replyMsg || !replyMsg.text) {
@@ -343,10 +411,7 @@ class TeleBoxSystemMonitor extends Plugin {
     });
   }
 
-  /**
-   * 重置为默认模板
-   * @param msg - Telegram 消息对象
-   */
+  // 重置默认模板
   private async handleResetTemplate(msg: Api.Message): Promise<void> {
     if (!this.db) await this.initDB();
     this.db.data.template = DEFAULT_TEMPLATE;
@@ -357,21 +422,13 @@ class TeleBoxSystemMonitor extends Plugin {
     });
   }
 
-  /**
-   * 渲染模板
-   * @param template - 模板字符串
-   * @param data - 替换数据
-   * @returns 渲染后的字符串
-   */
+  // 渲染模板
   private renderTemplate(template: string, data: Record<string, string>): string {
     return template.replace(/{(\w+)}/g, (_, key) => data[key] || `{${key}}`);
   }
 
   // ==================== 系统信息获取 ====================
-  /**
-   * 获取系统信息（sysinfo 格式）
-   * @returns 系统信息字符串
-   */
+  // 获取系统信息（sysinfo 格式）
   private async getSystemInfo(): Promise<string> {
     const startTime = Date.now();
     const hostname = os.hostname();
@@ -424,10 +481,7 @@ Scan Time: ${scanTime}ms
 </code>`;
   }
 
-  /**
-   * 收集系统详细信息
-   * @returns 系统详情对象
-   */
+  // 收集系统详细信息
   private async gatherSysInfoDetails(): Promise<SystemDetails> {
     const platform = os.platform();
     const arch = os.arch();
@@ -479,7 +533,6 @@ Scan Time: ${scanTime}ms
   }
 
   // ==================== Linux 系统信息 ====================
-  /** 获取 Linux 操作系统信息 */
   private async getLinuxOsInfo(arch: string): Promise<string> {
     try {
       const osRelease = fs.readFileSync("/etc/os-release", "utf8");
@@ -490,7 +543,6 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  /** 获取 Linux 内核信息 */
   private async getLinuxKernelInfo(): Promise<string> {
     try {
       const kernel = this.safeExec("uname -r").trim();
@@ -500,7 +552,6 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  /** 获取 Linux 包数量 */
   private async getLinuxPackageCount(): Promise<string> {
     try {
       const count = this.safeExec("dpkg -l | grep '^ii' | wc -l").trim();
@@ -510,7 +561,6 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  /** 获取初始化系统 */
   private async getInitSystem(): Promise<string> {
     try {
       if (process.env.PM2_HOME || process.env.pm_id !== undefined) {
@@ -536,7 +586,6 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  /** 获取 Linux 磁盘信息 */
   private async getLinuxDiskInfo(): Promise<string> {
     try {
       const dfOutput = this.safeExec("df -k / | tail -1").trim();
@@ -557,7 +606,6 @@ Scan Time: ${scanTime}ms
     return "Unknown";
   }
 
-  /** 获取 Linux SWAP 信息 */
   private async getLinuxSwapInfo(): Promise<string> {
     try {
       const freeOutput = this.safeExec("free -b");
@@ -590,7 +638,6 @@ Scan Time: ${scanTime}ms
   }
 
   // ==================== macOS 系统信息 ====================
-  /** 获取 macOS 磁盘信息 */
   private async getMacDiskInfo(): Promise<string> {
     try {
       const targetPath = fs.existsSync("/System/Volumes/Data") ? "/System/Volumes/Data" : "/";
@@ -612,7 +659,6 @@ Scan Time: ${scanTime}ms
     return "Unknown";
   }
 
-  /** 获取 macOS SWAP 信息 */
   private async getMacSwapInfo(): Promise<string> {
     try {
       const sysctlPath = fs.existsSync("/usr/sbin/sysctl") ? "/usr/sbin/sysctl" : "sysctl";
@@ -625,7 +671,6 @@ Scan Time: ${scanTime}ms
   }
 
   // ==================== 资源监控 ====================
-  /** 获取 CPU 使用率 */
   private async getCpuUsage(): Promise<string> {
     try {
       const platform = os.platform();
@@ -650,7 +695,6 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  /** 获取进程 CPU 使用率 */
   private async getProcessCpuUsage(): Promise<string> {
     try {
       const startUsage = process.cpuUsage();
@@ -666,7 +710,6 @@ Scan Time: ${scanTime}ms
     }
   }
 
-  /** 获取进程数量 */
   private async getProcessCount(): Promise<string> {
     try {
       const count = this.safeExec("ps aux | wc -l").trim();
@@ -677,7 +720,6 @@ Scan Time: ${scanTime}ms
   }
 
   // ==================== 版本信息 ====================
-  /** 获取版本信息 */
   private async getVersionInfo(): Promise<VersionInfo> {
     try {
       const packageJsonPath = path.join(process.cwd(), 'package.json');
@@ -697,32 +739,28 @@ Scan Time: ${scanTime}ms
   }
 
   // ==================== 工具方法 ====================
-  /** 获取主网络接口 */
+  // 获取主网络接口
   private getMainInterface(): string {
     try {
       const interfaces = os.networkInterfaces();
       const names = Object.keys(interfaces);
-      // 优先选择以太网接口
       for (const name of names) {
         if (name.startsWith("enp") || name.startsWith("eth")) {
           return name;
         }
       }
-
-      // 选择非回环接口
       for (const name of names) {
         if (name !== "lo" && name !== "localhost") {
           return name;
         }
       }
-
       return "enp0s6";
     } catch {
       return "enp0s6";
     }
   }
 
-  /** 安全执行系统命令 */
+  // 安全执行系统命令
   private safeExec(command: string, encoding: BufferEncoding = "utf8"): string {
     const options: ExecSyncOptions = {
       encoding,
@@ -732,7 +770,7 @@ Scan Time: ${scanTime}ms
     return execSync(command, options);
   }
 
-  /** 解析人类可读的大小 */
+  // 解析人类可读的大小
   private parseHumanReadableSize(value: string): number {
     const trimmed = value.trim();
     const match = trimmed.match(/^([\d.]+)\s([A-Za-z]+)?$/);
@@ -743,7 +781,7 @@ Scan Time: ${scanTime}ms
     return this.unitStringToBytes(match[1], match[2]);
   }
 
-  /** 解析 macOS SWAP 使用情况 */
+  // 解析 macOS SWAP 使用情况
   private parseMacSwapUsage(raw: string): string | null {
     const totalMatch = raw.match(/total\s=\s*([\d.]+)\s*([A-Za-z]+)?/i);
     const usedMatch = raw.match(/used\s*=\s*([\d.]+)\s*([A-Za-z]+)?/i);
@@ -758,7 +796,7 @@ Scan Time: ${scanTime}ms
     return this.formatByteUsage(usedBytes, totalBytes);
   }
 
-  /** 单位字符串转字节数 */
+  // 单位字符串转字节数
   private unitStringToBytes(value: string, unit?: string): number {
     const numeric = parseFloat(value);
     if (Number.isNaN(numeric)) {
@@ -782,7 +820,7 @@ Scan Time: ${scanTime}ms
     return numeric;
   }
 
-  /** 格式化字节数 */
+  // 格式化字节数
   private formatBytes(bytes: number): string {
     if (!Number.isFinite(bytes) || bytes < 0) {
       return "0 B";
@@ -797,7 +835,7 @@ Scan Time: ${scanTime}ms
     return `${value.toFixed(2)} ${units[unitIndex]}`;
   }
 
-  /** 格式化字节使用情况 */
+  // 格式化字节使用情况
   private formatByteUsage(usedBytes: number, totalBytes: number): string {
     const used = this.formatBytes(usedBytes);
     const total = this.formatBytes(totalBytes);
@@ -808,7 +846,7 @@ Scan Time: ${scanTime}ms
     return `${used} / ${total} (${percent}%)`;
   }
 
-  /** 格式化运行时间（简洁版） */
+  // 格式化运行时间（简洁版）
   private formatUptime(uptime: number): string {
     const days = Math.floor(uptime / 86400);
     const hours = Math.floor((uptime % 86400) / 3600);
@@ -816,7 +854,7 @@ Scan Time: ${scanTime}ms
     return `${days}d ${hours}h ${minutes}m`;
   }
 
-  /** 格式化运行时间（详细版） */
+  // 格式化运行时间（详细版）
   private formatUptimeDetailed(uptime: number): string {
     const days = Math.floor(uptime / 86400);
     const hours = Math.floor((uptime % 86400) / 3600);
@@ -824,7 +862,7 @@ Scan Time: ${scanTime}ms
     return `${days} days, ${hours} hours, ${minutes} mins`;
   }
 
-  /** 统一错误处理 */
+  // 统一错误处理
   private async handleError(
     msg: Api.Message,
     error: unknown,

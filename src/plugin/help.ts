@@ -14,7 +14,7 @@ import { AliasDB } from "@utils/aliasDB";
  * ============================================================ */
 
 class EntityPlanner {
-  private readonly LIMIT = 95;
+  private readonly LIMIT = 100;          // 更新为 Telegram 当前上限
   private used = 0;
 
   consume(count: number) {
@@ -170,13 +170,14 @@ class HelpPlugin extends Plugin {
       /* ================= 主帮助信息 (消息1) ================= */
       if (args.length === 0) {
         const mainPlanner = new EntityPlanner();
-        mainPlanner.consume(1 + prefixes.length + 1 + 2 + 4);
+        // 预扣：header bold(1) + 前缀数量 + prefixLine bold(1) + helpTip codes(2) + links(5)
+        mainPlanner.consume(1 + prefixes.length + 1 + 2 + 5);
 
         const header = `🚀 <b>TeleBox v${htmlEscape(readVersion())}</b> | ${commands.length} 个命令`;
         const basic = formatBasicCommands(commands, mainPlanner);
         const prefixLine = `❕ <b>指令前缀：</b> ${prefixes.map(p => `<code>${htmlEscape(p)}</code>`).join(" • ")}`;
         const helpTip = `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`;
-        const links = `🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a>`;
+        const links = `🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a> | <a href='https://telegra.ph/TeleBox-插件列表-03-03'>📚插件列表</a>`;
 
         await msg.edit({
           text: [header, "", basic.text, "", prefixLine, helpTip, links].join("\n"),

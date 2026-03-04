@@ -27,7 +27,7 @@ const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
 class EntityManager {
   private count = 0;
-  private readonly LIMIT = 95;
+  private readonly LIMIT = 100;
   private readonly IMPORTANT_TAGS = ['blockquote', 'a', 'b', 'i', 'u'];
   
   canAdd(tag: string): boolean {
@@ -178,7 +178,7 @@ async function sendLongMessage(
 
   for (let i = 1; i < messages.length; i++) {
     await msg.reply({
-      message: `📋 <b>续 (${i}/${messages.length - 1}):</b>\n\n${messages[i]}`,
+      message: `📋 <b>续 (${i}/${messages.length - 1}):</b>\n\n<blockquote expandable>${messages[i]}</blockquote>`,
       ...messageOptions,
     });
   }
@@ -862,17 +862,20 @@ async function search(msg: Api.Message) {
 
     const entityMgr = new EntityManager();
     
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('a');
-    entityMgr.add('b');
-    entityMgr.add('b');
-    entityMgr.add('blockquote');
+    // 预留重要标签的位置
+    entityMgr.add('b'); // 标题
+    entityMgr.add('b'); // 统计标题
+    entityMgr.add('b'); // 搜索关键词
+    entityMgr.add('b'); // 搜索结果标题
+    entityMgr.add('blockquote'); // 插件列表
+    entityMgr.add('b'); // 快捷操作标题
+    entityMgr.add('code'); // 第一个命令
+    entityMgr.add('code'); // 第二个命令
+    entityMgr.add('code'); // 第三个命令
+    entityMgr.add('code'); // 第四个命令
+    entityMgr.add('code'); // 第五个命令
+    entityMgr.add('code'); // 第六个命令
+    entityMgr.add('b'); // 仓库标题
 
     const highlightMatch = (text: string) => {
       if (!keyword) return text;
