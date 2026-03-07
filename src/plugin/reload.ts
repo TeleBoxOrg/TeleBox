@@ -14,7 +14,6 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const execAsync = promisify(exec);
 
-// 修复1: 修复 HTML 转义函数 - 移除键值对中的空格
 const htmlEscape = (text: string): string =>
   text.replace(/[&<>"']/g, m => ({
     '&': '&amp;',
@@ -32,12 +31,14 @@ const configPath = path.join(assetsDir, "config.json");
 interface ReloadConfig {
   leakfixEnabled: boolean;
   memoryThreshold: number;
+  silentEnabled: boolean;
 }
 
 async function initConfig() {
-  const db = await JSONFilePreset(configPath, {
+  const db = await JSONFilePreset<ReloadConfig>(configPath, {
     leakfixEnabled: false,
-    memoryThreshold: 150
+    memoryThreshold: 150,
+    silentEnabled: false
   });
   return db;
 }
@@ -61,7 +62,7 @@ const editExitMsg = async () => {
       }
       await client.editMessage(chatId, {
         message: messageId,
-        text: `✅ 重启完成, 耗时 ${Date.now() - time}ms`,
+        text: `✅ 重启完成，耗时 ${Date.now() - time}ms`,
       });
       fs.unlinkSync(exitFile);
     }
@@ -104,15 +105,15 @@ function getMemoryUsage() {
 function formatMemoryInfo(memory: ReturnType<typeof getMemoryUsage>): string {
   return `📊 TeleBox 内存使用情况
 堆内存 (Heap):
-• 已使用: ${memory.heapUsed.toFixed(2)} MB
-• 总分配: ${memory.heapTotal.toFixed(2)} MB
-• 占用率: ${((memory.heapUsed / memory.heapTotal) * 100).toFixed(2)}%
+  • 已使用：${memory.heapUsed.toFixed(2)} MB
+  • 总分配：${memory.heapTotal.toFixed(2)} MB
+  • 占用率：${((memory.heapUsed / memory.heapTotal) * 100).toFixed(2)}%
 常驻内存 (RSS):
-• ${memory.rss.toFixed(2)} MB
+  • ${memory.rss.toFixed(2)} MB
 外部内存:
-• ${memory.external.toFixed(2)} MB
+  • ${memory.external.toFixed(2)} MB
 ArrayBuffers:
-• ${memory.arrayBuffers.toFixed(2)} MB`;
+  • ${memory.arrayBuffers.toFixed(2)} MB`;
 }
 
 async function memoryMonitorTask() {
@@ -122,18 +123,19 @@ async function memoryMonitorTask() {
     if (!config.leakfixEnabled) return;
     const memory = getMemoryUsage();
     const threshold = config.memoryThreshold;
-
     if (memory.heapUsed > threshold) {
       console.log(`[Memory Monitor] 内存使用 ${memory.heapUsed.toFixed(2)}MB 超过阈值 ${threshold}MB，触发重启`);
       const client = await getGlobalClient();
-      if (client) {
+      if (client && !config.silentEnabled) {
         await client.sendMessage("me", {
           message: `⚠️ <b>内存监控告警</b>\n\n` +
-                   `堆内存使用: <code>${memory.heapUsed.toFixed(2)} MB</code>\n` +
-                   `阈值: <code>${threshold} MB</code>\n\n` +
+                   `堆内存使用：<code>${memory.heapUsed.toFixed(2)} MB</code>\n` +
+                   `阈值：<code>${threshold} MB</code>\n\n` +
                    `正在重启 TeleBox...`,
           parseMode: "html"
         });
+        setTimeout(() => process.exit(0), 1000);
+      } else if (client) {
         setTimeout(() => process.exit(0), 1000);
       }
     } else {
@@ -147,23 +149,23 @@ async function memoryMonitorTask() {
 const HELP_TEXT = `🔄 Reload - 插件重载与内存管理
 
 🔧 核心命令:
-• <code> ${mainPrefix}reload </code> - 重新加载所有插件
-• <code> ${mainPrefix}exit </code> - 退出进程
-• <code> ${mainPrefix}pmr </code> - PM2 进程重启
-• <code> ${mainPrefix}health </code> - 查看内存使用情况
+• <code>${mainPrefix}reload</code> - 重新加载所有插件
+• <code>${mainPrefix}exit</code> - 退出进程
+• <code>${mainPrefix}pmr</code> - PM2 进程重启
+• <code>${mainPrefix}health</code> - 查看内存使用情况
 
-🛡️ 内存泄露修复:可用命令:
-• <code> ${mainPrefix}leakfix on </code> - 启用 LeakFix
-• <code> ${mainPrefix}leakfix off </code> - 禁用 LeakFix
-• <code> ${mainPrefix}leakfix set [MB] </code> - 设置内存阈值（默认150 MB）
-• <code> ${mainPrefix}leakfix status </code> - 查看状态
+🛡️ 内存泄露修复:
+可用命令:
+• <code>${mainPrefix}leakfix on/off</code> - 启用/禁用 LeakFix
+• <code>${mainPrefix}leakfix set [MB]</code> - 设置内存阈值（默认 150 MB）
+• <code>${mainPrefix}leakfix status</code> - 查看状态
+• <code>${mainPrefix}leakfix silent on/off</code> - 启用/禁用静默模式（自动重启时不发送通知）
 启用后效果:
 ✅ 每小时自动检查内存占用，超过阈值时自动重启 TeleBox
 ✅ 重新加载后自动检测内存增长情况`;
 
 class ReloadPlugin extends Plugin {
   description = HELP_TEXT;
-
   cronTasks = {
     memoryMonitor: {
       cron: "0 * * * *",
@@ -171,10 +173,8 @@ class ReloadPlugin extends Plugin {
       handler: async () => await memoryMonitorTask()
     }
   };
-
   private lastReloadMemory: number | null = null;
 
-  // 修复2: 修复 Promise 类型缺失
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     reload: async (msg) => {
       const beforeMemory = getMemoryUsage();
@@ -185,7 +185,6 @@ class ReloadPlugin extends Plugin {
         await loadPlugins();
         const loadTime = Date.now() - startTime;
         const timeText = loadTime > 1000 ? `${(loadTime / 1000).toFixed(2)}s` : `${loadTime}ms`;
-
         const afterMemory = getMemoryUsage();
         const memoryGrowth = afterMemory.heapUsed - beforeMemory.heapUsed;
 
@@ -193,7 +192,7 @@ class ReloadPlugin extends Plugin {
         const threshold = configDB.data.memoryThreshold;
         const memoryChange = `${beforeMemory.heapUsed.toFixed(2)} MB -> ${afterMemory.heapUsed.toFixed(2)} MB (${memoryGrowth > 0 ? '+' : ''}${memoryGrowth.toFixed(2)} MB)`;
 
-        let output = `✅ 插件已重新加载完成 (耗时: ${timeText})\n\n📊 内存变化: ${memoryChange}`;
+        let output = `✅ 插件已重新加载完成 (耗时：${timeText})\n\n📊 内存变化：${memoryChange}`;
 
         if (afterMemory.heapUsed > threshold) {
           output += `\n\n⚠️ <b>内存占用警告</b>：建议使用 <code>${mainPrefix}exit</code> 或 <code>${mainPrefix}pmr</code> 重启 TeleBox。`;
@@ -201,10 +200,10 @@ class ReloadPlugin extends Plugin {
 
         await msg.edit({ text: output, parseMode: "html" });
       } catch (error) {
-        console.error("Plugin reload failed: ", error);
+        console.error("Plugin reload failed:", error);
         const errorMessage = error instanceof Error ? error.message : String(error);
         await msg.edit({
-          text: `❌ 插件重新加载失败\n错误信息: ${errorMessage}\n请检查控制台日志获取详细信息`,
+          text: `❌ 插件重新加载失败\n错误信息：${errorMessage}\n请检查控制台日志获取详细信息`,
         });
       }
     },
@@ -219,7 +218,7 @@ class ReloadPlugin extends Plugin {
         try {
           await execAsync("pm2 restart telebox");
         } catch (error) {
-          console.error("PM2 restart failed: ", error);
+          console.error("PM2 restart failed:", error);
         }
       }, 500);
     },
@@ -240,12 +239,12 @@ class ReloadPlugin extends Plugin {
           statusText = "警告";
         }
 
-        const fullText = `${infoText}\n\n<b>状态:</b> ${statusEmoji} ${statusText}`;
+        const fullText = `${infoText}\n\n<b>状态：</b> ${statusEmoji} ${statusText}`;
         await msg.edit({ text: fullText, parseMode: "html" });
       } catch (error) {
-        console.error("[Health] 命令执行失败: ", error);
+        console.error("[Health] 命令执行失败:", error);
         await msg.edit({
-          text: `❌ 获取内存信息失败: ${htmlEscape(error instanceof Error ? error.message : String(error))}`,
+          text: `❌ 获取内存信息失败：${htmlEscape(error instanceof Error ? error.message : String(error))}`,
           parseMode: "html"
         });
       }
@@ -277,7 +276,7 @@ class ReloadPlugin extends Plugin {
         const threshold = parseInt(parts[2]);
         if (isNaN(threshold) || threshold <= 0) {
           await msg.edit({
-            text: "❌ <b>参数错误</b>\n\n请提供有效的内存阈值（正整数，单位：MB）\n\n示例: <code>.leakfix set 150</code>",
+            text: "❌ <b>参数错误</b>\n\n请提供有效的内存阈值（正整数，单位：MB）\n\n示例：<code>.leakfix set 150</code>",
             parseMode: "html"
           });
           return;
@@ -286,10 +285,38 @@ class ReloadPlugin extends Plugin {
         await configDB.write();
         await msg.edit({
           text: `✅ <b>内存阈值已设置</b>\n\n` +
-                `新阈值: <code>${threshold} MB</code>\n` +
-                `当前状态: ${configDB.data.leakfixEnabled ? "✅ 已启用" : "❌ 未启用"}`,
+                `新阈值：<code>${threshold} MB</code>\n` +
+                `当前状态：${configDB.data.leakfixEnabled ? "✅ 已启用" : "❌ 未启用"}`,
           parseMode: "html"
         });
+      } else if (subCmd === "silent") {
+        const silentCmd = parts[2]?.toLowerCase() || "help";
+        if (silentCmd === "on") {
+          configDB.data.silentEnabled = true;
+          await configDB.write();
+          await msg.edit({
+            text: `✅ <b>静默模式已启用</b>\n\n` +
+                  `• 内存超限自动重启时将<b>不发送</b>通知\n` +
+                  `• 仍会在控制台记录日志`,
+            parseMode: "html"
+          });
+        } else if (silentCmd === "off") {
+          configDB.data.silentEnabled = false;
+          await configDB.write();
+          await msg.edit({
+            text: `✅ <b>静默模式已关闭</b>\n\n` +
+                  `• 内存超限自动重启时将<b>发送</b>通知到 "me"`,
+            parseMode: "html"
+          });
+        } else {
+          await msg.edit({
+            text: `📊 <b>LeakFix 静默模式</b>\n\n` +
+                  `• <code>${mainPrefix}leakfix silent on</code> - 启用静默（不发送通知）\n` +
+                  `• <code>${mainPrefix}leakfix silent off</code> - 禁用静默（发送通知，默认）\n\n` +
+                  `当前状态：${configDB.data.silentEnabled ? "✅ 已启用" : "❌ 未启用"}`,
+            parseMode: "html"
+          });
+        }
       } else if (subCmd === "status" || subCmd === "s") {
         const memory = getMemoryUsage();
         const percentage = (memory.heapUsed / configDB.data.memoryThreshold) * 100;
@@ -304,10 +331,11 @@ class ReloadPlugin extends Plugin {
         }
         await msg.edit({
           text: `📊 <b>LeakFix 状态</b>\n\n` +
-                `• 功能: ${configDB.data.leakfixEnabled ? "✅ 已启用" : "❌ 未启用"}\n` +
-                `• 阈值: <code>${configDB.data.memoryThreshold} MB</code>\n` +
-                `• 当前: <code>${memory.heapUsed.toFixed(2)} MB</code>\n` +
-                `• 占比: ${statusEmoji} <code>${statusText}</code> (${percentage.toFixed(2)}%)`,
+                `• 功能：${configDB.data.leakfixEnabled ? "✅ 已启用" : "❌ 未启用"}\n` +
+                `• 静默模式：${configDB.data.silentEnabled ? "✅ 已启用" : "❌ 未启用"}`,+
+                `• 阈值：<code>${configDB.data.memoryThreshold} MB</code>\n` +
+                `• 当前：<code>${memory.heapUsed.toFixed(2)} MB</code>\n` +
+                `• 占比：${statusEmoji} <code>${statusText}</code> (${percentage.toFixed(2)}%)\n`
           parseMode: "html"
         });
       } else {
