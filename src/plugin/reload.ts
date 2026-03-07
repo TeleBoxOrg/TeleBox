@@ -332,10 +332,10 @@ class ReloadPlugin extends Plugin {
         await msg.edit({
           text: `📊 <b>LeakFix 状态</b>\n\n` +
                 `• 功能：${configDB.data.leakfixEnabled ? "✅ 已启用" : "❌ 未启用"}\n` +
-                `• 静默模式：${configDB.data.silentEnabled ? "✅ 已启用" : "❌ 未启用"}`,+
+                `• 静默模式：${configDB.data.silentEnabled ? "✅ 已启用" : "❌ 未启用"}\n` + 
                 `• 阈值：<code>${configDB.data.memoryThreshold} MB</code>\n` +
                 `• 当前：<code>${memory.heapUsed.toFixed(2)} MB</code>\n` +
-                `• 占比：${statusEmoji} <code>${statusText}</code> (${percentage.toFixed(2)}%)\n`
+                `• 占比：${statusEmoji} <code>${statusText}</code> (${percentage.toFixed(2)}%)\n`,
           parseMode: "html"
         });
       } else {

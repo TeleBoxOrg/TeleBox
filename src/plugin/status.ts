@@ -17,19 +17,14 @@ const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b>
 
 <b>📦 版本信息</b>
 • <b>Node.js版本:</b> <code>{nodejs}</code>
-• <b>Telegram版本:</b <code>{telegram}</code>
+• <b>Telegram版本:</b> <code>{telegram}</code>
 • <b>TeleBox版本:</b> <code>{telebox}</code>
 
 <b>📈 资源使用</b>
 • <b>CPU:</b> <code>{cpu}%</code> (系统) / <code>{processcpu}%</code> (进程)
-  系统CPU: {cpubar}
-  进程CPU: {processcpubar}
 • <b>内存:</b> <code>{mem}%</code> (系统) / <code>{processmem}%</code> (进程)
-  系统内存: {membar}
-  进程内存: {processmembar}
 • <b>SWAP:</b> <code>{swap}</code>
 • <b>磁盘:</b> <code>{disk}</code>
-  磁盘使用: {diskbar}
 • <b>网络接口:</b> <code>{network}</code>
 
 <b>⚙️ 系统详情</b>
@@ -49,6 +44,7 @@ const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 <b>🔧 使用方法:</b>
 • <code>.sysinfo</code> - 显示当前系统状态
 • <code>.status</code> - 显示当前状态
+• <code>.status show</code> - 显示当前模板内容
 • <code>.status set</code> - 回复模板消息，设置自定义格式
 • <code>.status reset</code> - 重置默认模板
 
@@ -229,6 +225,9 @@ class TeleBoxSystemMonitor extends Plugin {
         case "reset":
           await this.handleResetTemplate(msg);
           return;
+        case "show":
+          await this.handleShowTemplate(msg);
+          return;
         default:
           await this.showStatus(msg);
       }
@@ -273,6 +272,28 @@ class TeleBoxSystemMonitor extends Plugin {
     await msg.edit({
       text: rendered,
       parseMode: "html",
+    });
+  }
+
+  // 显示当前模板内容
+  private async handleShowTemplate(msg: Api.Message): Promise<void> {
+    if (!this.db) await this.initDB();
+    const template = this.db.data.template || DEFAULT_TEMPLATE;
+
+    // 转义 HTML 特殊字符，使模板原样显示
+    const escaped = template.replace(/[&<>"']/g, (m) => {
+      return {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+      }[m] || m;
+    });
+
+    await msg.edit({
+      text: `<b>📄 当前模板内容:</b>\n\n<code>${escaped}</code>`,
+      parseMode: "html"
     });
   }
 
