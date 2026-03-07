@@ -14,6 +14,15 @@ import { getPrefixes } from "@utils/pluginManager";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const MAX_MESSAGE_LENGTH = 4000;
+const PLUGINS_INDEX_URL =
+  "https://raw.githubusercontent.com/TeleBoxDev/TeleBox_Plugins/main/plugins.json";
+const REQUEST_TIMEOUT_MS = 20000;
+const MAX_RETRIES = 4;
+const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
+const DEFAULT_HEADERS = {
+  "User-Agent": "TeleBox-TPM/1.0",
+  Accept: "application/json, text/plain, */*",
+};
 
 interface PluginRecord {
   url: string;
@@ -22,6 +31,8 @@ interface PluginRecord {
 }
 
 type Database = Record<string, PluginRecord>;
+type RemotePluginInfo = { url: string; desc?: string };
+type RemotePluginsIndex = Record<string, RemotePluginInfo>;
 
 const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 
@@ -195,17 +206,90 @@ async function getMediaFileName(msg: any): Promise<string> {
   return metadata.document.attributes[0].fileName;
 }
 
+function normalizeGithubUrl(input: string): string {
+  try {
+    const parsed = new URL(input);
+    if (parsed.hostname === "github.com") {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 5 && parts[2] === "blob") {
+        const [owner, repo, , branch, ...rest] = parts;
+        return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${rest.join("/")}`;
+      }
+      return input;
+    }
+    if (parsed.hostname === "raw.githubusercontent.com") {
+      parsed.search = "";
+      return parsed.toString();
+    }
+    return input;
+  } catch {
+    return input;
+  }
+}
+
+function getRetryDelayMs(error: unknown, attempt: number): number {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    if (status === 429) {
+      const retryAfter = error.response?.headers?.["retry-after"];
+      if (typeof retryAfter === "string") {
+        const seconds = Number.parseInt(retryAfter, 10);
+        if (!Number.isNaN(seconds)) {
+          return Math.max(0, seconds * 1000);
+        }
+        const date = Date.parse(retryAfter);
+        if (!Number.isNaN(date)) {
+          return Math.max(0, date - Date.now());
+        }
+      }
+    }
+  }
+  const base = 600 * Math.pow(2, attempt);
+  const jitter = Math.floor(Math.random() * 250);
+  return base + jitter;
+}
+
+async function fetchWithRetry<T>(
+  url: string,
+  options?: Parameters<typeof axios.get>[1]
+) {
+  let lastError: unknown;
+  const normalizedUrl = normalizeGithubUrl(url);
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await axios.get<T>(normalizedUrl, {
+        timeout: REQUEST_TIMEOUT_MS,
+        ...options,
+        headers: {
+          ...DEFAULT_HEADERS,
+          ...(options?.headers || {}),
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (!status || !RETRYABLE_STATUS.has(status) || attempt === MAX_RETRIES) {
+        throw error;
+      }
+      const delay = getRetryDelayMs(error, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
+}
+
 async function installRemotePlugin(plugin: string, msg: Api.Message) {
   const statusMsg = await sendOrEditMessage(msg, `正在安装插件 ${plugin}...`);
-  const url = `https://github.com/TeleBoxDev/TeleBox_Plugins/blob/main/plugins.json?raw=true`;
-  const res = await axios.get(url);
+  const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
   if (res.status === 200) {
     if (!res.data[plugin]) {
       await sendOrEditMessage(statusMsg, `未找到插件 ${plugin} 的远程资源`);
       return;
     }
-    const pluginUrl = res.data[plugin].url;
-    const response = await axios.get(pluginUrl);
+    const pluginUrl = normalizeGithubUrl(res.data[plugin].url);
+    const response = await fetchWithRetry<string>(pluginUrl, {
+      responseType: "text",
+    });
     if (response.status !== 200) {
       await sendOrEditMessage(statusMsg, `无法下载插件 ${plugin}`);
       return;
@@ -249,9 +333,8 @@ async function installRemotePlugin(plugin: string, msg: Api.Message) {
 
 async function installAllPlugins(msg: Api.Message) {
   const statusMsg = await sendOrEditMessage(msg, "🔍 正在获取远程插件列表...");
-  const url = `https://github.com/TeleBoxDev/TeleBox_Plugins/blob/main/plugins.json?raw=true`;
   try {
-    const res = await axios.get(url);
+    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
     if (res.status !== 200) {
       await sendOrEditMessage(statusMsg, "❌ 无法获取远程插件库");
       return;
@@ -288,8 +371,10 @@ async function installAllPlugins(msg: Api.Message) {
           continue;
         }
 
-        const pluginUrl = pluginData.url;
-        const response = await axios.get(pluginUrl);
+        const pluginUrl = normalizeGithubUrl(pluginData.url);
+        const response = await fetchWithRetry<string>(pluginUrl, {
+          responseType: "text",
+        });
         if (response.status !== 200) {
           failedCount++;
           failedPlugins.push(`${plugin} (下载失败)`);
@@ -372,9 +457,8 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
 
   const statusMsg = await sendOrEditMessage(msg, `🔍 正在获取远程插件列表...`, { parseMode: "html" });
 
-  const url = `https://github.com/TeleBoxDev/TeleBox_Plugins/blob/main/plugins.json?raw=true`;
   try {
-    const res = await axios.get(url);
+    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL);
     if (res.status !== 200) {
       await sendOrEditMessage(statusMsg, "❌ 无法获取远程插件库");
       return;
@@ -412,8 +496,10 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
           continue;
         }
 
-        const pluginUrl = pluginData.url;
-        const response = await axios.get(pluginUrl);
+        const pluginUrl = normalizeGithubUrl(pluginData.url);
+        const response = await fetchWithRetry<string>(pluginUrl, {
+          responseType: "text",
+        });
         if (response.status !== 200) {
           failedCount++;
           failedPlugins.push(`${pluginName} (下载失败)`);
@@ -807,14 +893,13 @@ async function search(msg: Api.Message) {
   const parts = text.trim().split(/\s+/);
   const keyword = parts.length > 2 ? parts[2].toLowerCase() : "";
   
-  const url = `https://github.com/TeleBoxDev/TeleBox_Plugins/blob/main/plugins.json?raw=true`;
   try {
     const statusMsg = await sendOrEditMessage(msg, keyword ? `🔍 正在搜索插件: ${keyword}` : "🔍 正在获取插件列表...");
-    const res = await axios.get(url, {
+    const res = await fetchWithRetry<RemotePluginsIndex>(PLUGINS_INDEX_URL, {
       headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
+        "Cache-Control": "no-cache",
+        Pragma: "no-cache",
+      },
     });
     if (res.status !== 200) {
       await sendOrEditMessage(statusMsg, `❌ 无法获取远程插件库`);
@@ -1136,7 +1221,10 @@ async function updateAllPlugins(msg: Api.Message) {
           continue;
         }
 
-        const response = await axios.get(pluginRecord.url);
+        const response = await fetchWithRetry<string>(
+          normalizeGithubUrl(pluginRecord.url),
+          { responseType: "text" }
+        );
         if (response.status !== 200) {
           failedCount++;
           failedPlugins.push(`${pluginName} (下载失败)`);
