@@ -233,6 +233,6 @@ pm2 stop telebox
 
 <!-- 🔗 TODO: 上传到远程后，请将上方链接替换为 README.md 的实际远程链接 -->
 
-_如有问题，请查看_ [**📋 故障排除**](#) _或_ [**🆘 问题反馈**](https://github.com/TeleBoxDev/TeleBox/issues)
+_如有问题，请[**🆘 问题反馈**](https://github.com/TeleBoxDev/TeleBox/issues)
 
 </div>
