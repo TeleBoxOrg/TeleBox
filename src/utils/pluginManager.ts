@@ -2,14 +2,14 @@ import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
 import { getGlobalClient } from "@utils/globalClient";
-import { NewMessageEvent, NewMessage } from "telegram/events";
+import { NewMessageEvent, NewMessage } from "teleproto/events";
 import { AliasDB } from "./aliasDB";
-import { Api, TelegramClient } from "telegram";
+import { Api, TelegramClient } from "teleproto";
 import { cronManager } from "./cronManager";
 import {
   EditedMessage,
   EditedMessageEvent,
-} from "telegram/events/EditedMessage";
+} from "teleproto/events/EditedMessage";
 
 type PluginEntry = {
   original?: string;
@@ -19,9 +19,21 @@ type PluginEntry = {
 
 const validPlugins: Plugin[] = [];
 const plugins: Map<string, PluginEntry> = new Map();
+const loadedPluginFiles: Set<string> = new Set();
 
 const USER_PLUGIN_PATH = path.join(process.cwd(), "plugins");
 const DEFAUTL_PLUGIN_PATH = path.join(process.cwd(), "src", "plugin");
+const PROJECT_ROOT = process.cwd();
+const CACHE_PURGE_EXCLUDE = new Set<string>([
+  path.resolve(PROJECT_ROOT, "src/utils/globalClient.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/globalClient.js"),
+  path.resolve(PROJECT_ROOT, "src/utils/pluginManager.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/pluginManager.js"),
+  path.resolve(PROJECT_ROOT, "src/utils/pluginBase.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/pluginBase.js"),
+  path.resolve(PROJECT_ROOT, "src/utils/cronManager.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/cronManager.js"),
+]);
 
 let prefixes = [".", "。", "$"];
 const envPrefixes =
@@ -32,9 +44,7 @@ if (envPrefixes.length > 0) {
   prefixes = ["!", "！"];
 }
 console.log(
-  `[PREFIXES] ${prefixes.join(" ")} (${
-    envPrefixes.length > 0 ? "" : "可"
-  }使用环境变量 TB_PREFIX 覆盖, 多个前缀用空格分隔)`
+  `[PREFIXES] ${prefixes.join(" ")} (${envPrefixes.length > 0 ? "" : "可"}使用环境变量 TB_PREFIX 覆盖, 多个前缀用空格分隔)`
 );
 
 function getPrefixes(): string[] {
@@ -45,10 +55,82 @@ function setPrefixes(newList: string[]): void {
   prefixes = newList;
 }
 
+function normalizePath(filePath: string): string {
+  return path.resolve(filePath);
+}
+
+function isProjectFile(filePath: string): boolean {
+  const normalized = normalizePath(filePath);
+  return normalized.startsWith(PROJECT_ROOT + path.sep);
+}
+
+function shouldPurgeCache(filePath: string): boolean {
+  if (!filePath) return false;
+  const normalized = normalizePath(filePath);
+  if (!isProjectFile(normalized)) return false;
+  if (CACHE_PURGE_EXCLUDE.has(normalized)) return false;
+  if (normalized.includes(`${path.sep}node_modules${path.sep}`)) return false;
+  if (!/\.(ts|js|cjs|mjs|cts|mts)$/.test(normalized)) return false;
+  return true;
+}
+
+function collectModuleSubtree(moduleId: string, visited = new Set<string>()): Set<string> {
+  const resolved = require.resolve(moduleId);
+  const mod = require.cache[resolved];
+  if (!mod) return visited;
+  if (visited.has(mod.id)) return visited;
+  visited.add(mod.id);
+
+  for (const child of mod.children || []) {
+    if (child?.id && shouldPurgeCache(child.id)) {
+      collectModuleSubtree(child.id, visited);
+    }
+  }
+
+  return visited;
+}
+
+function purgeModuleCache(modulePaths: Iterable<string>): void {
+  const idsToDelete = new Set<string>();
+
+  for (const filePath of modulePaths) {
+    try {
+      const resolved = require.resolve(filePath);
+      if (!shouldPurgeCache(resolved)) continue;
+      idsToDelete.add(resolved);
+      const subtree = collectModuleSubtree(resolved);
+      for (const id of subtree) {
+        if (shouldPurgeCache(id)) {
+          idsToDelete.add(id);
+        }
+      }
+    } catch {
+      // ignore unresolved files during cleanup
+    }
+  }
+
+  for (const id of idsToDelete) {
+    const mod = require.cache[id];
+    if (!mod) continue;
+
+    if (mod.parent?.children) {
+      mod.parent.children = mod.parent.children.filter((child) => child.id !== id);
+    }
+
+    delete require.cache[id];
+  }
+
+  if (idsToDelete.size > 0) {
+    console.log(`[RELOAD] Purged ${idsToDelete.size} module cache entries.`);
+  }
+}
+
 function dynamicRequireWithDeps(filePath: string) {
   try {
-    delete require.cache[require.resolve(filePath)];
-    return require(filePath);
+    const normalized = normalizePath(filePath);
+    loadedPluginFiles.add(normalized);
+    delete require.cache[require.resolve(normalized)];
+    return require(normalized);
   } catch (err) {
     console.error(`Failed to require ${filePath}:`, err);
     return null;
@@ -70,7 +152,7 @@ async function setPlugins(basePath: string) {
     if (!mod) continue;
     const plugin = mod.default;
 
-    if (plugin instanceof Plugin && isValidPlugin(plugin)) {
+    if (isValidPlugin(plugin)) {
       if (!plugin.name) {
         plugin.name = path.basename(file, ".ts");
       }
@@ -102,16 +184,7 @@ function getPluginEntry(command: string): PluginEntry | undefined {
 }
 
 function listCommands(): string[] {
-  const cmds: Map<string, string> = new Map();
-  for (const key of plugins.keys()) {
-    const entry = plugins.get(key)!;
-    if (entry.original) {
-      cmds.set(key, `${key}(${entry.original})`);
-    } else {
-      cmds.set(key, key);
-    }
-  }
-  return Array.from(cmds.values()).sort((a, b) => a.localeCompare(b));
+  return Array.from(plugins.keys()).sort((a, b) => a.localeCompare(b));
 }
 
 function getCommandFromMessage(
@@ -321,20 +394,41 @@ function dealCronPlugin(client: TelegramClient): void {
   }
 }
 
+async function runPluginCleanup(plugin: Plugin): Promise<void> {
+  if (typeof plugin.cleanup !== "function") return;
+  try {
+    await plugin.cleanup();
+  } catch (error) {
+    console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
+  }
+}
+
 async function clearPlugins() {
-  validPlugins.length = 0;
-  plugins.clear();
+  const oldPlugins = [...validPlugins];
+  const oldPluginFiles = [...loadedPluginFiles];
+
+  for (const plugin of oldPlugins) {
+    await runPluginCleanup(plugin);
+  }
+
+  cronManager.clear();
 
   const client = await getGlobalClient();
-  const handlers = client.listEventHandlers();
-  for (const handler of handlers) {
-    client.removeEventHandler(handler[1], handler[0]);
+  const handlers = [...client.listEventHandlers()];
+  console.log(`[RELOAD] Removing ${handlers.length} event handlers before reload.`);
+  for (const [eventBuilder, callback] of handlers) {
+    client.removeEventHandler(callback, eventBuilder);
   }
+  console.log(`[RELOAD] Remaining event handlers after cleanup: ${client.listEventHandlers().length}`);
+
+  validPlugins.length = 0;
+  plugins.clear();
+  loadedPluginFiles.clear();
+  purgeModuleCache(oldPluginFiles);
 }
 
 async function loadPlugins() {
   await clearPlugins();
-  cronManager.clear();
 
   await setPlugins(USER_PLUGIN_PATH);
   await setPlugins(DEFAUTL_PLUGIN_PATH);
@@ -344,6 +438,7 @@ async function loadPlugins() {
   client.addEventHandler(dealEditedMsgEvent, new EditedMessage({}));
   dealListenMessagePlugin(client);
   dealCronPlugin(client);
+  console.log(`[RELOAD] Event handlers registered after reload: ${client.listEventHandlers().length}`);
 }
 
 export {

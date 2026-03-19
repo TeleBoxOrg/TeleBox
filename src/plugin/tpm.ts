@@ -7,7 +7,7 @@ import {
 import path from "path";
 import fs from "fs";
 import axios from "axios";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
 

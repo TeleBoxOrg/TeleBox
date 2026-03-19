@@ -1,4 +1,4 @@
-import { Api, TelegramClient } from "telegram";
+import { Api, TelegramClient } from "teleproto";
 
 type CronTask = {
   cron: string;
@@ -34,6 +34,7 @@ abstract class Plugin {
     handler: (event: any) => Promise<void>;
   }>;
   cronTasks?: Record<string, CronTask>;
+  cleanup?(): Promise<void> | void;
 }
 
 // ✅ 运行时校验函数
@@ -73,6 +74,11 @@ function isValidPlugin(obj: any): obj is Plugin {
       if (typeof task.cron !== "string") return false;
       if (typeof task.handler !== "function") return false;
     }
+  }
+
+  // cleanup (optional)
+  if (obj.cleanup && typeof obj.cleanup !== "function") {
+    return false;
   }
 
   return true;

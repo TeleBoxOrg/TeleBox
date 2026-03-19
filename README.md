@@ -5,11 +5,11 @@
 [![License](https://img.shields.io/badge/License-LGPL%202.1-blue.svg?style=for-the-badge)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.2.6-orange.svg?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.2.7-orange.svg?style=for-the-badge)](CHANGELOG.md)
 
-**现代化 Telegram Bot 开发框架**
+**现代化 Telegram UserBot / Bot 开发框架**
 
-_基于 Node.js 和 TypeScript 构建，提供强大的插件系统和丰富的功能模块_
+_基于 Node.js 和 TypeScript 构建，提供强大的插件系统与丰富的功能模块_
 
 [📖 快速开始](#-快速开始) • [🔌 插件生态](#-插件生态) • [🛠️ 开发指南](https://github.com/TeleBoxOrg/TeleBox/blob/main/TELEBOX_DEVELOPMENT.md) • [📚 文档](#-相关链接)
 
@@ -98,7 +98,7 @@ sudo 权限分配和用户管理
 │   │   └── 🔧 ...             # 其他内置插件
 │   └── 🛠️ utils/              # 工具库
 │       ├── ⚙️ pluginManager.ts     # 插件管理核心
-│       ├── 🔗 entityHelpers.ts     # Telegram 实体处理
+│       ├── 🔗 entityHelpers.ts     # Teleproto / Telegram 实体处理
 │       ├── 🔐 loginManager.ts      # 登录管理
 │       ├── 💬 conversation.ts      # 对话管理
 │       └── 🧰 ...                  # 其他工具

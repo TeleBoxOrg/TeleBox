@@ -1,5 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { getPrefixes, loadPlugins } from "@utils/pluginManager";
 import fs from "fs";
 import path from "path";

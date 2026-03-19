@@ -1,8 +1,8 @@
 import { Plugin } from "@utils/pluginBase";
 import { getGlobalClient } from "@utils/globalClient";
-import { Api, TelegramClient } from "telegram";
+import { Api, TelegramClient } from "teleproto";
 import { getPrefixes } from "@utils/pluginManager";
-import { CustomFile } from "telegram/client/uploads";
+import { CustomFile } from "teleproto/client/uploads";
 import { createDirectoryInTemp } from "@utils/pathHelpers";
 import * as fs from "fs";
 import * as path from "path";

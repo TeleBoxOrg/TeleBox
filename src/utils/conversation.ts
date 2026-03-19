@@ -1,7 +1,7 @@
-import { TelegramClient } from "telegram";
-import { EntityLike } from "telegram/define";
-import { NewMessage, NewMessageEvent } from "telegram/events";
-import { Api } from "telegram/tl";
+import { TelegramClient } from "teleproto";
+import { EntityLike } from "teleproto/define";
+import { NewMessage, NewMessageEvent } from "teleproto/events";
+import { Api } from "teleproto/tl";
 
 /**
  * 一次性等待消息

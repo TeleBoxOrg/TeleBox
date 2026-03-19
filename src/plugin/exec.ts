@@ -1,7 +1,7 @@
 import { exec } from "child_process";
 import { promisify } from "util";
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 const execAsync = promisify(exec);
 

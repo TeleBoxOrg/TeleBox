@@ -1,6 +1,6 @@
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { getGlobalClient } from "@utils/globalClient";
-import { StringSession } from "telegram/sessions";
+import { StringSession } from "teleproto/sessions";
 import { createInterface, Interface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
 import qr from "qrcode-terminal";

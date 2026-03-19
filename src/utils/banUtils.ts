@@ -2,7 +2,7 @@
  * 封禁/解封相关的通用工具函数
  */
 
-import { Api, TelegramClient } from "telegram";
+import { Api, TelegramClient } from "teleproto";
 
 /**
  * 解封用户 - 移除所有限制

@@ -23,7 +23,7 @@
 <summary><b>⚙️ 环境配置</b></summary>
 
 - [必需配置文件](#必需配置文件)
-  - [config.json - Telegram API配置](#configjson---telegram-api配置)
+  - [config.json - Telegram API 配置](#configjson---telegram-api配置)
   - [.env - 环境变量配置](#env---环境变量配置)
   - [package.json - 项目配置](#packagejson---项目配置)
 - [进程管理配置](#进程管理配置)
@@ -223,7 +223,7 @@ import "./hook/patches/telegram.patch";
 // patchMsgEdit(); // Hook功能（当前已注释）
 
 async function run() {
-  await login();          // 登录Telegram
+  await login();          // 登录 Telegram
   await loadPlugins();    // 加载插件
 }
 
@@ -232,7 +232,7 @@ run();
 
 **职责**：
 - 加载环境变量
-- 初始化Telegram客户端
+- 初始化 teleproto 客户端
 - 加载插件系统
 - 应用Hook补丁
 
@@ -244,7 +244,7 @@ run();
 |--------|----------|
 | `pluginBase.ts` | 插件基类定义 |
 | `pluginManager.ts` | 插件管理器，负责加载和路由 |
-| `globalClient.ts` | 全局Telegram客户端实例 |
+| `globalClient.ts` | 全局 teleproto 客户端实例 |
 | `loginManager.ts` | 登录管理器 |
 | `apiConfig.ts` | API配置管理 |
 | `pathHelpers.ts` | 路径辅助工具 |
@@ -353,7 +353,7 @@ logs/
 
 ```
 index.ts
-  ├── loginManager → 登录Telegram
+  ├── loginManager → 登录 Telegram
   ├── pluginManager → 加载插件
   │     ├── pluginBase → 插件基类
   │     ├── plugins/* → 用户插件
@@ -603,7 +603,7 @@ import {
 
 ### 全局客户端
 
-**globalClient.ts** - 全局Telegram客户端实例
+**globalClient.ts** - 全局 teleproto 客户端实例
 
 ```typescript
 import { getGlobalClient } from "@utils/globalClient";
@@ -744,7 +744,7 @@ const config = apiConfig.get(); // 获取config.json内容
 ```typescript
 import { login } from "@utils/loginManager";
 
-await login(); // 登录Telegram
+await login(); // 登录 Telegram
 ```
 
 **npm_install.ts** - NPM包安装工具
@@ -961,7 +961,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
 
 **获取API凭证**：
 1. 访问 https://my.telegram.org
-2. 登录Telegram账号
+2. 登录 Telegram账号
 3. 进入 "API development tools"
 4. 创建应用获取 api_id 和 api_hash
 
@@ -3220,3 +3220,84 @@ cmdHandlers = {
   }
 }
 ```
+
+
+## 当前开发现状补充
+
+### 客户端库
+
+项目当前统一使用 `teleproto`，开发插件时应优先参考仓库现有代码中的以下导入方式：
+
+```ts
+import { Api, TelegramClient } from "teleproto";
+import { NewMessage, NewMessageEvent } from "teleproto/events";
+import { StringSession } from "teleproto/sessions";
+```
+
+### 兼容性说明
+
+当前仓库已经完成一轮从旧 `telegram/gramjs` 风格到 `teleproto` 的迁移，但开发新插件时仍需注意以下差异：
+
+- 某些 `msg.edit()` 场景下应考虑返回值可能为 `undefined`
+- `sendFile` / `downloadMedia` 的参数类型比旧实现更严格
+- 个别旧插件里可用的方法或导出，在 `teleproto` 下不一定完全同名
+- 如遇类型不兼容，应先参考 `src/` 与已修复插件中的现有写法
+
+### Cleanup / 资源回收要求
+
+插件作者必须考虑 **重载（reload）**、**重复加载**、**进程退出** 三类场景下的资源回收问题。
+
+如果插件创建或持有了以下资源：
+
+- `setInterval` / `setTimeout`
+- 自己额外注册的事件监听器
+- 长连接、流、外部客户端、socket
+- 临时文件、缓存文件、下载目录
+- 动态创建的定时任务
+- 保存在内存中的会话状态、映射表、队列
+
+则必须提供相应的 cleanup 思路，至少保证：
+
+1. **重复加载不会导致重复注册**
+2. **重载后不会残留旧定时器/旧监听器**
+3. **异常退出前后不会留下明显脏状态**
+4. **临时文件应可清理，或在下次启动时自动清理**
+
+推荐做法：
+
+```ts
+class MyPlugin extends Plugin {
+  private interval?: NodeJS.Timeout;
+  private disposed = false;
+
+  async onLoad() {
+    if (this.interval) clearInterval(this.interval);
+    this.interval = setInterval(() => {
+      if (this.disposed) return;
+      // do something
+    }, 5000);
+  }
+
+  async cleanup() {
+    this.disposed = true;
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = undefined;
+    }
+  }
+}
+```
+
+即使当前基类没有强制统一的 cleanup 生命周期，插件作者也应当：
+
+- 把可回收资源集中存放在类属性中
+- 避免把定时器、监听器、连接句柄散落在模块全局
+- 在插件重载逻辑可触达的位置手动释放资源
+- 设计幂等 cleanup：**重复调用也不能报错**
+
+### 特别提醒
+
+- 有 `listenMessageHandler` / `eventHandlers` 的插件，要特别注意重复注册问题
+- 使用 `cronManager` 或自建 cron/定时器的插件，要避免 reload 后任务翻倍
+- 涉及下载、转码、截图、媒体处理中间产物的插件，要考虑临时文件删除
+- 涉及缓存用户状态、验证码状态、队列状态的插件，要考虑过期清理

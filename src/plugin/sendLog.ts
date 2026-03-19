@@ -3,7 +3,7 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import { SendLogDB } from "@utils/sendLogDB";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 async function findLogFiles(): Promise<{
   outLog: string | null;

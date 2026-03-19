@@ -1,6 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { AliasDB } from "@utils/aliasDB";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { loadPlugins, getPrefixes, getPluginEntry } from "@utils/pluginManager";
 
 const prefixes = getPrefixes();

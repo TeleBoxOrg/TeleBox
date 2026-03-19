@@ -1,7 +1,7 @@
 // 1. Telegram 的 fileReference 可能过期, 所以不存文件只存数据不靠谱. 媒体序列化和还原先放着
 // 2. 只有 bot 才能 replyMarkup
 
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 type JsonLike = any;
 

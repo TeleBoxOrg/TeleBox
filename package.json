@@ -34,6 +34,7 @@
     "archiver": "^7.0.1",
     "axios": "^1.11.0",
     "better-sqlite3": "^12.2.0",
+    "canvas": "^3.2.1",
     "cheerio": "^1.1.2",
     "cron": "^4.3.3",
     "dayjs": "^1.11.18",
@@ -48,7 +49,7 @@
     "qrcode-terminal": "^0.12.0",
     "sharp": "^0.34.3",
     "ssh2": "^1.15.0",
-    "telegram": "^2.26.22",
+    "teleproto": "^1.223.1",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.4",
     "typescript": "^5.9.2"

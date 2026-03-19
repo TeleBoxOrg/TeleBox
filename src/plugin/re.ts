@@ -1,7 +1,7 @@
 import { getPrefixes } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
-import { Api, TelegramClient } from "telegram";
-import { RPCError } from "telegram/errors";
+import { Api, TelegramClient } from "teleproto";
+import { RPCError } from "teleproto/errors";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
