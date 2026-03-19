@@ -1,5 +1,5 @@
-import { Api } from "telegram";
-import { EditMessageParams } from "telegram/client/messages";
+import { Api } from "teleproto";
+import { EditMessageParams } from "teleproto/client/messages";
 import { SudoDB } from "@utils/sudoDB";
 
 function checkIfSenderIdFromSudoUser(msg: Api.Message, uid: Number): Boolean {

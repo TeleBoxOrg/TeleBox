@@ -1,5 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { logger, LogLevel } from "@utils/logger";
 
 import { getGlobalClient } from "@utils/globalClient";

@@ -2,7 +2,8 @@ import { Plugin } from "@utils/pluginBase";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { loadPlugins } from "@utils/pluginManager";
-import { Api } from "telegram";
+import { Api } from "teleproto";
+import { npm_install_project_dependencies } from "@utils/npm_install";
 
 const execAsync = promisify(exec);
 
@@ -29,8 +30,8 @@ async function update(force = false, msg: Api.Message) {
     await msg.edit({ text: "🔄 正在合并最新代码..." });
 
     console.log("\n📦 安装依赖...");
-    await execAsync("npm install");
     await msg.edit({ text: "📦 正在安装依赖..." });
+    npm_install_project_dependencies();
 
     console.log("\n✅ 更新完成。");
     await msg.edit({ text: "✅ 更新完成！" });

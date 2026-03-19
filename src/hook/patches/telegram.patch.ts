@@ -1,5 +1,5 @@
-import { Api } from "telegram/tl";
-import { sleep } from "telegram/Helpers";
+import { Api } from "teleproto/tl";
+import { sleep } from "teleproto/Helpers";
 
 Api.Message.prototype.deleteWithDelay = async function (
   delay: number,

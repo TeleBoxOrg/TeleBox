@@ -10,3 +10,4 @@ node_modules/*
 !node_modules/.gitkeep
 my_session/*
 .env
+/pmcaptcha_userdata

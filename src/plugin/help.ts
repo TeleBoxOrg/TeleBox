@@ -6,7 +6,7 @@ import {
 import { Plugin } from "@utils/pluginBase";
 import fs from "fs";
 import path from "path";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { AliasDB } from "@utils/aliasDB";
 
 /* ============================================================
@@ -104,8 +104,24 @@ function formatBasicCommands(
     }
   }
 
-  planner.consume(1); 
-  const { text } = formatCommandsSafely(singles, aliasDB, "", planner);
+  let displayCommands = singles;
+
+  // 回退策略：如果严格意义上的“单命令插件”为空，
+  // 则展示所有非别名、非子命令的顶层命令，避免首页错误显示“暂无基础命令”。
+  if (displayCommands.length === 0) {
+    const fallback = new Set<string>();
+    for (const cmd of commands.sort()) {
+      const entry = getPluginEntry(cmd);
+      if (!entry?.plugin?.cmdHandlers) continue;
+      if (entry.original) continue; // 跳过别名
+      if (cmd.includes(" ")) continue; // 跳过子命令
+      fallback.add(cmd);
+    }
+    displayCommands = [...fallback];
+  }
+
+  planner.consume(1);
+  const { text } = formatCommandsSafely(displayCommands, aliasDB, "", planner);
   aliasDB.close();
 
   if (!text) return { text: "暂无基础命令" };

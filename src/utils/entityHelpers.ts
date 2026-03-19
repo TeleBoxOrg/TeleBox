@@ -1,6 +1,6 @@
-import { TelegramClient } from "telegram";
-import { Api } from "telegram/tl";
-import { Entity } from "telegram/define";
+import { TelegramClient } from "teleproto";
+import { Api } from "teleproto/tl";
+import { Entity } from "teleproto/define";
 
 /**
  * 安全获取实体，确保包含正确的access hash

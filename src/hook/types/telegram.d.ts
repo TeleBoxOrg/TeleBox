@@ -1,9 +1,9 @@
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 /**
  * 扩展 Message，添加一个延迟删除的 hook 方法
  */
-declare module "telegram" {
+declare module "teleproto" {
   namespace Api {
     interface Message {
       /**

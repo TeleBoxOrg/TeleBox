@@ -1,12 +1,14 @@
-import { TelegramClient } from "telegram";
-import { StringSession } from "telegram/sessions";
+import { TelegramClient } from "teleproto";
+import { StringSession } from "teleproto/sessions";
 import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
 import { logger } from "./logger";
 
 let client: TelegramClient;
+let initializingPromise: Promise<TelegramClient> | null = null;
+let connectingPromise: Promise<TelegramClient> | null = null;
 
-async function initializeClient() {
+async function initializeClient(): Promise<TelegramClient> {
   let api = await getApiConfig();
   const proxy = api.proxy;
   if (proxy) {
@@ -28,12 +30,37 @@ async function initializeClient() {
     { connectionRetries, deviceModel: readAppName(), proxy }
   );
   client.setLogLevel(logger.getGramJSLogLevel() as any);
+  return client;
+}
+
+async function ensureClientInitialized(): Promise<TelegramClient> {
+  if (client) return client;
+  if (!initializingPromise) {
+    initializingPromise = initializeClient().finally(() => {
+      initializingPromise = null;
+    });
+  }
+  return await initializingPromise;
+}
+
+async function ensureClientConnected(): Promise<TelegramClient> {
+  const instance = await ensureClientInitialized();
+  if (instance.connected) {
+    return instance;
+  }
+
+  if (!connectingPromise) {
+    connectingPromise = (async () => {
+      await instance.connect();
+      return instance;
+    })().finally(() => {
+      connectingPromise = null;
+    });
+  }
+
+  return await connectingPromise;
 }
 
 export async function getGlobalClient(): Promise<TelegramClient> {
-  if (!client) {
-    await initializeClient();
-    return client;
-  }
-  return client;
+  return await ensureClientConnected();
 }

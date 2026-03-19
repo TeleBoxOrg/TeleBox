@@ -1,7 +1,7 @@
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { SureDB } from "@utils/sureDB";
-import { sleep } from "telegram/Helpers";
+import { sleep } from "teleproto/Helpers";
 import {
   dealCommandPluginWithMessage,
   getCommandFromMessage,

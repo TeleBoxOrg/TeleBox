@@ -1,5 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import * as os from "os";
 import * as fs from "fs";
 import { execSync, ExecSyncOptions } from "child_process";
@@ -17,7 +17,7 @@ const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b>
 
 <b>📦 版本信息</b>
 • <b>Node.js版本:</b> <code>{nodejs}</code>
-• <b>Telegram版本:</b> <code>{telegram}</code>
+• <b>Teleproto版本:</b> <code>{teleproto}</code>
 • <b>TeleBox版本:</b> <code>{telebox}</code>
 
 <b>📈 资源使用</b>
@@ -59,7 +59,7 @@ const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 
 <b>📦 版本信息</b>
 • <code>{nodejs}</code> - <b>Node.js版本</b>
-• <code>{telegram}</code> - <b>Telegram库版本</b>
+• <code>{teleproto}</code> - <b>Teleproto库版本</b>
 • <code>{telebox}</code> - <b>TeleBox版本</b>
 
 <b>📈 资源使用</b>
@@ -122,7 +122,7 @@ interface StatusData {
   kernelInfo: string;
   locale: string;
   nodejsVersion: string;
-  telegramVersion: string;
+  teleprotoVersion: string;
   teleboxVersion: string;
   osInfo: string;
   packages: string;
@@ -138,7 +138,7 @@ interface StatusData {
   // 新字段（匹配简化标签）
   kernel: string;             // 内核版本
   nodejs: string;             // Node.js版本
-  telegram: string;           // Telegram库版本
+  teleproto: string;           // Teleproto库版本
   telebox: string;            // TeleBox版本
   os: string;                 // 操作系统信息
   loadaverage: string;        // 负载平均
@@ -174,7 +174,7 @@ interface SystemDetails {
 
 interface VersionInfo {
   nodejs: string;
-  telegram: string;
+  teleproto: string;
   telebox: string;
 }
 
@@ -268,7 +268,7 @@ class TeleBoxSystemMonitor extends Plugin {
     statusData.scanTime = scanTime.toString();
     statusData.scantime = scanTime.toString();
 
-    const rendered = this.renderTemplate(template, statusData);
+    const rendered = this.renderTemplate(template, statusData as unknown as Record<string, string>);
     await msg.edit({
       text: rendered,
       parseMode: "html",
@@ -281,15 +281,14 @@ class TeleBoxSystemMonitor extends Plugin {
     const template = this.db.data.template || DEFAULT_TEMPLATE;
 
     // 转义 HTML 特殊字符，使模板原样显示
-    const escaped = template.replace(/[&<>"']/g, (m) => {
-      return {
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-      }[m] || m;
-    });
+    const htmlMap: Record<string, string> = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    };
+    const escaped = template.replace(/[&<>"']/g, (m: string) => htmlMap[m] || m);
 
     await msg.edit({
       text: `<b>📄 当前模板内容:</b>\n\n<code>${escaped}</code>`,
@@ -337,8 +336,8 @@ class TeleBoxSystemMonitor extends Plugin {
 
     const cpuPercentNum = parseFloat(cpuUsage) || 0;
     const processCpuNum = parseFloat(processCpuUsage) || 0;
-    const memPercentNum = parseInt(memPercent) || 0;
-    const processMemNum = parseFloat(processMemPercent) || 0;
+    const memPercentNum = Number(memPercent) || 0;
+    const processMemNum = Number(processMemPercent) || 0;
     
     let diskPercentNum = 0;
     const diskMatch = systemDetails.diskInfo.match(/\((\d+)%\)/);
@@ -369,7 +368,7 @@ class TeleBoxSystemMonitor extends Plugin {
       kernelInfo: systemDetails.kernelInfo,
       locale,
       nodejsVersion: versions.nodejs,
-      telegramVersion: versions.telegram,
+      teleprotoVersion: versions.teleproto,
       teleboxVersion: versions.telebox,
       osInfo: systemDetails.osInfo,
       packages: systemDetails.packages,
@@ -387,7 +386,7 @@ class TeleBoxSystemMonitor extends Plugin {
       ...baseData,
       kernel: baseData.kernelInfo,
       nodejs: baseData.nodejsVersion,
-      telegram: baseData.telegramVersion,
+      teleproto: baseData.teleprotoVersion,
       telebox: baseData.teleboxVersion,
       os: baseData.osInfo,
       loadaverage: baseData.loadavgStr,
@@ -747,13 +746,13 @@ Scan Time: ${scanTime}ms
       const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
       return {
         nodejs: process.version,
-        telegram: packageJson.dependencies?.telegram?.replace('^', '') || 'unknown',
+        teleproto: packageJson.dependencies?.teleproto?.replace('^', '') || 'unknown',
         telebox: packageJson.version || 'unknown'
       };
     } catch {
       return {
         nodejs: process.version,
-        telegram: 'unknown',
+        teleproto: 'unknown',
         telebox: 'unknown'
       };
     }
@@ -788,7 +787,7 @@ Scan Time: ${scanTime}ms
       timeout: EXEC_TIMEOUT,
       stdio: ["ignore", "pipe", "ignore"] // 隐藏 stderr
     };
-    return execSync(command, options);
+    return String(execSync(command, options));
   }
 
   // 解析人类可读的大小

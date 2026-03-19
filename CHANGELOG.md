@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.7-docs] --2026-03-20
+
+### 文档
+
+- 更新 `README.md`，补充当前项目基于 `teleproto` 的现状说明
+- 更新 `INSTALL.md`，补充 Windows 解压 Linux 打包项目时的 `node_modules` / 符号链接注意事项
+- 更新 `TELEBOX_DEVELOPMENT.md`，补充 `teleproto` 开发现状、兼容性要点与跨平台打包建议
+
+### 兼容性说明
+
+- `status` 插件的版本显示项已从 Telegram 库版本调整为 **Teleproto版本**
+- 当前仓库全量插件已重新扫描并完成一轮 `teleproto` 兼容修复
+- 项目已通过 `npx tsc --noEmit` 编译校验，并完成启动验证
+
 ## [0.2.7] --2026-01-07
 
 - 添加些依赖

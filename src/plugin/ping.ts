@@ -1,13 +1,13 @@
 import { Plugin } from "@utils/pluginBase";
 import { getGlobalClient } from "@utils/globalClient";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { createConnection } from "net";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import Database from "better-sqlite3";
 import path from "path";
-import { PromisedNetSockets } from "telegram/extensions";
+import { PromisedNetSockets } from "teleproto/extensions";
 import * as dns from "dns";
 
 const execAsync = promisify(exec);
