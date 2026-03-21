@@ -3324,7 +3324,7 @@ import { StringSession } from "teleproto/sessions";
 
 ### 兼容性说明
 
-当前仓库已经完成一轮从旧 `telegram/gramjs` 风格到 `teleproto` 的迁移，但开发新插件时仍需注意以下差异：
+当前仓库已经完成一轮从旧 `gramjs` 风格到 `teleproto` 的迁移，但开发新插件时仍需注意以下差异：
 
 - 某些 `msg.edit()` 场景下应考虑返回值可能为 `undefined`
 - `sendFile` / `downloadMedia` 的参数类型比旧实现更严格
