@@ -3230,19 +3230,20 @@ class AbanPlugin extends Plugin {
  **所有插件必须：**
  1. 定义 `help_text` 常量
  2. 在 `description` 中引用帮助文本
- 3. 支持 help 子指令或无参数时显示帮助
- 4. help 触发规范：必须同时支持 `help` 与 `h` 子指令触发帮助；实现需遵循 @[d:\Users\Desktop\telebox\TELEBOX_DEVELOPMENT.md:L3206] 的方式（在 `description` 中引用 `help_text`），并在无参数、`help` 或 `h` 时统一返回帮助文本
+ 3. 帮助文案中的命令示例必须使用 `mainPrefix`（禁止硬编码 `.cmd`、`!cmd` 这类固定前缀）
+ 4. 帮助文案不要引导用户使用插件的 `help/h` 子命令；直接展示主用法与常见子命令
+ 5. 对同一功能的开关型子命令（如 `on/off`、`enable/disable`、`true/false`）必须合并为一行展示，不要拆成两行
 
 ```typescript
 const help_text = `📝 <b>插件名称</b>
 
  <b>命令格式：</b>
- <code>.cmd [子命令] [参数]</code>
+ <code>${mainPrefix}cmd [子命令] [参数]</code>
 
  <b>可用命令：</b>
- • <code>.cmd sub1</code> - 子命令1说明
- • <code>.cmd sub2</code> - 子命令2说明
- • <code>.cmd help</code> - 显示帮助`;
+ • <code>${mainPrefix}cmd sub1</code> - 子命令1说明
+ • <code>${mainPrefix}cmd sub2</code> - 子命令2说明
+ • <code>${mainPrefix}cmd feature on/off</code> - 开启或关闭该功能`;
 
 class MyPlugin extends Plugin {
   description = `插件简介\n\n${help_text}`;
