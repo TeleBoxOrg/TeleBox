@@ -278,6 +278,9 @@ const help_text = `<code>${mainPrefix}bf</code> 备份 plugins + assets 目录
 
 // 插件类
 class BfPlugin extends Plugin {
+  cleanup(): void {
+  }
+
   description = `\n📦 备份插件\n\n${help_text}
 
 若想实现定时备份, 可安装并使用 <code>${mainPrefix}tpm i acron</code>

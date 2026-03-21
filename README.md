@@ -98,7 +98,7 @@ sudo 权限分配和用户管理
 │   │   └── 🔧 ...             # 其他内置插件
 │   └── 🛠️ utils/              # 工具库
 │       ├── ⚙️ pluginManager.ts     # 插件管理核心
-│       ├── 🔗 entityHelpers.ts     # Teleproto / Telegram 实体处理
+│       ├── 🔗 entityHelpers.ts     # Telegram 实体处理
 │       ├── 🔐 loginManager.ts      # 登录管理
 │       ├── 💬 conversation.ts      # 对话管理
 │       └── 🧰 ...                  # 其他工具

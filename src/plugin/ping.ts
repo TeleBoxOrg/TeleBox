@@ -1,4 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
+import { getPrefixes } from "@utils/pluginManager";
 import { getGlobalClient } from "@utils/globalClient";
 import { Api } from "teleproto";
 import { exec } from "child_process";
@@ -9,6 +10,10 @@ import Database from "better-sqlite3";
 import path from "path";
 import { PromisedNetSockets } from "teleproto/extensions";
 import * as dns from "dns";
+
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
+
 
 const execAsync = promisify(exec);
 
@@ -267,7 +272,11 @@ function parseTarget(input: string): {
 }
 
 class PingPlugin extends Plugin {
-  description: string = `🏓 网络延迟测试工具\n\n• .ping - Telegram API延迟\n• .ping <IP/域名> - ICMP ping测试\n• .ping dc1-dc5 - 数据中心延迟\n• .ping all - 所有数据中心延迟`;
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
+  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping <IP/域名> - ICMP ping测试\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     ping: async (msg) => {
       const client = await getGlobalClient();
@@ -332,7 +341,7 @@ class PingPlugin extends Plugin {
         // 帮助信息
         if (target === "help" || target === "h") {
           await msg.edit({
-            text: `🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>.ping</code> - Telegram延迟测试\n• <code>.ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>.ping 8.8.8.8</code> - IP地址ping\n• <code>.ping google.com</code> - 域名ping\n• <code>.ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>支持ICMP和TCP连接测试</i>`,
+            text: `🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>支持ICMP和TCP连接测试</i>`,
             parseMode: "html",
           });
           return;

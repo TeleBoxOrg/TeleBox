@@ -18,6 +18,10 @@ const help_text = `🛠 <b>前缀管理</b>
 • <code>${htmlEscape(mainPrefix)}prefix del [前缀...]</code> - 删除前缀`;
 
 class PrefixPlugin extends Plugin {
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
   description: string = help_text;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     prefix: async (msg) => {

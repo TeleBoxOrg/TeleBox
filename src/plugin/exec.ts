@@ -4,6 +4,7 @@ import { Plugin } from "@utils/pluginBase";
 import { Api } from "teleproto";
 
 const execAsync = promisify(exec);
+const activeIntervals = new Set<ReturnType<typeof setInterval>>();
 
 function truncate(text: string, max = 3500) {
   if (text.length <= max) return text;
@@ -38,11 +39,13 @@ async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
       });
     } catch {}
   }, 2000);
+  activeIntervals.add(timer);
 
   try {
     const { stdout, stderr } = await execAsync(shellCommand);
     stopped = true;
     clearInterval(timer);
+    activeIntervals.delete(timer);
 
     const costMs = Date.now() - start;
 
@@ -62,6 +65,7 @@ async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
   } catch (error: any) {
     stopped = true;
     clearInterval(timer);
+    activeIntervals.delete(timer);
 
     const costMs = Date.now() - start;
 
@@ -77,6 +81,14 @@ async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
 }
 
 class ExecPlugin extends Plugin {
+  cleanup(): void {
+    // 真实资源清理：释放插件持有的定时器、监听器、运行时状态或临时资源。
+    for (const timer of activeIntervals) {
+      clearInterval(timer);
+    }
+    activeIntervals.clear();
+  }
+
   description: string = `运行 shell 命令`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     exec: async (msg) => {

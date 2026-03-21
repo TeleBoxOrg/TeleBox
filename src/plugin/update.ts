@@ -1,9 +1,14 @@
 import { Plugin } from "@utils/pluginBase";
+import { getPrefixes } from "@utils/pluginManager";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { loadPlugins } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
+
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
+
 
 const execAsync = promisify(exec);
 
@@ -49,7 +54,11 @@ async function update(force = false, msg: Api.Message) {
 }
 
 class UpdatePlugin extends Plugin {
-  description: string = `更新项目：拉取最新代码并安装依赖\n<code>.update -f/-force</code> 强制更新`;
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
+  description: string = `更新项目：拉取最新代码并安装依赖\n<code>${mainPrefix}update -f/-force</code> 强制更新`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     update: async (msg) => {
       const args = msg.message.slice(1).split(" ").slice(1);
