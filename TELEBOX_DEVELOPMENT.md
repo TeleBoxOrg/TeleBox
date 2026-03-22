@@ -44,8 +44,11 @@
   - [⚠️ 安全边界声明](#安全边界声明)
   - [命令处理器 (cmdHandlers)](#命令处理器-cmdhandlers)
   - [消息监听器 (listenMessageHandler)](#消息监听器-listenmessagehandler)
+    - [listenMessageHandler 的 cleanup 注意事项](#listenmessagehandler-的-cleanup-注意事项)
   - [事件处理器 (eventHandlers)](#事件处理器-eventhandlers)
+    - [eventHandlers 的 cleanup 注意事项](#eventhandlers-的-cleanup-注意事项)
   - [定时任务 (cronTasks)](#定时任务-crontasks)
+    - [cronTasks 的 cleanup 注意事项](#crontasks-的-cleanup-注意事项)
 </details>
 
 <details>
@@ -232,7 +235,7 @@ run();
 
 **职责**：
 - 加载环境变量
-- 初始化 teleproto 客户端
+- 初始化 Telegram 客户端
 - 加载插件系统
 - 应用Hook补丁
 
@@ -244,7 +247,7 @@ run();
 |--------|----------|
 | `pluginBase.ts` | 插件基类定义 |
 | `pluginManager.ts` | 插件管理器，负责加载和路由 |
-| `globalClient.ts` | 全局 teleproto 客户端实例 |
+| `globalClient.ts` | 全局客户端实例 |
 | `loginManager.ts` | 登录管理器 |
 | `apiConfig.ts` | API配置管理 |
 | `pathHelpers.ts` | 路径辅助工具 |
@@ -377,6 +380,60 @@ utils/* (工具模块)
 - **协议**: LGPL-2.1-only
 
 ## 🔌 插件系统
+
+#### 生命周期与 cleanup 设计建议
+
+现在统一约定所有插件都应显式提供 `cleanup()`，哪怕当前无需释放资源也要写清楚边界。
+
+推荐固定成三种风格。
+
+第一种是真实资源清理。适用于插件持有定时器、手动注册的事件监听器、运行时状态表、临时文件目录、子进程句柄这类资源。`cleanup()` 里应真正释放它们。
+
+第二种是引用重置。适用于插件实例持有 `db`、配置管理器、缓存对象这类可在下次调用时重新初始化的引用。`cleanup()` 里将引用置空即可。
+
+第三种是显式 no-op。适用于流程型插件。它不持有插件级长期资源，但仍建议保留 `cleanup()` 并写注释说明为什么无需额外释放。
+
+统一要求。
+
+`cleanup()` 必须幂等。重复调用不能报错。
+`cleanup()` 不应依赖用户输入。
+`cleanup()` 不应误伤系统级资源。像 systemd 服务、iptables、dnsmasq、wireproxy 这种由显式命令管理的资源，不要在 reload 时偷偷停掉。
+
+推荐模板。
+
+```ts
+cleanup(): void {
+  for (const timer of this.pendingTimers) {
+    clearTimeout(timer);
+  }
+  this.pendingTimers.clear();
+}
+```
+
+```ts
+cleanup(): void {
+  this.db = null;
+}
+```
+
+```ts
+cleanup(): void {
+  // 当前插件不持有需要在 reload 时额外释放的长期资源。
+}
+```
+
+
+插件作者在设计插件时，应默认把 加载、重载、释放资源 当作插件结构的一部分来考虑。
+
+推荐约定：
+
+- 初始化逻辑集中在类方法中，不要散落在模块顶层
+- 所有可释放资源（定时器、监听器、连接、临时状态）都挂到实例属性上
+- 预留 `cleanup()` / `dispose()` 方法，保证插件重载时可手动释放
+- cleanup 逻辑必须尽量 **幂等**，重复执行不能报错
+
+这会直接影响插件在 `.reload`、热重载、异常恢复场景下的稳定性。
+
 
 ### 插件基类
 
@@ -603,7 +660,7 @@ import {
 
 ### 全局客户端
 
-**globalClient.ts** - 全局 teleproto 客户端实例
+**globalClient.ts** - 全局客户端实例
 
 ```typescript
 import { getGlobalClient } from "@utils/globalClient";
@@ -2317,6 +2374,18 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
 ## 📋 开发规范
 
+### 临时文件、缓存与外部资源
+
+插件若涉及下载、转码、截图、OCR、媒体处理、压缩、导出等功能，应显式考虑中间产物清理。
+
+要求：
+
+- 临时文件要么处理完成后立即删除，要么具备过期清理策略
+- 缓存目录要区分“持久数据”和“临时数据”
+- 外部客户端、数据库连接、浏览器实例、socket、stream 使用完后应关闭
+- 不要默认假设进程退出一定会帮你把一切清理干净
+
+
 ### 命名规范
 
 1. **文件命名**
@@ -2638,6 +2707,24 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
    ```
 
 ## 🚀 完整插件示例
+
+### reload / cleanup 回归测试建议
+
+每个插件在提交前，建议至少完成一次最小回归测试：
+
+1. 启动项目
+2. 执行插件核心功能一次
+3. 执行 `.reload`（插件或全量）
+4. 再执行同一功能一次
+5. 观察是否出现以下异常：
+   - 重复回复
+   - 重复消息发送
+   - 定时任务执行次数翻倍
+   - 日志重复打印
+   - 临时文件残留明显增加
+
+如果插件涉及长连接、验证码状态、会话上下文、文件处理中间产物，这一步应视为必测项。
+
 
 ### 简单命令插件
 
@@ -3143,19 +3230,20 @@ class AbanPlugin extends Plugin {
  **所有插件必须：**
  1. 定义 `help_text` 常量
  2. 在 `description` 中引用帮助文本
- 3. 支持 help 子指令或无参数时显示帮助
- 4. help 触发规范：必须同时支持 `help` 与 `h` 子指令触发帮助；实现需遵循 @[d:\Users\Desktop\telebox\TELEBOX_DEVELOPMENT.md:L3206] 的方式（在 `description` 中引用 `help_text`），并在无参数、`help` 或 `h` 时统一返回帮助文本
+ 3. 帮助文案中的命令示例必须使用 `mainPrefix`（禁止硬编码 `.cmd`、`!cmd` 这类固定前缀）
+ 4. 帮助文案不要引导用户使用插件的 `help/h` 子命令；直接展示主用法与常见子命令
+ 5. 对同一功能的开关型子命令（如 `on/off`、`enable/disable`、`true/false`）必须合并为一行展示，不要拆成两行
 
 ```typescript
 const help_text = `📝 <b>插件名称</b>
 
  <b>命令格式：</b>
- <code>.cmd [子命令] [参数]</code>
+ <code>${mainPrefix}cmd [子命令] [参数]</code>
 
  <b>可用命令：</b>
- • <code>.cmd sub1</code> - 子命令1说明
- • <code>.cmd sub2</code> - 子命令2说明
- • <code>.cmd help</code> - 显示帮助`;
+ • <code>${mainPrefix}cmd sub1</code> - 子命令1说明
+ • <code>${mainPrefix}cmd sub2</code> - 子命令2说明
+ • <code>${mainPrefix}cmd feature on/off</code> - 开启或关闭该功能`;
 
 class MyPlugin extends Plugin {
   description = `插件简介\n\n${help_text}`;
@@ -3236,7 +3324,7 @@ import { StringSession } from "teleproto/sessions";
 
 ### 兼容性说明
 
-当前仓库已经完成一轮从旧 `telegram/gramjs` 风格到 `teleproto` 的迁移，但开发新插件时仍需注意以下差异：
+当前仓库已经完成一轮从旧 `gramjs` 风格到 `teleproto` 的迁移，但开发新插件时仍需注意以下差异：
 
 - 某些 `msg.edit()` 场景下应考虑返回值可能为 `undefined`
 - `sendFile` / `downloadMedia` 的参数类型比旧实现更严格
@@ -3288,7 +3376,7 @@ class MyPlugin extends Plugin {
 }
 ```
 
-即使当前基类没有强制统一的 cleanup 生命周期，插件作者也应当：
+现在基类已经统一提供 cleanup 生命周期，插件作者应当：
 
 - 把可回收资源集中存放在类属性中
 - 避免把定时器、监听器、连接句柄散落在模块全局

@@ -1,4 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
+import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { SureDB } from "@utils/sureDB";
 import { sleep } from "teleproto/Helpers";
@@ -6,6 +7,9 @@ import {
   dealCommandPluginWithMessage,
   getCommandFromMessage,
 } from "@utils/pluginManager";
+
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
 
 // HTML escape function
 function htmlEscape(text: string): string {
@@ -263,7 +267,15 @@ async function handleMsgList(msg: Api.Message) {
 }
 
 class surePlugin extends Plugin {
-  description: string = `赋予其他用户使用 bot 身份发送消息(支持重定向)的权限\n<code>.sure add (回复目标用户的消息或带上 uid/@username)</code> - 添加用户\n<code>.sure del (回复目标用户的消息或带上 uid/@username)</code> - 删除用户\n<code>.sure ls</code> - 列出所有用户\n\n⚠️ 若未设置对话白名单, 所有对话中均可使用\n<code>.sure chat add (在当前对话中使用 或带上 id/@name)</code> - 添加对话到白名单\n<code>.sure chat del (在当前对话中使用 或带上 id/@name)</code> - 从白名单删除对话\n<code>.sure chat ls/list</code> - 列出对话白名单\n\n⚠️ 需设置消息白名单方可使用\n<code>.sure msg add 消息(使用原始字符串, 即可包含空格)</code> - 添加消息白名单\n⚠️ 若以 <code>_command:</code> 开头, 认为此消息是命令, 即 <code>_command:/sb</code> 可匹配 <code>/sb</code> 和 <code>/sb uid</code>. 若设置了重定向为 <code>/spam</code>, 则会自动变成 <code>/spam</code> 和 <code>/spam uid</code>\n<code>.sure msg redirect ID 重定向消息(使用原始字符串, 即可包含空格)</code> - 使用消息的 ID 为消息设置重定向(设置空即为清除重定向)\n<code>.sure msg del ID</code> - 使用消息的 ID 从白名单删除消息\n<code>.sure msg ls/list</code> - 列出消息白名单\n\n一个典型的使用场景:\n设置 <code>_command:/sb</code> 重定向到 <code>.ban</code>, 然后给普通群成员权限, 他们发送 /sb 时, 会自动调用 <code>.ban</code> 命令`;
+  cleanup(): void {
+    // 真实资源清理：清空模块级 sure 运行时缓存。
+    sureCache.ids = [];
+    sureCache.cids = [];
+    sureCache.msgs = [];
+    sureCache.ts = 0;
+  }
+
+  description: string = `赋予其他用户使用 bot 身份发送消息(支持重定向)的权限\n<code>${mainPrefix}sure add (回复目标用户的消息或带上 uid/@username)</code> - 添加用户\n<code>${mainPrefix}sure del (回复目标用户的消息或带上 uid/@username)</code> - 删除用户\n<code>${mainPrefix}sure ls</code> - 列出所有用户\n\n⚠️ 若未设置对话白名单, 所有对话中均可使用\n<code>${mainPrefix}sure chat add (在当前对话中使用 或带上 id/@name)</code> - 添加对话到白名单\n<code>${mainPrefix}sure chat del (在当前对话中使用 或带上 id/@name)</code> - 从白名单删除对话\n<code>${mainPrefix}sure chat ls/list</code> - 列出对话白名单\n\n⚠️ 需设置消息白名单方可使用\n<code>${mainPrefix}sure msg add 消息(使用原始字符串, 即可包含空格)</code> - 添加消息白名单\n⚠️ 若以 <code>_command:</code> 开头, 认为此消息是命令, 即 <code>_command:/sb</code> 可匹配 <code>/sb</code> 和 <code>/sb uid</code>. 若设置了重定向为 <code>/spam</code>, 则会自动变成 <code>/spam</code> 和 <code>/spam uid</code>\n<code>${mainPrefix}sure msg redirect ID 重定向消息(使用原始字符串, 即可包含空格)</code> - 使用消息的 ID 为消息设置重定向(设置空即为清除重定向)\n<code>${mainPrefix}sure msg del ID</code> - 使用消息的 ID 从白名单删除消息\n<code>${mainPrefix}sure msg ls/list</code> - 列出消息白名单\n\n一个典型的使用场景:\n设置 <code>_command:/sb</code> 重定向到 <code>${mainPrefix}ban</code>, 然后给普通群成员权限, 他们发送 /sb 时, 会自动调用 <code>${mainPrefix}ban</code> 命令`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     sure: async (msg) => {
       const parts = msg.message.trim().split(/\s+/);
@@ -327,7 +339,7 @@ class surePlugin extends Plugin {
         return;
       }
       await msg.edit({
-        text: "未知命令, 请使用 <code>.help sure</code> 查看帮助",
+        text: "未知命令, ",
         parseMode: "html",
       });
     },

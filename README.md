@@ -98,7 +98,7 @@ sudo 权限分配和用户管理
 │   │   └── 🔧 ...             # 其他内置插件
 │   └── 🛠️ utils/              # 工具库
 │       ├── ⚙️ pluginManager.ts     # 插件管理核心
-│       ├── 🔗 entityHelpers.ts     # Teleproto / Telegram 实体处理
+│       ├── 🔗 entityHelpers.ts     # Telegram 实体处理
 │       ├── 🔐 loginManager.ts      # 登录管理
 │       ├── 💬 conversation.ts      # 对话管理
 │       └── 🧰 ...                  # 其他工具
@@ -317,7 +317,7 @@ abstract class Plugin {
 | :----------------: | :------------------: | :---------: |
 |   🚀 **运行时**    |       Node.js        |   `20.19.4`    |
 |  💎 **开发语言**   |      TypeScript      |   `5.9.2`   |
-| 📡 **Telegram 库** |        GramJS        |  `2.26.22`  |
+| 📡 **Telegram 库** |       Teleproto       |  `^1.223.1` |
 |   💾 **数据库**    |    better-sqlite3    |  `12.2.0`   |
 |   💾 **数据库**    |        lowdb         |   `7.0.1`   |
 |  ⚡ **构建工具**   | tsx + tsconfig-paths |  `latest`   |

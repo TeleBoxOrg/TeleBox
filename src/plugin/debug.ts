@@ -10,6 +10,10 @@ import * as os from "os";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 class DebugPlugin extends Plugin {
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
   description: string = `<code>${mainPrefix}id 回复一条消息 或 留空查看当前对话 或 消息链接 或 用户名 或 群组ID</code> - 获取详细的用户、群组或频道信息
 <code>${mainPrefix}entity [id/@name] 或 回复一条消息 或 留空查看当前对话</code> - 获取 entity 信息
 <code>${mainPrefix}msg 回复一条消息</code> - 获取 msg 信息

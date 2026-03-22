@@ -1,4 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
+import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import * as os from "os";
 import * as fs from "fs";
@@ -6,6 +7,10 @@ import { execSync, ExecSyncOptions } from "child_process";
 import * as path from "path";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
+
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
+
 
 // ==================== 常量 ====================
 const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b>
@@ -42,11 +47,11 @@ const DEFAULT_TEMPLATE = `<b>📊 TeleBox 运行状态</b>
 const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 
 <b>🔧 使用方法:</b>
-• <code>.sysinfo</code> - 显示当前系统状态
-• <code>.status</code> - 显示当前状态
-• <code>.status show</code> - 显示当前模板内容
-• <code>.status set</code> - 回复模板消息，设置自定义格式
-• <code>.status reset</code> - 重置默认模板
+• <code>${mainPrefix}sysinfo</code> - 显示当前系统状态
+• <code>${mainPrefix}status</code> - 显示当前状态
+• <code>${mainPrefix}status show</code> - 显示当前模板内容
+• <code>${mainPrefix}status set</code> - 回复模板消息，设置自定义格式
+• <code>${mainPrefix}status reset</code> - 重置默认模板
 
 <b>💡 模板标签说明:</b>
 可用标签：
@@ -95,7 +100,7 @@ CPU: {cpu}% {cpubar}
 内存: {mem}% {membar}
 磁盘: {disk} {diskbar}
 运行时间: {uptime}</code>
-回复该消息，发送 <code>.status set</code>
+回复该消息，发送 <code>${mainPrefix}status set</code>
 <b>⚠️ 注意事项:</b>
 • 模板必须包含有效的HTML标签（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code>）
 • 标签名称必须完全匹配`;
@@ -180,6 +185,9 @@ interface VersionInfo {
 
 // ==================== 插件主类 ====================
 class TeleBoxSystemMonitor extends Plugin {
+  cleanup(): void {
+  }
+
   description = `显示系统信息与TeleBox运行状态\n\n${HELP_TEXT}`;
   private db: any;
   private readonly PLUGIN_NAME = "status";
@@ -426,7 +434,7 @@ class TeleBoxSystemMonitor extends Plugin {
     await this.db.write();
 
     await msg.edit({
-      text: "✅ 模板已保存！使用 <code>.status</code> 查看效果",
+      text: "✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果",
       parseMode: "html",
     });
   }

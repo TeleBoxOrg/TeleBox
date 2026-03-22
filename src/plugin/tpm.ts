@@ -1309,6 +1309,10 @@ async function updateAllPlugins(msg: Api.Message) {
 }
 
 class TpmPlugin extends Plugin {
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
   description: string = `<b>📦 TeleBox 插件管理器 (TPM)</b>
 
 <b>🔍 查看插件:</b>

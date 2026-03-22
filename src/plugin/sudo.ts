@@ -1,4 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
+import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { SudoDB } from "@utils/sudoDB";
 import { sleep } from "teleproto/Helpers";
@@ -6,6 +7,9 @@ import {
   dealCommandPluginWithMessage,
   getCommandFromMessage,
 } from "@utils/pluginManager";
+
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
 
 // 缓存下用户设置的 sudo 前缀，减少频繁 IO
 const envPrefixes = process.env.TB_SUDO_PREFIX?.split(/\s+/g).filter((p) => p.length > 0) || [];
@@ -196,8 +200,15 @@ async function handleChatList(msg: Api.Message) {
   });
 }
 class sudoPlugin extends Plugin {
+  cleanup(): void {
+    // 真实资源清理：清空模块级 sudo 运行时缓存。
+    sudoCache.ids = [];
+    sudoCache.cids = [];
+    sudoCache.ts = 0;
+  }
+
   description: () => string = () => {
-    let text = `赋予其他用户使用 bot 权限\n<code>.sudo add (回复目标用户的消息或带上 uid/@username)</code> - 添加用户\n<code>.sudo del (回复目标用户的消息或带上 uid/@username)</code> - 删除用户\n<code>.sudo ls</code> - 列出所有用户\n\n⚠️ 若未设置对话白名单, 所有对话中均可使用\n<code>.sudo chat add (在当前对话中使用 或带上 id/@name)</code> - 添加对话到白名单\n<code>.sudo chat del (在当前对话中使用 或带上 id/@name)</code> - 从白名单删除对话\n<code>.sudo chat ls/list</code> - 列出对话白名单`;
+    let text = `赋予其他用户使用 bot 权限\n<code>${mainPrefix}sudo add (回复目标用户的消息或带上 uid/@username)</code> - 添加用户\n<code>${mainPrefix}sudo del (回复目标用户的消息或带上 uid/@username)</code> - 删除用户\n<code>${mainPrefix}sudo ls</code> - 列出所有用户\n\n⚠️ 若未设置对话白名单, 所有对话中均可使用\n<code>${mainPrefix}sudo chat add (在当前对话中使用 或带上 id/@name)</code> - 添加对话到白名单\n<code>${mainPrefix}sudo chat del (在当前对话中使用 或带上 id/@name)</code> - 从白名单删除对话\n<code>${mainPrefix}sudo chat ls/list</code> - 列出对话白名单`;
     if (envPrefixes.length > 0) {
       text += `\n\n‼️当前 sudo 前缀：${envPrefixes
         .map((p) => `<code>${p}</code>`)
@@ -230,7 +241,7 @@ class sudoPlugin extends Plugin {
         return;
       }
       await msg.edit({
-        text: "未知命令, 请使用 <code>.help sudo</code> 查看帮助",
+        text: "未知命令, ",
         parseMode: "html",
       });
     },

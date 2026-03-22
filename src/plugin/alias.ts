@@ -116,6 +116,10 @@ async function listAlias(args: string[], msg: Api.Message) {
 }
 
 class AliasPlugin extends Plugin {
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
   description: string = `插件命名重命名
 <code>${mainPrefix}alias set a b</code> - 使用别名 <code>a</code> 执行 <code>b</code>（同一原命令只保留一个别名，新设置会覆盖旧别名）
 <code>${mainPrefix}alias del a</code> - 删除别名

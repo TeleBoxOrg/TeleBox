@@ -8,7 +8,7 @@
 
 **现代化 Telegram Bot 开发框架完整部署指南**
 
-_基于 Node.js、TypeScript 与 teleproto 构建的高性能 Telegram 项目_
+_基于 Node.js 与 TypeScript 构建的高性能 Telegram 项目_
 
 </div>
 
@@ -121,7 +121,7 @@ npm install
 **🔄 安装过程说明：**
 
 - 自动下载并安装 `package.json` 中定义的所有依赖
-- 包括 TypeScript、teleproto、数据库驱动等核心组件
+- 包括 TypeScript、客户端库、数据库驱动等核心组件
 - 安装完成后会生成 `node_modules/` 目录
 
 **⏱️ 预计耗时：** 2-5 分钟（取决于网络速度）

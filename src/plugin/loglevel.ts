@@ -1,15 +1,24 @@
 import { Plugin } from "@utils/pluginBase";
+import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { logger, LogLevel } from "@utils/logger";
 
 import { getGlobalClient } from "@utils/globalClient";
 
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
+
+
 class LogLevelPlugin extends Plugin {
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
   description = `📝 日志等级设置工具
   
 <b>使用方法：</b>
-• <code>.loglevel [等级]</code> - 设置日志等级
-• <code>.loglevel</code> - 查看当前日志等级
+• <code>${mainPrefix}loglevel [等级]</code> - 设置日志等级
+• <code>${mainPrefix}loglevel</code> - 查看当前日志等级
 
 <b>可用等级：</b>
 • <code>debug</code> - 调试信息 (所有日志)

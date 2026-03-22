@@ -165,6 +165,10 @@ const HELP_TEXT = `🔄 Reload - 插件重载与内存管理
 ✅ 重新加载后自动检测内存增长情况`;
 
 class ReloadPlugin extends Plugin {
+  cleanup(): void {
+    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+  }
+
   description = HELP_TEXT;
   cronTasks = {
     memoryMonitor: {
@@ -276,7 +280,7 @@ class ReloadPlugin extends Plugin {
         const threshold = parseInt(parts[2]);
         if (isNaN(threshold) || threshold <= 0) {
           await msg.edit({
-            text: "❌ <b>参数错误</b>\n\n请提供有效的内存阈值（正整数，单位：MB）\n\n示例：<code>.leakfix set 150</code>",
+            text: "❌ <b>参数错误</b>\n\n请提供有效的内存阈值（正整数，单位：MB）\n\n示例：<code>${mainPrefix}leakfix set 150</code>",
             parseMode: "html"
           });
           return;
@@ -311,8 +315,7 @@ class ReloadPlugin extends Plugin {
         } else {
           await msg.edit({
             text: `📊 <b>LeakFix 静默模式</b>\n\n` +
-                  `• <code>${mainPrefix}leakfix silent on</code> - 启用静默（不发送通知）\n` +
-                  `• <code>${mainPrefix}leakfix silent off</code> - 禁用静默（发送通知，默认）\n\n` +
+                  `• <code>${mainPrefix}leakfix silent on/off</code> - 启用或禁用静默模式\n\n` +
                   `当前状态：${configDB.data.silentEnabled ? "✅ 已启用" : "❌ 未启用"}`,
             parseMode: "html"
           });
