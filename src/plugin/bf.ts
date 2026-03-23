@@ -6,13 +6,26 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
+const activeChildProcesses = new Set<ChildProcess>();
+
+function trackChildProcess<T extends ChildProcess>(child: T): T {
+  const release = () => {
+    activeChildProcesses.delete(child);
+  };
+
+  activeChildProcesses.add(child);
+  child.once("close", release);
+  child.once("exit", release);
+  child.once("error", release);
+  return child;
+}
 
 // 时区设置
 const CN_TIME_ZONE = "Asia/Shanghai";
@@ -128,6 +141,10 @@ class ConfigManager {
     await this.setTargets(filtered);
     return filtered;
   }
+
+  static cleanup(): void {
+    this.db = null;
+  }
 }
 
 // 工具函数
@@ -169,13 +186,13 @@ async function createBackup(dirs: string[], outputPath: string): Promise<void> {
 
     // 创建tar.gz
     await new Promise<void>((resolve, reject) => {
-      const tar = spawn("tar", [
+      const tar = trackChildProcess(spawn("tar", [
         "-czf",
         outputPath,
         "-C",
         tempDir,
         "telebox_backup",
-      ]);
+      ]));
 
       tar.on("close", (code) => {
         if (code === 0) resolve();
@@ -216,7 +233,7 @@ async function extractBackup(archivePath: string): Promise<string> {
   fs.mkdirSync(extractDir, { recursive: true });
 
   await new Promise<void>((resolve, reject) => {
-    const tar = spawn("tar", ["-xzf", archivePath, "-C", extractDir]);
+    const tar = trackChildProcess(spawn("tar", ["-xzf", archivePath, "-C", extractDir]));
 
     tar.on("close", (code) => {
       if (code === 0) resolve();
@@ -279,6 +296,13 @@ const help_text = `<code>${mainPrefix}bf</code> 备份 plugins + assets 目录
 // 插件类
 class BfPlugin extends Plugin {
   cleanup(): void {
+    for (const child of activeChildProcesses) {
+      try {
+        child.kill("SIGTERM");
+      } catch {}
+    }
+    activeChildProcesses.clear();
+    ConfigManager.cleanup();
   }
 
   description = `\n📦 备份插件\n\n${help_text}
@@ -404,7 +428,7 @@ class BfPlugin extends Plugin {
           const dirName = path.basename(programDir);
           
           await new Promise<void>((resolve, reject) => {
-            const tar = spawn("tar", [
+            const tar = trackChildProcess(spawn("tar", [
               "-cf",
               "-",
               "-C",
@@ -415,9 +439,9 @@ class BfPlugin extends Plugin {
               "--exclude=temp",
               "--exclude=logs",
               dirName,
-            ], { stdio: ["pipe", "pipe", "pipe"] });
+            ], { stdio: ["pipe", "pipe", "pipe"] }));
 
-            const gzip = spawn("gzip", ["-1"], { stdio: ["pipe", "pipe", "pipe"] });
+            const gzip = trackChildProcess(spawn("gzip", ["-1"], { stdio: ["pipe", "pipe", "pipe"] }));
 
             const output = fs.createWriteStream(backupPath);
 
