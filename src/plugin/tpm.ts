@@ -968,11 +968,11 @@ async function search(msg: Api.Message) {
       return text.replace(regex, '<b>$1</b>');
     };
 
-    function getPluginStatus(pluginName: string, remoteUrl: string) {
+    function getPluginStatus(pluginName: string) {
       const hasLocal = localPlugins.has(pluginName);
       const dbRecord = dbPlugins[pluginName];
 
-      if (hasLocal && dbRecord && dbRecord.url === remoteUrl) {
+      if (hasLocal && dbRecord) {
         installedCount++;
         return { status: "✅", label: "已安装" } as const;
       } else if (hasLocal && !dbRecord) {
@@ -987,8 +987,7 @@ async function search(msg: Api.Message) {
     const pluginLines: string[] = [];
     for (const plugin of filteredPlugins) {
       const pluginData = remotePlugins[plugin];
-      const remoteUrl = pluginData?.url || "";
-      const { status } = getPluginStatus(plugin, remoteUrl);
+      const { status } = getPluginStatus(plugin);
       const description = pluginData?.desc || "暂无描述";
       
       const highlightedName = highlightMatch(plugin);
@@ -1018,11 +1017,11 @@ async function search(msg: Api.Message) {
     statsInfo += `• ❌ 未安装: ${notInstalledCount} 个`;
 
     const installTip = `\n💡 <b>快捷操作:</b>\n` +
-      `• <code>${mainPrefix}tpm i &lt;名称 [名称2 ...]&gt;</code> 安装/批量安装\n` +
+      `• <code>${mainPrefix}tpm i [名称1] [名称2 ...]</code> 安装/批量安装\n` +
       `• <code>${mainPrefix}tpm i all</code> 全部安装\n` +
       `• <code>${mainPrefix}tpm update</code> 更新已装\n` +
       `• <code>${mainPrefix}tpm ls</code> 查看记录\n` +
-      `• <code>${mainPrefix}tpm rm &lt;名称&gt;</code> 卸载\n` +
+      `• <code>${mainPrefix}tpm rm [名称]</code> 卸载\n` +
       `• <code>${mainPrefix}tpm rm all</code> 清空`;
 
     const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxDev/TeleBox_Plugins">TeleBox_Plugins</a>`;
@@ -1319,8 +1318,8 @@ class TpmPlugin extends Plugin {
 • <code>${mainPrefix}tpm ls -v</code> 或 <code>${mainPrefix}tpm lv</code> - 查看详细记录
 
 <b>⬇️ 安装插件:</b>
-• <code>${mainPrefix}tpm i &lt;插件名&gt;</code> (别名: <code>install</code>) - 安装单个插件
-• <code>${mainPrefix}tpm i &lt;插件名1&gt; &lt;插件名2&gt;</code> - 安装多个插件
+• <code>${mainPrefix}tpm i [插件名]</code> (别名: <code>install</code>) - 安装单个插件
+• <code>${mainPrefix}tpm i [插件名1] [插件名2]</code> - 安装多个插件
 • <code>${mainPrefix}tpm i all</code> - 一键安装全部远程插件
 • <code>${mainPrefix}tpm i</code> (回复插件文件) - 安装本地插件文件
 
@@ -1328,12 +1327,12 @@ class TpmPlugin extends Plugin {
 • <code>${mainPrefix}tpm update</code> (别名: <code>updateAll</code>, <code>ua</code>) - 一键更新所有已安装的远程插件
 
 <b>🗑️ 卸载插件:</b>
-• <code>${mainPrefix}tpm rm &lt;插件名&gt;</code> (别名: <code>remove</code>, <code>uninstall</code>, <code>un</code>) - 卸载单个插件
-• <code>${mainPrefix}tpm rm &lt;插件名1&gt; &lt;插件名2&gt;</code> - 卸载多个插件
+• <code>${mainPrefix}tpm rm [插件名]</code> (别名: <code>remove</code>, <code>uninstall</code>, <code>un</code>) - 卸载单个插件
+• <code>${mainPrefix}tpm rm [插件名1] [插件名2]</code> - 卸载多个插件
 • <code>${mainPrefix}tpm rm all</code> - 清空插件目录并刷新本地缓存
 
 <b>⬆️ 上传插件:</b>
-• <code>${mainPrefix}tpm upload &lt;插件名&gt;</code> (别名: <code>ul</code>) - 上传指定插件文件`;
+• <code>${mainPrefix}tpm upload [插件名]</code> (别名: <code>ul</code>) - 上传指定插件文件`;
 
   ignoreEdited: boolean = true;
 
