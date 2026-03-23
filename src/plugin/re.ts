@@ -10,9 +10,7 @@ function shouldRevokeDelete(message?: Api.Message): boolean {
 }
 
 class RePlugin extends Plugin {
-  cleanup(): void {
-    // 当前插件不持有需要在 reload 时额外释放的长期资源。
-  }
+  cleanup(): void {}
 
   description: string = `复读\n回复一条消息即可复读\n<code>${mainPrefix}re [消息数] [复读次数]</code>`;
   cmdHandlers: Record<

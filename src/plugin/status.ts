@@ -186,6 +186,7 @@ interface VersionInfo {
 // ==================== 插件主类 ====================
 class TeleBoxSystemMonitor extends Plugin {
   cleanup(): void {
+    this.db = null;
   }
 
   description = `显示系统信息与TeleBox运行状态\n\n${HELP_TEXT}`;

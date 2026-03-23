@@ -171,9 +171,7 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 class HelpPlugin extends Plugin {
-  cleanup(): void {
-    // 当前插件不持有需要在 reload 时额外释放的长期资源。
-  }
+  cleanup(): void {}
 
   description = "查看帮助信息和可用命令列表";
 
