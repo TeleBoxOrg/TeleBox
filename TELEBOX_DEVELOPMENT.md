@@ -399,6 +399,12 @@ utils/* (工具模块)
 `cleanup()` 不应依赖用户输入。
 `cleanup()` 不应误伤系统级资源。像 systemd 服务、iptables、dnsmasq、wireproxy 这种由显式命令管理的资源，不要在 reload 时偷偷停掉。
 
+插件优先原则。
+
+- 优先在插件内部持有并释放资源，不为单个插件的资源问题扩展全局框架。
+- 插件自己创建的 timer、child process、插件级缓存或 db 引用，应优先在插件自己的 `cleanup()` 中处理。
+- 只有已经被框架统一接管的资源（如 `cronTasks`、插件统一注册的 Telegram handlers）才依赖框架侧清理。
+
 推荐模板。
 
 ```ts
