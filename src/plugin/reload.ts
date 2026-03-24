@@ -27,6 +27,7 @@ const exitDir = createDirectoryInTemp("exit");
 const exitFile = path.join(exitDir, "msg.json");
 const assetsDir = createDirectoryInAssets("reload");
 const configPath = path.join(assetsDir, "config.json");
+const pendingExitTimers = new Set<ReturnType<typeof setTimeout>>();
 
 interface ReloadConfig {
   leakfixEnabled: boolean;
@@ -41,6 +42,19 @@ async function initConfig() {
     silentEnabled: false
   });
   return db;
+}
+
+function scheduleTrackedTimeout(
+  callback: () => void | Promise<void>,
+  delay: number
+): ReturnType<typeof setTimeout> {
+  let timer: ReturnType<typeof setTimeout>;
+  timer = setTimeout(() => {
+    pendingExitTimers.delete(timer);
+    void Promise.resolve(callback());
+  }, delay);
+  pendingExitTimers.add(timer);
+  return timer;
 }
 
 const editExitMsg = async () => {
@@ -134,9 +148,9 @@ async function memoryMonitorTask() {
                    `正在重启 TeleBox...`,
           parseMode: "html"
         });
-        setTimeout(() => process.exit(0), 1000);
+        scheduleTrackedTimeout(() => process.exit(0), 1000);
       } else if (client) {
-        setTimeout(() => process.exit(0), 1000);
+        scheduleTrackedTimeout(() => process.exit(0), 1000);
       }
     } else {
       console.log(`[Memory Monitor] 内存使用 ${memory.heapUsed.toFixed(2)}MB / ${threshold}MB，正常`);
@@ -166,7 +180,11 @@ const HELP_TEXT = `🔄 Reload - 插件重载与内存管理
 
 class ReloadPlugin extends Plugin {
   cleanup(): void {
-    // 当前插件不持有需要在 reload 时额外释放的长期资源。
+    for (const timer of pendingExitTimers) {
+      clearTimeout(timer);
+    }
+    pendingExitTimers.clear();
+    this.lastReloadMemory = null;
   }
 
   description = HELP_TEXT;
@@ -218,7 +236,7 @@ class ReloadPlugin extends Plugin {
 
     pmr: async (msg) => {
       await msg.delete();
-      setTimeout(async () => {
+      scheduleTrackedTimeout(async () => {
         try {
           await execAsync("pm2 restart telebox");
         } catch (error) {
