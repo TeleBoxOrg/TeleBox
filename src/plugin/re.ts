@@ -5,10 +5,6 @@ import { RPCError } from "teleproto/errors";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
-function shouldRevokeDelete(message?: Api.Message): boolean {
-  return Boolean(message?.isPrivate);
-}
-
 class RePlugin extends Plugin {
   cleanup(): void {}
 
@@ -34,8 +30,8 @@ class RePlugin extends Plugin {
           reverse: true,
         });
 
-        // 私聊中需要双向删除命令消息，群聊则保持原有行为（仅本端删除）
-        await msg.safeDelete({ revoke: shouldRevokeDelete(msg) });
+        // 双向删除命令消息
+        await msg.safeDelete({ revoke: true });
         
         // 尝试使用转发方式复读
         let forwardFailed = false;
@@ -89,7 +85,7 @@ class RePlugin extends Plugin {
         }
       }
       if (trigger) {
-        await trigger.safeDelete({ revoke: shouldRevokeDelete(trigger) });
+        await trigger.safeDelete({ revoke: true });
       }
     },
   };
