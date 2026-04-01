@@ -13,11 +13,12 @@
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "skipLibCheck": true,
+    "outDir": "./dist",
     "baseUrl": "./src",
     "paths": {
       "@utils/*": ["utils/*"]
     }
   },
-  "exclude": ["node_modules"],
+  "exclude": ["node_modules", "dist"],
   "include": ["src/**/*", "plugins/**/*"]
 }
