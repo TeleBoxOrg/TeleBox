@@ -2,6 +2,7 @@ import { TelegramClient } from "teleproto";
 import { EntityLike } from "teleproto/define";
 import { NewMessage, NewMessageEvent } from "teleproto/events";
 import { Api } from "teleproto/tl";
+import { getCurrentGeneration } from "./runtimeManager";
 
 /**
  * 一次性等待消息
@@ -12,22 +13,38 @@ async function waitForMessage(
   peer: EntityLike,
   timeout = 10000
 ): Promise<NewMessageEvent> {
+  const generation = getCurrentGeneration();
   return new Promise<NewMessageEvent>(async (resolve, reject) => {
     const entity = await client.getEntity(peer);
     const peerId = (entity as any).id;
+    let settled = false;
+
+    const dispose = () => {
+      client.removeEventHandler(listener, new NewMessage({}));
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
 
     const listener = (event: NewMessageEvent) => {
+      if (settled || generation !== getCurrentGeneration()) {
+        dispose();
+        return;
+      }
       const msg = event.message;
       if ((msg?.peerId as any).userId?.equals(peerId)) {
-        client.removeEventHandler(listener, new NewMessage({}));
+        settled = true;
+        dispose();
         resolve(event);
       }
     };
 
     client.addEventHandler(listener, new NewMessage({}));
 
-    setTimeout(() => {
-      client.removeEventHandler(listener, new NewMessage({}));
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      dispose();
       reject(new Error("等待 Bot 回复超时"));
     }, timeout);
   });
