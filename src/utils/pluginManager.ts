@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient, getCurrentGeneration } from "@utils/globalClient";
 import { NewMessageEvent, NewMessage } from "teleproto/events";
 import { AliasDB } from "./aliasDB";
 import { Api, TelegramClient } from "teleproto";
@@ -10,6 +10,7 @@ import {
   EditedMessage,
   EditedMessageEvent,
 } from "teleproto/events/EditedMessage";
+import type { TeleBoxRuntime } from "./runtimeManager";
 
 type PluginEntry = {
   original?: string;
@@ -33,6 +34,8 @@ const CACHE_PURGE_EXCLUDE = new Set<string>([
   path.resolve(PROJECT_ROOT, "src/utils/pluginBase.js"),
   path.resolve(PROJECT_ROOT, "src/utils/cronManager.ts"),
   path.resolve(PROJECT_ROOT, "src/utils/cronManager.js"),
+  path.resolve(PROJECT_ROOT, "src/utils/runtimeManager.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/runtimeManager.js"),
 ]);
 
 let prefixes = [".", "。", "$"];
@@ -329,12 +332,14 @@ console.log(
   } (可使用环境变量 TB_LISTENER_HANDLE_EDITED 设置, 多个插件用空格分隔)`
 );
 
-function dealListenMessagePlugin(client: TelegramClient): void {
+function dealListenMessagePlugin(runtime: TeleBoxRuntime): void {
+  const { client, generation } = runtime;
   for (const plugin of validPlugins) {
     const messageHandler = plugin.listenMessageHandler;
     if (messageHandler) {
       client.addEventHandler(
         async (event: NewMessageEvent) => {
+          if (generation !== getCurrentGeneration()) return;
           try {
             await messageHandler(event.message);
           } catch (error) {
@@ -344,15 +349,16 @@ function dealListenMessagePlugin(client: TelegramClient): void {
         new NewMessage()
       );
 
-      if (
-        !plugin.listenMessageHandlerIgnoreEdited ||
-        (plugin.name && listenerHandleEdited.includes(plugin.name))
-      ) {
-        client.addEventHandler(
-          async (event: any) => {
-            try {
-              await messageHandler(event.message, { isEdited: true });
-            } catch (error) {
+        if (
+          !plugin.listenMessageHandlerIgnoreEdited ||
+          (plugin.name && listenerHandleEdited.includes(plugin.name))
+        ) {
+          client.addEventHandler(
+            async (event: any) => {
+              if (generation !== getCurrentGeneration()) return;
+              try {
+                await messageHandler(event.message, { isEdited: true });
+              } catch (error) {
               console.log("listenMessageHandler EditedMessage error:", error);
             }
           },
@@ -366,6 +372,7 @@ function dealListenMessagePlugin(client: TelegramClient): void {
       for (const { event, handler } of eventHandlers) {
         client.addEventHandler(
           async (ev: any) => {
+            if (generation !== getCurrentGeneration()) return;
             try {
               await handler(ev);
             } catch (error) {
@@ -379,7 +386,8 @@ function dealListenMessagePlugin(client: TelegramClient): void {
   }
 }
 
-function dealCronPlugin(client: TelegramClient): void {
+function dealCronPlugin(runtime: TeleBoxRuntime): void {
+  const { generation } = runtime;
   for (const plugin of validPlugins) {
     const cronTasks = plugin.cronTasks;
     if (cronTasks) {
@@ -387,6 +395,8 @@ function dealCronPlugin(client: TelegramClient): void {
       for (const key of keys) {
         const cronTask = cronTasks[key];
         cronManager.set(key, cronTask.cron, async () => {
+          if (generation !== getCurrentGeneration()) return;
+          const client = await getGlobalClient();
           await cronTask.handler(client);
         });
       }
@@ -403,7 +413,7 @@ async function runPluginCleanup(plugin: Plugin): Promise<void> {
   }
 }
 
-async function clearPlugins() {
+async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
   const oldPlugins = [...validPlugins];
   const oldPluginFiles = [...loadedPluginFiles];
 
@@ -413,7 +423,7 @@ async function clearPlugins() {
 
   cronManager.clear();
 
-  const client = await getGlobalClient();
+  const client = runtime.client;
   const handlers = [...client.listEventHandlers()];
   console.log(`[RELOAD] Removing ${handlers.length} event handlers before reload.`);
   for (const [eventBuilder, callback] of handlers) {
@@ -427,24 +437,36 @@ async function clearPlugins() {
   purgeModuleCache(oldPluginFiles);
 }
 
-async function loadPlugins() {
-  await clearPlugins();
-
+async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
   await setPlugins(USER_PLUGIN_PATH);
   await setPlugins(DEFAUTL_PLUGIN_PATH);
 
-  const client = await getGlobalClient();
-  client.addEventHandler(dealNewMsgEvent, new NewMessage());
-  client.addEventHandler(dealEditedMsgEvent, new EditedMessage({}));
-  dealListenMessagePlugin(client);
-  dealCronPlugin(client);
+  const { client, generation } = runtime;
+  client.addEventHandler(async (event: NewMessageEvent) => {
+    if (generation !== getCurrentGeneration()) return;
+    await dealNewMsgEvent(event);
+  }, new NewMessage());
+  client.addEventHandler(async (event: EditedMessageEvent) => {
+    if (generation !== getCurrentGeneration()) return;
+    await dealEditedMsgEvent(event);
+  }, new EditedMessage({}));
+  dealListenMessagePlugin(runtime);
+  dealCronPlugin(runtime);
   console.log(`[RELOAD] Event handlers registered after reload: ${client.listEventHandlers().length}`);
+}
+
+async function loadPlugins() {
+  const { getCurrentRuntime } = await import("./runtimeManager");
+  await unloadPluginsForRuntime(getCurrentRuntime());
+  await loadPluginsForRuntime(getCurrentRuntime());
 }
 
 export {
   getPrefixes,
   setPrefixes,
   loadPlugins,
+  loadPluginsForRuntime,
+  unloadPluginsForRuntime,
   listCommands,
   getPluginEntry,
   dealCommandPluginWithMessage,
