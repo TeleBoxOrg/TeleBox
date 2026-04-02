@@ -1,5 +1,4 @@
-import { Api } from "teleproto";
-import { getGlobalClient } from "@utils/globalClient";
+import { Api, TelegramClient } from "teleproto";
 import { StringSession } from "teleproto/sessions";
 import { createInterface, Interface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
@@ -35,16 +34,18 @@ async function getUserInput(prompt: string): Promise<string> {
   return await readline.question(prompt);
 }
 
-export async function login(): Promise<void> {
+export async function initializeClientSession(
+  client: TelegramClient
+): Promise<{ meId?: string }> {
   console.log("Connecting to Telegram...");
 
-  const client = await getGlobalClient();
   await client.connect();
 
   if (await client.checkAuthorization()) {
     console.log("✅ Existing session detected. Logged in successfully.");
     closeReadlineInterface();
-    return;
+    const me = await client.getMe();
+    return { meId: me?.id ? String(me.id) : undefined };
   }
 
   const useQr = await getUserInput("Use QR code login? [y/N]: ");
@@ -65,9 +66,16 @@ export async function login(): Promise<void> {
 
   console.log("✅ Login completed. Session saved.");
   closeReadlineInterface();
+  const me = await client.getMe();
+  return { meId: me?.id ? String(me.id) : undefined };
 }
 
-async function loginWithPhone(client: any): Promise<void> {
+export async function login(): Promise<void> {
+  const { startRuntime } = await import("./runtimeManager");
+  await startRuntime();
+}
+
+async function loginWithPhone(client: TelegramClient): Promise<void> {
   await client.start({
     phoneNumber: async () => await getUserInput("Enter phone number (+86...): "),
     password: async () => await getUserInput("Enter 2FA password (if any): "),
@@ -79,7 +87,7 @@ async function loginWithPhone(client: any): Promise<void> {
   });
 }
 
-async function loginWithQr(client: any): Promise<boolean> {
+async function loginWithQr(client: TelegramClient): Promise<boolean> {
   console.log("\nRequesting QR login token...");
 
   const startTime = Date.now();
