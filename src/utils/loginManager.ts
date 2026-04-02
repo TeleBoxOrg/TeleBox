@@ -71,7 +71,7 @@ export async function initializeClientSession(
 }
 
 export async function login(): Promise<void> {
-  const { startRuntime } = await import("./runtimeManager");
+  const { startRuntime }: typeof import("./runtimeManager") = require("./runtimeManager");
   await startRuntime();
 }
 

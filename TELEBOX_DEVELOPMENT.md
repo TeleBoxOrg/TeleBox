@@ -664,6 +664,11 @@ import {
 - 命令别名处理
 - 前缀管理
 
+**调用约束**：
+- `loadPlugins()` 只能用于已经挂载 TeleBox runtime 的流程，例如命令处理器、系统管理插件、运行中的热重载逻辑
+- 不要在插件模块顶层、构造函数、副作用导入阶段调用 `loadPlugins()`；插件文件在 TPM 校验等场景下也会被单独 `require`，此时 runtime 尚未初始化
+- 如果需要在插件里触发重载，把调用放到明确的异步入口里，例如 `cmdHandlers`、`listenMessageHandler`、`eventHandlers` 内部
+
 ### 全局客户端
 
 **globalClient.ts** - 全局客户端实例

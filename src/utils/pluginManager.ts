@@ -21,6 +21,7 @@ type PluginEntry = {
 const validPlugins: Plugin[] = [];
 const plugins: Map<string, PluginEntry> = new Map();
 const loadedPluginFiles: Set<string> = new Set();
+let pluginLoadDepth = 0;
 
 const USER_PLUGIN_PATH = path.join(process.cwd(), "plugins");
 const DEFAUTL_PLUGIN_PATH = path.join(process.cwd(), "src", "plugin");
@@ -180,6 +181,10 @@ async function setPlugins(basePath: string) {
       }
     }
   }
+}
+
+function isPluginLoadInProgress(): boolean {
+  return pluginLoadDepth > 0;
 }
 
 function getPluginEntry(command: string): PluginEntry | undefined {
@@ -438,8 +443,13 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
 }
 
 async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
-  await setPlugins(USER_PLUGIN_PATH);
-  await setPlugins(DEFAUTL_PLUGIN_PATH);
+  pluginLoadDepth++;
+  try {
+    await setPlugins(USER_PLUGIN_PATH);
+    await setPlugins(DEFAUTL_PLUGIN_PATH);
+  } finally {
+    pluginLoadDepth--;
+  }
 
   const { client, generation } = runtime;
   client.addEventHandler(async (event: NewMessageEvent) => {
@@ -455,10 +465,27 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
   console.log(`[RELOAD] Event handlers registered after reload: ${client.listEventHandlers().length}`);
 }
 
-async function loadPlugins() {
-  const { getCurrentRuntime } = await import("./runtimeManager");
-  await unloadPluginsForRuntime(getCurrentRuntime());
-  await loadPluginsForRuntime(getCurrentRuntime());
+async function loadPlugins(): Promise<boolean> {
+  const { tryGetCurrentRuntime }: typeof import("./runtimeManager") = require("./runtimeManager");
+  const runtime = tryGetCurrentRuntime();
+
+  if (!runtime) {
+    console.warn(
+      "[RELOAD] Skip plugin reload because TeleBox runtime is not initialized. Call loadPlugins() from a command handler or another runtime-backed flow, not during plugin module initialization."
+    );
+    return false;
+  }
+
+  if (isPluginLoadInProgress()) {
+    console.warn(
+      "[RELOAD] Skip nested plugin reload while plugins are still being required. Move loadPlugins() out of module top-level initialization."
+    );
+    return false;
+  }
+
+  await unloadPluginsForRuntime(runtime);
+  await loadPluginsForRuntime(runtime);
+  return true;
 }
 
 export {

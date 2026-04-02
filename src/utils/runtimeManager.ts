@@ -121,6 +121,10 @@ export function getCurrentRuntime(): TeleBoxRuntime {
   return currentRuntime;
 }
 
+export function tryGetCurrentRuntime(): TeleBoxRuntime | null {
+  return currentRuntime;
+}
+
 export function getCurrentGeneration(): number {
   return currentRuntime?.generation ?? 0;
 }
