@@ -2,9 +2,10 @@
 /**
  * Node 22+ exposes global localStorage backed by --localstorage-file.
  * teleproto → store2 touches localStorage at load time; without a valid path,
- * Node warns. tsx may spawn child Node processes that only inherit env, not
+ * Node warns. tsx may spawn child processes that only inherit env, not
  * the parent argv flag — so this sets NODE_OPTIONS (merged with any existing).
  *
+ * Only applies the flag on Node.js 22+, as it causes errors on earlier versions.
  * Override file path with TB_LOCALSTORAGE_FILE.
  */
 const { spawnSync } = require('node:child_process');
@@ -19,6 +20,10 @@ const lsFile = process.env.TB_LOCALSTORAGE_FILE || defaultFile;
 
 fs.mkdirSync(path.dirname(lsFile), { recursive: true });
 
+// Check Node.js version - --localstorage-file requires Node 22+
+const nodeVersion = process.versions.node.split('.').map(Number);
+const majorVersion = nodeVersion[0];
+
 const tsxCli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const entryArgs = process.argv.slice(2);
 if (entryArgs.length === 0) {
@@ -27,9 +32,13 @@ if (entryArgs.length === 0) {
 }
 
 const env = { ...process.env };
-const flag = `--localstorage-file=${lsFile}`;
-const existing = (env.NODE_OPTIONS || '').trim();
-env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
+
+// Only add --localstorage-file for Node.js 22+
+if (majorVersion >= 22) {
+  const flag = `--localstorage-file=${lsFile}`;
+  const existing = (env.NODE_OPTIONS || '').trim();
+  env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
+}
 
 const r = spawnSync(
   process.execPath,
