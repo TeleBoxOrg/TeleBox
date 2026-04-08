@@ -3,9 +3,9 @@
   "version": "0.2.7",
   "description": "",
   "scripts": {
-    "start": "tsx -r tsconfig-paths/register ./src/index.ts",
-    "tpm": "tsx -r tsconfig-paths/register ./src/plugin/tpm.ts",
-    "dev": "NODE_ENV=development tsx -r tsconfig-paths/register ./src/index.ts"
+    "start": "node scripts/run-tsx.cjs ./src/index.ts",
+    "tpm": "node scripts/run-tsx.cjs ./src/plugin/tpm.ts",
+    "dev": "NODE_ENV=development node scripts/run-tsx.cjs ./src/index.ts"
   },
   "repository": {
     "type": "git",
