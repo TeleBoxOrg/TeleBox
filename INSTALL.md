@@ -16,7 +16,7 @@ _基于 Node.js 与 TypeScript 构建的高性能 Telegram 项目_
 
 ## 🎯 项目简介
 
-[**TeleBox**](https://github.com/TeleBoxDev/TeleBox) 是一个基于 **Node.js** 和 **TypeScript** 的现代化 Telegram Bot 开发框架，提供强大的插件系统和丰富的功能模块。
+[**TeleBox**](https://github.com/TeleBoxDev/TeleBox) 是基于 **Node.js** 与 **TypeScript** 构建的现代化 Telegram Bot 开发框架，提供强大的插件系统和丰富的功能模块。
 
 ## 🚀 部署指南
 
@@ -31,7 +31,7 @@ _基于 Node.js 与 TypeScript 构建的高性能 Telegram 项目_
 
 </div>
 
-> 📝 **说明：** 以下步骤适用于 **Debian / Ubuntu** 系统。若使用其他发行版或 macOS，请根据平台调整包管理命令（例如 `yum` / `brew`）。
+> 📝 **说明：** 以下步骤适用于 **Debian / Ubuntu** 系统，其他发行版或 macOS 请根据平台调整包管理命令（如 `yum` / `brew`）。
 
 ### 🔧 **步骤 1：更新并安装基础工具**
 
@@ -67,7 +67,7 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
 
-#### 若你已使用了 Node.js 版本管理工具
+#### 若已使用 Node.js 版本管理工具
 
 本项目中已提供了 `.nvmrc` 文件，通常 Node.js 版本管理工具会自动识别并在当前工作区/运行目录切换到该版本。
 
@@ -100,10 +100,10 @@ git clone https://github.com/TeleBoxDev/TeleBox.git .
 
 ```
 ~/telebox/
-├── 📦 src/          # 源代码
-├── 🔌 plugins/      # 插件目录
-├── ⚙️ package.json  # 项目配置
-└── 📝 README.md     # 项目文档
+├── src/           # 源代码
+├── plugins/       # 插件目录
+├── package.json  # 项目配置
+└── README.md      # 项目文档
 ```
 
 </details>
@@ -121,14 +121,13 @@ npm install
 **🔄 安装过程说明：**
 
 - 自动下载并安装 `package.json` 中定义的所有依赖
-- 包括 TypeScript、客户端库、数据库驱动等核心组件
-- 安装完成后会生成 `node_modules/` 目录
+- 安装完成后生成 `node_modules/` 目录
 
 **⏱️ 预计耗时：** 2-5 分钟（取决于网络速度）
 
 </details>
 
-### 🚀 **步骤 5：首次启动配置**
+### ⚙️ **步骤 5：首次启动配置**
 
 <details>
 <summary><b>🔐 点击展开配置步骤</b></summary>
@@ -151,15 +150,26 @@ npm start
 
    > 💡 从 [my.telegram.org](https://my.telegram.org) 获取 API 凭据
 
-2. **📱 手机号验证**
+2. **📱 选择登录方式**
 
    ```
-   Please enter your number: +18888888888
+   Use QR code login? [y/N]:
    ```
 
-   > 🔢 输入完整的国际格式手机号（包含国家代码）
+   > - 输入 `y` 使用**二维码登录**：在手机 Telegram 中扫描屏幕上的二维码
+   > - 输入 `N` 或直接回车使用**手机号登录**
 
-3. **✅ 登录成功确认**
+3. **📱 手机号登录（如选择手机号登录）**
+
+   ```
+   Enter phone number (+86...):
+   Enter the verification code:
+   Enter 2FA password (if any):
+   ```
+
+   > 按顺序输入手机号、收到的验证码、密码（如开启两步验证）
+
+4. **✅ 登录成功确认**
    ```
    [INFO] - [Signed in successfully as xxx]
    ```
@@ -175,30 +185,31 @@ npm start
 **📦 安装 PM2 进程管理器：**
 
 ```bash
-# 🌐 全局安装 PM2
+# 全局安装 PM2
 npm install -g pm2
 ```
 
 **🚀 启动 TeleBox 服务：**
 
 ```bash
-# 🎯 使用 PM2 启动服务
+# 使用 PM2 启动服务
 pm2 start "npm start" --name telebox
 
-# 💾 保存 PM2 配置
+# 保存 PM2 配置
 pm2 save
 
-# 🔄 设置开机自启动
+# 设置开机自启动
 sudo pm2 startup systemd
 ```
 
 **📊 监控和管理：**
 
 ```bash
-# 📋 查看服务状态
+
+# 查看服务状态
 pm2 status
 
-# 📝 查看运行日志
+# 查看运行日志
 pm2 logs telebox
 
 # 可选插件
@@ -229,7 +240,7 @@ pm2 stop telebox
 
 **TeleBox 现在已成功部署并运行！**
 
-[![返回主页](https://img.shields.io/badge/🏠_返回主页-README.md-blue?style=for-the-badge)](#)
+[![返回主页](https://img.shields.io/badge/🏠_返回主页-README.md-blue?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/README.md)
 
 <!-- 🔗 TODO: 上传到远程后，请将上方链接替换为 README.md 的实际远程链接 -->
 
