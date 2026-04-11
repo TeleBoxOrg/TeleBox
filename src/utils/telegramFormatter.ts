@@ -10,7 +10,7 @@ export class TelegramFormatter {
     const collapseSafe = options?.collapseSafe === true;
 
     const src = (md || "")
-      // 移除可能干扰 Telegram HTML 解析的 cite 标签（你上游已有类似逻辑）
+      // 移除可能干扰 Telegram HTML 解析的 cite 标签
       .replace(/<\s*\/?\s*cite\s*>|<\s*cite\s*\/\s*>/gi, "")
       .replace(/&lt;\s*\/?\s*cite\s*&gt;|&lt;\s*cite\s*\/\s*&gt;/gi, "")
       .replace(/\r\n/g, "\n")
@@ -359,7 +359,7 @@ export class TelegramFormatter {
       for (const it of items) {
         // depth: 1..3
         const d = Math.min(3, Math.max(1, depth));
-        const indentNbsp = "&#160;".repeat((d - 1) * 2);
+        const indentNbsp = " ".repeat((d - 1) * 2);
 
         // 主行：把 item 的多行合成一个块（第一行）+ 续行（后续行）
         const first = it.lines[0] ?? "";
@@ -370,7 +370,7 @@ export class TelegramFormatter {
 
         // 续行：再缩进 2 个空格
         for (let k = 1; k < it.lines.length; k++) {
-          const contIndent = "&#160;".repeat((d - 1) * 2 + 2);
+          const contIndent = " ".repeat((d - 1) * 2 + 2);
           renderedLines.push(contIndent + this.parseInline(it.lines[k]));
         }
 
@@ -378,7 +378,7 @@ export class TelegramFormatter {
         else if (it.children.length && d >= 3) {
           // 超过 3 级的子项：降级为续行
           for (const child of it.children) {
-            const contIndent = "&#160;".repeat((d - 1) * 2 + 2);
+            const contIndent = " ".repeat((d - 1) * 2 + 2);
             const childMarker = child.kind === "ol" ? `${child.num ?? 1}. ` : "• ";
             renderedLines.push(contIndent + childMarker + this.parseInline(child.lines.join(" ")));
           }
@@ -553,7 +553,7 @@ export class TelegramFormatter {
     const INDENT_TOKEN_SUFFIX = "\u0000";
     return (escaped || "").replace(new RegExp(`${INDENT_TOKEN_PREFIX}(\\d+)${INDENT_TOKEN_SUFFIX}`, "g"), (_m, nStr) => {
       const n = Math.max(0, Number(nStr) || 0);
-      return "&#160;".repeat(n);
+      return " ".repeat(n);
     });
   }
 
