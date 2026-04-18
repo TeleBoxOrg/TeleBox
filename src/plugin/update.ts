@@ -26,12 +26,12 @@ async function update(force = false, msg: Api.Message) {
     await msg.edit({ text: "🔄 正在拉取最新代码..." });
 
     if (force) {
-      console.log("⚠️ 强制回滚到 origin/main...");
-      await execAsync("git reset --hard origin/main");
+      console.log("⚠️ 强制回滚到 TeleBoxOrg/main...");
+      await execAsync("git reset --hard TeleBoxOrg/main");
       await msg.edit({ text: "🔄 强制更新中..." });
     }
 
-    await execAsync("git pull");
+    await execAsync("git pull TeleBoxOrg main --no-rebase");
     await msg.edit({ text: "🔄 正在合并最新代码..." });
 
     console.log("\n📦 安装依赖...");
