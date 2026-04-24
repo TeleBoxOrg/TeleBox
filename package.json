@@ -19,6 +19,9 @@
     "url": "https://github.com/TeleBoxDev/TeleBox/issues"
   },
   "homepage": "https://github.com/TeleBoxDev/TeleBox#readme",
+  "engines": {
+    "node": "24.x"
+  },
   "overrides": {
     "glob": "^11.0.0"
   },
