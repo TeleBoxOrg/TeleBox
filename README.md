@@ -3,11 +3,11 @@
 # 🚀 TeleBox
 
 [![License](https://img.shields.io/badge/License-LGPL%202.1-blue.svg?style=for-the-badge)](LICENSE)
-[![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-24.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Version](https://img.shields.io/badge/Version-0.2.7-orange.svg?style=for-the-badge)](CHANGELOG.md)
 
-**现代化 Telegram UserBot / Bot 开发框架**
+**现代化 Telegram UserBot 开发框架**
 
 _基于 Node.js 和 TypeScript 构建，提供强大的插件系统与丰富的功能模块_
 
@@ -305,7 +305,7 @@ abstract class Plugin {
 
 <div align="center">
 
-[![Plugin Repository](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-blue?style=for-the-badge)](https://github.com/TeleBoxDev/TeleBox_Plugins)
+[![Plugin Repository](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-blue?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox_Plugins)
 
 </div>
 
@@ -315,7 +315,7 @@ abstract class Plugin {
 
 |  🏗️ **技术领域**   |   🔧 **技术选型**    | 📊 **版本** |
 | :----------------: | :------------------: | :---------: |
-|   🚀 **运行时**    |       Node.js        |   `20.19.4`    |
+|   🚀 **运行时**    |       Node.js        |    `24.x`    |
 |  💎 **开发语言**   |      TypeScript      |   `5.9.2`   |
 | 📡 **Telegram 库** |       Teleproto       |  `^1.223.1` |
 |   💾 **数据库**    |    better-sqlite3    |  `12.2.0`   |
@@ -334,7 +334,7 @@ abstract class Plugin {
 
 ### 📥 **安装部署**
 
-[![安装指南](https://img.shields.io/badge/📋_完整安装指南-点击查看-green?style=for-the-badge)](https://github.com/TeleBoxDev/TeleBox/blob/main/INSTALL.md)
+[![安装指南](https://img.shields.io/badge/📋_完整安装指南-点击查看-green?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/INSTALL.md)
 
 </div>
 
@@ -388,27 +388,16 @@ NODE_ENV=development tpm run dev
 <tr>
 <td align="center" width="20%">
 
-[![主仓库](https://img.shields.io/badge/📦_主仓库-TeleBox-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxDev/TeleBox)
+[![主仓库](https://img.shields.io/badge/📦_主仓库-TeleBox-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox)
+
+[![插件仓库](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox_Plugins)
 
 </td>
 <td align="center" width="20%">
 
-[![插件仓库](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxDev/TeleBox_Plugins)
+[![安装指南](https://img.shields.io/badge/📋_安装指南-INSTALL.md-orange?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/INSTALL.md)
 
-</td>
-<td align="center" width="20%">
-
-[![安装指南](https://img.shields.io/badge/📋_安装指南-INSTALL.md-orange?style=for-the-badge)](https://github.com/TeleBoxDev/TeleBox/blob/main/INSTALL.md)
-
-</td>
-<td align="center" width="20%">
-
-[![更新日志](https://img.shields.io/badge/📝_更新日志-CHANGELOG.md-purple?style=for-the-badge)](CHANGELOG.md)
-
-</td>
-<td align="center" width="20%">
-
-[![问题反馈](https://img.shields.io/badge/🆘_问题反馈-Issues-red?style=for-the-badge&logo=github)](https://github.com/TeleBoxDev/TeleBox/issues)
+[![问题反馈](https://img.shields.io/badge/🆘_问题反馈-Issues-red?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox/issues)
 
 </td>
 </tr>
@@ -428,7 +417,7 @@ NODE_ENV=development tpm run dev
 
 ### 🎯 **TeleBox**
 
-_让 Telegram Bot 开发更简单、更强大_
+_让 Telegram UserBot 开发更简单、更强大_
 
 <sub>Made with ❤️ by TeleBox Team</sub>
 
