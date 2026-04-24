@@ -374,7 +374,7 @@ utils/* (工具模块)
 ### 版本信息
 
 - **当前版本**: 0.2.6
-- **Node.js要求**: >= 14.x
+- **Node.js要求**: 24.x
 - **TypeScript版本**: ^5.9.2
 - **Telegram库版本**: ^2.26.22
 - **协议**: LGPL-2.1-only
@@ -890,7 +890,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TeleBoxDev/TeleBox.git"
+    "url": "git+https://github.com/TeleBoxOrg/TeleBox.git"
   },
   "license": "LGPL-2.1-only",
   "dependencies": {

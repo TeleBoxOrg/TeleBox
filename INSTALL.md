@@ -2,11 +2,11 @@
 
 # 📋 TeleBox 安装指南
 
-[![Node.js](https://img.shields.io/badge/Node.js-20.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-24.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-LGPL--2.1-blue?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](#)
 
-**现代化 Telegram Bot 开发框架完整部署指南**
+**现代化 Telegram UserBot 开发框架完整部署指南**
 
 _基于 Node.js 与 TypeScript 构建的高性能 Telegram 项目_
 
@@ -16,7 +16,7 @@ _基于 Node.js 与 TypeScript 构建的高性能 Telegram 项目_
 
 ## 🎯 项目简介
 
-[**TeleBox**](https://github.com/TeleBoxDev/TeleBox) 是基于 **Node.js** 与 **TypeScript** 构建的现代化 Telegram Bot 开发框架，提供强大的插件系统和丰富的功能模块。
+[**TeleBox**](https://github.com/TeleBoxOrg/TeleBox) 是基于 **Node.js** 与 **TypeScript** 构建的现代化 Telegram UserBot 开发框架，提供强大的插件系统和丰富的功能模块。
 
 ## 🚀 部署指南
 
@@ -54,14 +54,14 @@ sudo apt install -y curl git build-essential
 
 </details>
 
-### 🟢 **步骤 2：安装 Node.js 20.x**
+### 🟢 **步骤 2：安装 Node.js 24.x（当前支持版本）**
 
 <details>
 <summary><b>🚀 点击展开安装步骤</b></summary>
 
 ```bash
-# 📥 下载并执行 Node.js 20.x 安装脚本
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+# 📥 下载并执行 Node.js 24.x 安装脚本
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 
 # 📦 安装 Node.js 和 npm
 sudo apt-get install -y nodejs
@@ -69,12 +69,12 @@ sudo apt-get install -y nodejs
 
 #### 若已使用 Node.js 版本管理工具
 
-本项目中已提供了 `.nvmrc` 文件，通常 Node.js 版本管理工具会自动识别并在当前工作区/运行目录切换到该版本。
+本项目中已提供了 `.nvmrc` 文件，通常 Node.js 版本管理工具会自动识别，并在当前工作区切换到项目当前支持的 Node.js 24.x。
 
 **✅ 验证安装：**
 
 ```bash
-node --version    # 应显示 v20.x.x
+node --version    # 应显示 v24.x.x
 npm --version     # 应显示对应的 npm 版本
 ```
 
@@ -93,7 +93,7 @@ mkdir -p ~/telebox
 cd ~/telebox
 
 # 🔄 克隆 TeleBox 项目
-git clone https://github.com/TeleBoxDev/TeleBox.git .
+git clone https://github.com/TeleBoxOrg/TeleBox.git .
 ```
 
 **📋 目录结构：**
@@ -242,8 +242,8 @@ pm2 stop telebox
 
 [![返回主页](https://img.shields.io/badge/🏠_返回主页-README.md-blue?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/README.md)
 
-<!-- 🔗 TODO: 上传到远程后，请将上方链接替换为 README.md 的实际远程链接 -->
 
-_如有问题，请[**🆘 问题反馈**](https://github.com/TeleBoxDev/TeleBox/issues)
+
+_如有问题，请[**🆘 问题反馈**](https://github.com/TeleBoxOrg/TeleBox/issues)
 
 </div>

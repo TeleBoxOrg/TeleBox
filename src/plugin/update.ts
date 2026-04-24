@@ -9,29 +9,79 @@ import { npm_install_project_dependencies } from "@utils/npm_install";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
-
 const execAsync = promisify(exec);
 
-/**
- * 自动更新项目：拉取 Git 更新 + 安装依赖
- * @param force 是否强制重置为远程 master（丢弃本地改动）
- */
+async function getRemotes(): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync("git remote");
+    return stdout.trim().split("\n").filter((r) => r.trim());
+  } catch {
+    return [];
+  }
+}
+
+async function getBranches(): Promise<string[]> {
+  try {
+    const { stdout } = await execAsync("git branch -r");
+    const branches = stdout
+      .trim()
+      .split("\n")
+      .map((b) => b.trim().replace(/^\*/, "").trim())
+      .filter((b) => b && !b.includes("->"));
+    return branches;
+  } catch {
+    return [];
+  }
+}
+
+async function findMainBranch(): Promise<{ remote: string; branch: string } | null> {
+  const branches = await getBranches();
+  const allRemotes = await getRemotes();
+  const mainBranchNames = ["main", "master"];
+
+  const remotes = allRemotes.includes("origin")
+    ? ["origin", ...allRemotes.filter((r) => r !== "origin")]
+    : allRemotes;
+
+  for (const branchName of mainBranchNames) {
+    for (const remote of remotes) {
+      const fullBranch = `${remote}/${branchName}`;
+      if (branches.includes(fullBranch)) {
+        return { remote, branch: branchName };
+      }
+      if (branches.includes(branchName)) {
+        return { remote, branch: branchName };
+      }
+    }
+  }
+
+  return null;
+}
+
 async function update(force = false, msg: Api.Message) {
   await msg.edit({ text: "🚀 正在更新项目..." });
   console.clear();
   console.log("🚀 开始更新项目...\n");
 
   try {
+    const branchInfo = await findMainBranch();
+    if (!branchInfo) {
+      throw new Error("未找到可用的远程分支 (main/master)。请确保已配置 git remote。");
+    }
+
+    const { remote, branch } = branchInfo;
+    const fullBranch = `${remote}/${branch}`;
+
     await execAsync("git fetch --all");
     await msg.edit({ text: "🔄 正在拉取最新代码..." });
 
     if (force) {
-      console.log("⚠️ 强制回滚到 TeleBoxOrg/main...");
-      await execAsync("git reset --hard TeleBoxOrg/main");
+      console.log(`⚠️ 强制回滚到 ${fullBranch}...`);
+      await execAsync(`git reset --hard ${fullBranch}`);
       await msg.edit({ text: "🔄 强制更新中..." });
     }
 
-    await execAsync("git pull TeleBoxOrg main --no-rebase");
+    await execAsync(`git pull ${remote} ${branch} --no-rebase`);
     await msg.edit({ text: "🔄 正在合并最新代码..." });
 
     console.log("\n📦 安装依赖...");
@@ -54,9 +104,7 @@ async function update(force = false, msg: Api.Message) {
 }
 
 class UpdatePlugin extends Plugin {
-  cleanup(): void {
-    // 当前插件不持有需要在 reload 时额外释放的长期资源。
-  }
+  cleanup(): void {}
 
   description: string = `更新项目：拉取最新代码并安装依赖\n<code>${mainPrefix}update -f/-force</code> 强制更新`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {

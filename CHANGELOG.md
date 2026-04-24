@@ -330,7 +330,7 @@
 
 ## Added
 
-- 新的插件结构，完善子命令函数的结构，增加 cron 任务的统一管理，目前可以参考 [test](https://github.com/TeleBoxDev/TeleBox/blob/dev/src/plugin/test.ts)
+- 新的插件结构，完善子命令函数的结构，增加 cron 任务的统一管理，目前可以参考 [test](https://github.com/TeleBoxOrg/TeleBox/blob/dev/src/plugin/test.ts)
 - 很多插件目前没有符合新插件要求，静等开发
 
 ## [0.1.3] --2025-09-01
