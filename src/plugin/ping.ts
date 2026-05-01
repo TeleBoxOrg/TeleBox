@@ -271,7 +271,7 @@ function parseTarget(input: string): {
 class PingPlugin extends Plugin {
   cleanup(): void {}
 
-  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping <IP/域名> - ICMP ping测试\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
+  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping &lt;IP/域名&gt; - ICMP ping测试\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     ping: async (msg) => {
       const client = await getGlobalClient();
