@@ -4,8 +4,7 @@ import {
   getPrefixes,
 } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
-import fs from "fs";
-import path from "path";
+import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import { Api } from "teleproto";
 import { AliasDB } from "@utils/aliasDB";
 
@@ -38,17 +37,6 @@ function htmlEscape(text: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
-}
-
-function readVersion(): string {
-  try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(process.cwd(), "package.json"), "utf-8")
-    );
-    return pkg.version || "未知版本";
-  } catch {
-    return "未知版本";
-  }
 }
 
 /* ============================================================
@@ -191,7 +179,7 @@ class HelpPlugin extends Plugin {
         // 预扣：header bold(1) + 前缀数量 + prefixLine bold(1) + helpTip codes(2) + links(5)
         mainPlanner.consume(1 + prefixes.length + 1 + 2 + 5);
 
-        const header = `🚀 <b>TeleBox v${htmlEscape(readVersion())}</b> | ${commands.length} 个命令`;
+        const header = `🚀 <b>TeleBox v${htmlEscape(readDisplayVersion())}</b> | ${commands.length} 个命令`;
         const basic = formatBasicCommands(commands, mainPlanner);
         const prefixLine = `❕ <b>指令前缀：</b> ${prefixes.map(p => `<code>${htmlEscape(p)}</code>`).join(" • ")}`;
         const helpTip = `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`;
