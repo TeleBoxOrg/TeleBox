@@ -1,3 +1,4 @@
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
@@ -13,6 +14,26 @@ function readVersion(): string {
   }
 }
 
+function readDisplayVersion(): string {
+  const version = readVersion();
+
+  try {
+    const commit = execSync("git rev-parse --short HEAD", {
+      cwd: process.cwd(),
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+
+    if (!commit) {
+      return version;
+    }
+
+    return `${version}(${commit})`;
+  } catch {
+    return version;
+  }
+}
+
 function readAppName(): string {
   try {
     const userConfig = path.join(process.cwd(), "config.json");
@@ -25,4 +46,4 @@ function readAppName(): string {
   }
 }
 
-export { readVersion, readAppName };
+export { readVersion, readDisplayVersion, readAppName };
