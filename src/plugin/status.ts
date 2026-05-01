@@ -95,14 +95,14 @@ const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 
 <b>📝 模板设置示例:</b>
 发送一条消息，内容为自定义模板：
-<code>＜b＞📊 系统状态＜/b＞
+<code>&lt;b&gt;📊 系统状态&lt;/b&gt;
 CPU: {cpu}% {cpubar}
 内存: {mem}% {membar}
 磁盘: {disk} {diskbar}
 运行时间: {uptime}</code>
 回复该消息，发送 <code>${mainPrefix}status set</code>
 <b>⚠️ 注意事项:</b>
-• 模板必须包含有效的HTML标签（如 <code>＜b＞</code>, <code>＜code＞</code>）
+• 模板必须包含有效的HTML标签（如 <code>&lt;b&gt;</code>, <code>&lt;code&gt;</code>）
 • 标签名称必须完全匹配`;
 
 // 系统命令执行超时 (ms)

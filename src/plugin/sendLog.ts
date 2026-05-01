@@ -71,7 +71,7 @@ const fn = async (msg: Api.Message) => {
   if (parts.length >= 2 && parts[0].startsWith(".") && parts[1] === "set") {
     const target = parts[2];
     if (!target) {
-      await msg.edit({ text: "用法: ${mainPrefix}sendlog set <chatId|me>" });
+      await msg.edit({ text: `用法: ${mainPrefix}sendlog set &lt;chatId|me&gt;` });
       return;
     }
     const db = new SendLogDB();
@@ -238,7 +238,7 @@ class SendLogPlugin extends Plugin {
     // 当前插件不持有需要在 reload 时额外释放的长期资源。
   }
 
-  description: string = `发送日志文件到收藏夹或自定义目标\n.sendlog set <对话 ID|@用户名|me> 设置发送目标 (默认 me)\n.sendlog clean 清理日志文件`;
+  description: string = `发送日志文件到收藏夹或自定义目标\n.sendlog set &lt;对话 ID|@用户名|me&gt; 设置发送目标 (默认 me)\n.sendlog clean 清理日志文件`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     sendlog: fn,
     logs: fn,
