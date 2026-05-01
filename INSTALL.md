@@ -199,7 +199,7 @@ pm2 start "npm start" --name telebox
 pm2 save
 
 # 设置开机自启动
-sudo pm2 startup systemd
+pm2 startup systemd
 ```
 
 **📊 监控和管理：**
