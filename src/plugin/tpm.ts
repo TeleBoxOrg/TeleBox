@@ -61,6 +61,18 @@ class EntityManager {
   }
 }
 
+function htmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function codeTag(value: string): string {
+  return `<code>${htmlEscape(value)}</code>`;
+}
+
 async function sendOrEditMessage(
   msg: Api.Message, 
   text: string, 
@@ -356,10 +368,10 @@ async function installAllPlugins(msg: Api.Message) {
     for (let i = 0; i < plugins.length; i++) {
       const plugin = plugins[i];
       const progress = Math.round(((i + 1) / totalPlugins) * 100);
-      const progressBar = generateProgressBar(progress);
+      const progressBar = htmlEscape(generateProgressBar(progress));
       try {
         if ([0, plugins.length - 1].includes(i) || i % 2 === 0) {
-          await sendOrEditMessage(statusMsg, `📦 正在安装插件: <code>${plugin}</code>\n\n${progressBar}\n🔄 进度: ${
+          await sendOrEditMessage(statusMsg, `📦 正在安装插件: ${codeTag(plugin)}\n\n${progressBar}\n🔄 进度: ${
               i + 1
             }/${totalPlugins} (${progress}%)\n✅ 成功: ${installedCount}\n❌ 失败: ${failedCount}`, { parseMode: "html" });
         }
@@ -418,7 +430,7 @@ async function installAllPlugins(msg: Api.Message) {
         await new Promise((r) => setTimeout(r, 100));
       } catch (error) {
         failedCount++;
-        failedPlugins.push(`${plugin} (${error})`);
+        failedPlugins.push(`${plugin} (${htmlEscape(String(error))})`);
         console.error(`[TPM] 安装插件 ${plugin} 失败:`, error);
       }
     }
@@ -432,7 +444,7 @@ async function installAllPlugins(msg: Api.Message) {
     const successBar = generateProgressBar(100);
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
     if (failedPlugins.length > 0) {
-      const failedList = failedPlugins.slice(0, 5).join("\n• ");
+      const failedList = failedPlugins.slice(0, 5).map(htmlEscape).join("\n• ");
       const moreFailures =
         failedPlugins.length > 5
           ? `\n• ... 还有 ${failedPlugins.length - 5} 个失败`
@@ -474,11 +486,11 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
     for (let i = 0; i < pluginNames.length; i++) {
       const pluginName = pluginNames[i];
       const progress = Math.round(((i + 1) / totalPlugins) * 100);
-      const progressBar = generateProgressBar(progress);
+      const progressBar = htmlEscape(generateProgressBar(progress));
 
       try {
         if ([0, pluginNames.length - 1].includes(i) || i % 2 === 0) {
-          await sendOrEditMessage(statusMsg, `📦 正在安装插件: <code>${pluginName}</code>\n\n${progressBar}\n🔄 进度: ${
+          await sendOrEditMessage(statusMsg, `📦 正在安装插件: ${codeTag(pluginName)}\n\n${progressBar}\n🔄 进度: ${
               i + 1
             }/${totalPlugins} (${progress}%)\n✅ 成功: ${installedCount}\n❌ 失败: ${failedCount}`, { parseMode: "html" });
         }
@@ -547,7 +559,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
         await new Promise((r) => setTimeout(r, 100));
       } catch (error) {
         failedCount++;
-        failedPlugins.push(`${pluginName} (${error})`);
+        failedPlugins.push(`${pluginName} (${htmlEscape(String(error))})`);
         console.error(`[TPM] 安装插件 ${pluginName} 失败:`, error);
       }
     }
@@ -562,7 +574,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
 
     if (notFoundPlugins.length > 0) {
-      const notFoundList = notFoundPlugins.slice(0, 5).join("\n• ");
+      const notFoundList = notFoundPlugins.slice(0, 5).map(htmlEscape).join("\n• ");
       const moreNotFound =
         notFoundPlugins.length > 5
           ? `\n• ... 还有 ${notFoundPlugins.length - 5} 个未找到`
@@ -571,7 +583,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
     }
 
     if (failedPlugins.length > 0) {
-      const failedList = failedPlugins.slice(0, 5).join("\n• ");
+      const failedList = failedPlugins.slice(0, 5).map(htmlEscape).join("\n• ");
       const moreFailures =
         failedPlugins.length > 5
           ? `\n• ... 还有 ${failedPlugins.length - 5} 个失败`
@@ -640,7 +652,7 @@ async function installPlugin(args: string[], msg: Api.Message) {
           if (db.data[pluginName]) {
             delete db.data[pluginName];
             await db.write();
-            overrideMessage = `\n⚠️ 已覆盖之前已安装的远程插件\n若需保持更新, 请 <code>${mainPrefix}tpm i ${pluginName}</code>`;
+            overrideMessage = `\n⚠️ 已覆盖之前已安装的远程插件\n若需保持更新, 请 ${codeTag(`${mainPrefix}tpm i ${pluginName}`)}`;
             console.log(`[TPM] 已从数据库中清除同名插件记录: ${pluginName}`);
           }
         } catch (error) {
@@ -648,7 +660,7 @@ async function installPlugin(args: string[], msg: Api.Message) {
         }
 
         await loadPlugins();
-        await sendOrEditMessage(statusMsg, `✅ 插件 ${pluginName} 已安装并加载成功${overrideMessage}`, { parseMode: "html" });
+        await sendOrEditMessage(statusMsg, `✅ 插件 ${htmlEscape(pluginName)} 已安装并加载成功${overrideMessage}`, { parseMode: "html" });
       } else {
         await sendOrEditMessage(msg, "请回复一个插件文件");
       }
@@ -843,7 +855,7 @@ async function uninstallAllPlugins(msg: Api.Message) {
 
     let text = `✅ 已清空插件目录并刷新缓存\n\n🗑 删除文件: ${removed}`;
     if (failed.length) {
-      const show = failed.slice(0, 10).join("\n• ");
+      const show = failed.slice(0, 10).map(htmlEscape).join("\n• ");
       text += `\n❌ 删除失败: ${failed.length}\n• ${show}${
         failed.length > 10 ? `\n• ... 还有 ${failed.length - 10} 个失败` : ""
       }`;
@@ -937,7 +949,7 @@ async function search(msg: Api.Message) {
     const totalPlugins = filteredPlugins.length;
     
     if (totalPlugins === 0 && keyword) {
-      await sendOrEditMessage(statusMsg, `🔍 未找到包含 "<b>${keyword}</b>" 的插件`, { parseMode: "html" });
+      await sendOrEditMessage(statusMsg, `🔍 未找到包含 "<b>${htmlEscape(keyword)}</b>" 的插件`, { parseMode: "html" });
       return;
     }
 
@@ -963,9 +975,11 @@ async function search(msg: Api.Message) {
     entityMgr.add('b'); // 仓库标题
 
     const highlightMatch = (text: string) => {
-      if (!keyword) return text;
-      const regex = new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-      return text.replace(regex, '<b>$1</b>');
+      const escapedText = htmlEscape(text);
+      if (!keyword) return escapedText;
+      const escapedKeyword = htmlEscape(keyword);
+      const regex = new RegExp(`(${escapedKeyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      return escapedText.replace(regex, '<b>$1</b>');
     };
 
     function getPluginStatus(pluginName: string) {
@@ -994,7 +1008,7 @@ async function search(msg: Api.Message) {
       const highlightedDesc = highlightMatch(description);
       
       const allowCodeTag = entityMgr.canAdd('code');
-      const nameTag = allowCodeTag ? `<code>${highlightedName}</code>` : highlightedName;
+      const nameTag = allowCodeTag && !keyword ? codeTag(plugin) : highlightedName;
       
       pluginLines.push(`${status} ${nameTag} - ${highlightedDesc}`);
       
@@ -1009,7 +1023,7 @@ async function search(msg: Api.Message) {
 
     let statsInfo = `📊 <b>插件统计:</b>\n`;
     if (keyword) {
-      statsInfo += `• 搜索关键词: "<b>${keyword}</b>"\n`;
+      statsInfo += `• 搜索关键词: "<b>${htmlEscape(keyword)}</b>"\n`;
     }
     statsInfo += `• 总计: ${totalPlugins} 个插件\n`;
     statsInfo += `• ✅ 已安装: ${installedCount} 个\n`;
@@ -1026,7 +1040,7 @@ async function search(msg: Api.Message) {
 
     const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxDev/TeleBox_Plugins">TeleBox_Plugins</a>`;
 
-    const title = keyword ? `🔍 搜索 "${keyword}" 结果` : `🔍 远程插件列表`;
+    const title = keyword ? `🔍 搜索 "${htmlEscape(keyword)}" 结果` : `🔍 远程插件列表`;
     const fullMessage = [
       `${title}`,
       `━━━━━━━━━━━━━━━━━`,
@@ -1094,9 +1108,9 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       
       if (verbose) {
         const updateTime = new Date(p._updatedAt).toLocaleString("zh-CN");
-        const desc = p.desc ? `\n📝 ${p.desc}` : "";
-        const nameTag = allowCodeTag ? `<code>${p.name}</code>` : p.name;
-        const urlTag = allowCodeTag ? `<code>${p.url}</code>` : p.url;
+        const desc = p.desc ? `\n📝 ${htmlEscape(p.desc)}` : "";
+        const nameTag = allowCodeTag ? codeTag(p.name) : htmlEscape(p.name);
+        const urlTag = allowCodeTag ? codeTag(p.url) : htmlEscape(p.url);
         dbLinesVerbose.push(`${nameTag} 🕒 ${updateTime}${desc}\n🔗 ${urlTag}`);
         
         if (allowCodeTag) {
@@ -1104,8 +1118,8 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
           entityMgr.add('code');
         }
       } else {
-        const nameTag = allowCodeTag ? `<code>${p.name}</code>` : p.name;
-        dbLinesSimple.push(`${nameTag}${p.desc ? ` - ${p.desc}` : ""}`);
+        const nameTag = allowCodeTag ? codeTag(p.name) : htmlEscape(p.name);
+        dbLinesSimple.push(`${nameTag}${p.desc ? ` - ${htmlEscape(p.desc)}` : ""}`);
         
         if (allowCodeTag) {
           entityMgr.add('code');
@@ -1118,7 +1132,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
     
     for (const name of notInDb) {
       const allowCodeTag = entityMgr.canAdd('code');
-      const nameTag = allowCodeTag ? `<code>${name}</code>` : name;
+      const nameTag = allowCodeTag ? codeTag(name) : htmlEscape(name);
       
       if (verbose) {
         const filePath = path.join(PLUGIN_PATH, `${name}.ts`);
@@ -1205,11 +1219,11 @@ async function updateAllPlugins(msg: Api.Message) {
       const pluginName = dbPlugins[i];
       const pluginRecord = db.data[pluginName];
       const progress = Math.round(((i + 1) / totalPlugins) * 100);
-      const progressBar = generateProgressBar(progress);
+      const progressBar = htmlEscape(generateProgressBar(progress));
 
       try {
         if (canEdit && ([0, dbPlugins.length - 1].includes(i) || i % 2 === 0)) {
-          canEdit = await updateProgressMessage(statusMsg, `📦 正在更新插件: <code>${pluginName}</code>\n\n${progressBar}\n🔄 进度: ${
+          canEdit = await updateProgressMessage(statusMsg, `📦 正在更新插件: ${codeTag(pluginName)}\n\n${progressBar}\n🔄 进度: ${
               i + 1
             }/${totalPlugins} (${progress}%)\n✅ 成功: ${updatedCount}\n⏭️ 跳过: ${skipCount}\n❌ 失败: ${failedCount}`, { parseMode: "html" });
         }
@@ -1268,7 +1282,7 @@ async function updateAllPlugins(msg: Api.Message) {
         await new Promise((r) => setTimeout(r, 100));
       } catch (error) {
         failedCount++;
-        failedPlugins.push(`${pluginName} (${error})`);
+        failedPlugins.push(`${pluginName} (${htmlEscape(String(error))})`);
         console.error(`[TPM] 更新插件 ${pluginName} 失败:`, error);
       }
     }
@@ -1299,7 +1313,7 @@ async function updateAllPlugins(msg: Api.Message) {
       await statusMsg.delete();
     } catch (deleteError) {
       try {
-        await statusMsg.edit({ text: `❌ 一键更新失败: ${error}`, parseMode: "html" });
+        await statusMsg.edit({ text: `❌ 一键更新失败: ${htmlEscape(String(error))}`, parseMode: "html" });
       } catch (editError) {
         console.log(`[TPM] 错误消息编辑失败: ${editError}`);
       }
@@ -1378,7 +1392,7 @@ class TpmPlugin extends Plugin {
       } else if (cmd === "update" || cmd === "updateAll" || cmd === "ua") {
         await updateAllPlugins(msg);
       } else {
-        await sendOrEditMessage(msg, `❌ 未知命令: <code>${cmd}</code>\n\n${this.description}`, { parseMode: "html" });
+        await sendOrEditMessage(msg, `❌ 未知命令: ${codeTag(cmd)}\n\n${this.description}`, { parseMode: "html" });
       }
     },
   };
@@ -1389,7 +1403,7 @@ export default new TpmPlugin();
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args.length === 0 || args?.[0] !== "install" || args?.length < 2) {
-    console.log("Usage: node tpm.ts install <plugin1> <plugin2> ...");
+    console.log("Usage: node tpm.ts install plugin1 plugin2 ...");
   }
   installPlugin(args, {
     edit: async ({ text }: any) => {
