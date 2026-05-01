@@ -1,5 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
+import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import { Api } from "teleproto";
 import * as os from "os";
 import * as fs from "fs";
@@ -756,13 +757,13 @@ Scan Time: ${scanTime}ms
       return {
         nodejs: process.version,
         teleproto: packageJson.dependencies?.teleproto?.replace('^', '') || 'unknown',
-        telebox: packageJson.version || 'unknown'
+        telebox: readDisplayVersion()
       };
     } catch {
       return {
         nodejs: process.version,
         teleproto: 'unknown',
-        telebox: 'unknown'
+        telebox: readDisplayVersion()
       };
     }
   }
