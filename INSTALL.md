@@ -8,7 +8,7 @@
 
 </div>
 
----
+> 💡 你是什么也不懂的小白吗？查看如何使用我们的 [一键部署脚本](https://github.com/TeleBoxOrg/TeleBox_Scripts)
 
 ## 🎯 项目简介
 
@@ -145,6 +145,8 @@ npm start
    ```
 
    > 💡 从 [my.telegram.org](https://my.telegram.org) 获取 API 凭据
+   
+   > 🤔 申请不到 API 凭据？尝试使用 [TeleBox API频道](https://t.me/TeleBox_API) 中的 API 凭据
 
 2. **📱 选择登录方式**
 
