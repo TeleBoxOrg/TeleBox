@@ -315,7 +315,7 @@ async function installRemotePlugin(plugin: string, msg: Api.Message) {
         .toISOString()
         .replace(/[:.]/g, "-")
         .slice(0, -5);
-      const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
+      const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts.bak`);
       fs.copyFileSync(filePath, backupPath);
       console.log(`[TPM] 旧插件已转移到缓存: ${backupPath}`);
     }
@@ -402,7 +402,7 @@ async function installAllPlugins(msg: Api.Message) {
             .toISOString()
             .replace(/[:.]/g, "-")
             .slice(0, -5);
-          const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts`);
+          const backupPath = path.join(cacheDir, `${plugin}_${timestamp}.ts.bak`);
           fs.copyFileSync(filePath, backupPath);
           console.log(`[TPM] 旧插件已转移到缓存: ${backupPath}`);
         }
