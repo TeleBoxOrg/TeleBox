@@ -40,8 +40,6 @@ pnpm-debug.log*
 *.pid
 *.pid.lock
 
-ecosystem.config.cjs
-
 # Mis-emitted source artifacts
 src/**/*.js
 src/**/*.js.map
