@@ -6,10 +6,6 @@
 [![License](https://img.shields.io/badge/License-LGPL--2.1-blue?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](#)
 
-**现代化 Telegram UserBot 开发框架完整部署指南**
-
-_基于 Node.js 与 TypeScript 构建的高性能 Telegram 项目_
-
 </div>
 
 ---
@@ -244,6 +240,6 @@ pm2 stop telebox
 
 
 
-_如有问题，请[**🆘 问题反馈**](https://github.com/TeleBoxOrg/TeleBox/issues)
+如有问题，请[**🆘 问题反馈**](https://github.com/TeleBoxOrg/TeleBox/issues)
 
 </div>
