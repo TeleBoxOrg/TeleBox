@@ -97,8 +97,8 @@ async function sendOrEditMessage(
     linkPreview: options?.linkPreview !== false,
   };
 
-  if (msg.replyTo?.replyToMsgId) {
-    sendOptions.replyTo = msg.replyTo.replyToMsgId;
+  if (msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId) {
+    sendOptions.replyTo = msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId;
   }
 
   const newMsg = await msg.client?.sendMessage(msg.peerId, sendOptions);
@@ -188,14 +188,14 @@ async function sendLongMessage(
       await msg.client?.sendMessage(msg.peerId, {
         message: messages[0],
         ...messageOptions,
-        replyTo: msg.replyTo?.replyToMsgId,
+        replyTo: msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId,
       });
     }
   } else {
     await msg.client?.sendMessage(msg.peerId, {
       message: messages[0],
       ...messageOptions,
-      replyTo: msg.replyTo?.replyToMsgId,
+      replyTo: msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId,
     });
   }
 
@@ -887,8 +887,8 @@ async function uploadPlugin(args: string[], msg: Api.Message) {
     caption: `**TeleBox_Plugin ${pluginName} plugin.**`,
   };
 
-  if (msg.replyTo?.replyToMsgId) {
-    sendOptions.replyTo = msg.replyTo.replyToMsgId;
+  if (msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId) {
+    sendOptions.replyTo = msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId;
   }
 
   await msg.client?.sendFile(msg.peerId, sendOptions);
