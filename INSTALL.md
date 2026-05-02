@@ -2,13 +2,13 @@
 
 # 📋 TeleBox 安装指南
 
+> 💡 你是什么也不懂的小白吗？查看如何使用我们的 [一键部署脚本](https://github.com/TeleBoxOrg/TeleBox_Scripts)
+
 [![Node.js](https://img.shields.io/badge/Node.js-24.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-LGPL--2.1-blue?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](#)
 
 </div>
-
-> 💡 你是什么也不懂的小白吗？查看如何使用我们的 [一键部署脚本](https://github.com/TeleBoxOrg/TeleBox_Scripts)
 
 ## 🎯 项目简介
 
@@ -195,6 +195,9 @@ pm2 start "npm start" --name telebox
 
 # 保存 PM2 配置
 pm2 save
+
+# 以上两步也可以使用以下命令一键完成，但是有可能会发生兼容性问题
+cd ~/telebox && pm2 start ecosystem.config.cjs && pm2 save
 
 # 设置开机自启动
 pm2 startup systemd
