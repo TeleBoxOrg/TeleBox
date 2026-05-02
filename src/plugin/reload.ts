@@ -180,18 +180,13 @@ const editExitMsg = async () => {
     const { messageId, chatId, time } = JSON.parse(data);
     const client = await getGlobalClient();
     if (client) {
-      let target;
+      let targetChat: any = chatId;
       try {
-        target = await client.getEntity(chatId);
-      } catch (e) {
-        await client.getDialogs({ limit: 20 });
-        try {
-          target = await client.getEntity(chatId);
-        } catch (innerE) {
-          console.error("Failed to get entity for exit message:", innerE);
-        }
+        targetChat = await client.getEntity(chatId);
+      } catch (innerE) {
+        console.error("Failed to resolve entity for exit message:", innerE);
       }
-      await client.editMessage(chatId, {
+      await client.editMessage(targetChat, {
         message: messageId,
         text: `✅ 重启完成，耗时 ${Date.now() - time}ms`,
       });
