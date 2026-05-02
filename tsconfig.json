@@ -19,6 +19,6 @@
       "@utils/*": ["utils/*"]
     }
   },
-  "exclude": ["node_modules", "dist"],
+  "exclude": ["node_modules", "dist", "temp", "temp/**/*"],
   "include": ["src/**/*", "plugins/**/*"]
 }
