@@ -261,7 +261,7 @@ class sudoPlugin extends Plugin {
       // await dealCommandPluginWithMessage({ cmd, msg });
       const sudoMsg = await msg.client?.sendMessage(msg.peerId, {
         message: msg.message,
-        replyTo: msg.replyToMsgId,
+        replyTo: msg.replyTo?.replyToTopId || msg.replyToMsgId,
         formattingEntities: msg.entities,
       });
       if (sudoMsg)
