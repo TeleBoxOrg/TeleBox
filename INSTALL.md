@@ -196,9 +196,6 @@ pm2 start "npm start" --name telebox
 # 保存 PM2 配置
 pm2 save
 
-# 以上两步也可以使用以下命令一键完成，但是有可能会发生兼容性问题
-cd ~/telebox && pm2 start ecosystem.config.cjs && pm2 save
-
 # 设置开机自启动
 pm2 startup systemd
 ```
