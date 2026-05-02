@@ -376,7 +376,7 @@ class surePlugin extends Plugin {
 
       const sudoMsg = await msg.client?.sendMessage(msg.peerId, {
         message,
-        replyTo: msg.replyToMsgId,
+        replyTo: msg.replyTo?.replyToTopId || msg.replyToMsgId,
         formattingEntities: message.entities,
       });
       if (cmd && sudoMsg)
