@@ -2,6 +2,7 @@ import { getPrefixes } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
 import { Api, TelegramClient } from "teleproto";
 import { RPCError } from "teleproto/errors";
+import { safeGetMessages } from "@utils/safeGetMessages";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
@@ -24,7 +25,7 @@ class RePlugin extends Plugin {
           return;
         }
         let replied = await msg.getReplyMessage();
-        const messages = await msg.client?.getMessages(replied?.peerId, {
+        const messages = await safeGetMessages(msg.client, replied?.peerId, {
           offsetId: replied!.id - 1,
           limit: count,
           reverse: true,
