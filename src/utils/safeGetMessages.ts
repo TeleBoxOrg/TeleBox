@@ -24,3 +24,28 @@ export async function safeGetMessages(
     throw error;
   }
 }
+
+export async function safeGetReplyMessage(
+  msg?: Api.Message | null,
+): Promise<Api.Message | undefined> {
+  if (!msg?.replyTo || !msg.client) {
+    return undefined;
+  }
+
+  const replyToMsgId = (msg as Api.Message & {
+    replyTo?: { replyToMsgId?: number };
+    replyToMsgId?: number;
+  }).replyTo?.replyToMsgId ?? (msg as any).replyToMsgId;
+
+  if (!replyToMsgId) {
+    return undefined;
+  }
+
+  const peer = msg.inputChat ?? msg.peerId ?? msg.chatId;
+  if (!peer) {
+    return undefined;
+  }
+
+  const [replyMsg] = await safeGetMessages(msg.client, peer, { ids: [replyToMsgId] });
+  return replyMsg;
+}
