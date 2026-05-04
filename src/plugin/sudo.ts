@@ -2,6 +2,7 @@ import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { SudoDB } from "@utils/sudoDB";
+import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { sleep } from "teleproto/Helpers";
 import {
   dealCommandPluginWithMessage,
@@ -96,7 +97,7 @@ async function handleAddDel(
       await msg.edit({ text: "请回复目标用户的消息或带上 uid/@username" });
       return;
     }
-    const reply = await msg.getReplyMessage();
+    const reply = await safeGetReplyMessage(msg);
     if (!reply) {
       await msg.edit({ text: "无法获取回复消息" });
       return;
