@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs";
 import axios from "axios";
 import { Api } from "teleproto";
+import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
 
@@ -610,7 +611,7 @@ function generateProgressBar(percentage: number, length: number = 20): string {
 async function installPlugin(args: string[], msg: Api.Message) {
   if (args.length === 1) {
     if (msg.isReply) {
-      const replied = await msg.getReplyMessage();
+      const replied = await safeGetReplyMessage(msg);
       if (replied?.media) {
         const fileName = await getMediaFileName(replied);
         
