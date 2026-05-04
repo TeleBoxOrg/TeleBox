@@ -2,7 +2,7 @@ import { getPrefixes } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
 import { Api, TelegramClient } from "teleproto";
 import { RPCError } from "teleproto/errors";
-import { safeGetMessages } from "@utils/safeGetMessages";
+import { safeGetMessages, safeGetReplyMessage } from "@utils/safeGetMessages";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
@@ -24,8 +24,14 @@ class RePlugin extends Plugin {
           await msg.edit({ text: "你必须回复一条消息才能够进行复读" });
           return;
         }
-        let replied = await msg.getReplyMessage();
-        const messages = await safeGetMessages(msg.client, replied?.peerId, {
+        let replied = await safeGetReplyMessage(msg);
+        if (!replied?.peerId) {
+          await msg.client?.sendMessage(msg.peerId, {
+            message: "无法获取被回复的消息，请重试。",
+          });
+          return;
+        }
+        const messages = await safeGetMessages(msg.client, replied.peerId, {
           offsetId: replied!.id - 1,
           limit: count,
           reverse: true,
