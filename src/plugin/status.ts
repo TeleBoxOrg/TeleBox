@@ -8,6 +8,7 @@ import { execSync, ExecSyncOptions } from "child_process";
 import * as path from "path";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
+import { safeGetReplyMessage } from "@utils/safeGetMessages";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -422,7 +423,7 @@ class TeleBoxSystemMonitor extends Plugin {
   // ==================== 模板管理 ====================
   // 设置自定义模板
   private async handleSetTemplate(msg: Api.Message): Promise<void> {
-    const replyMsg = await msg.getReplyMessage();
+    const replyMsg = await safeGetReplyMessage(msg);
     if (!replyMsg || !replyMsg.text) {
       await msg.edit({
         text: "❌ 请回复一条包含模板内容的消息",
