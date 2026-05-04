@@ -8,6 +8,7 @@ import { createDirectoryInTemp } from "@utils/pathHelpers";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
+import { safeGetMe } from "../utils/authGuards";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 class DebugPlugin extends Plugin {
@@ -597,7 +598,8 @@ async function formatUserInfo(
 // 格式化自己的信息
 async function formatSelfInfo(client: TelegramClient): Promise<string> {
   try {
-    const me = await client.getMe();
+    const me = await safeGetMe(client);
+    if (!me) return "";
     return await formatUserInfo(client, me.id, "SELF", false);
   } catch (error: any) {
     return `<b>SELF</b>\nError: ${error.message}\n`;

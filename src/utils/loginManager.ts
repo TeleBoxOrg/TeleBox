@@ -4,6 +4,7 @@ import { createInterface, Interface } from "readline/promises";
 import { stdin as input, stdout as output } from "process";
 import qr from "qrcode-terminal";
 import { storeStringSession } from "./apiConfig";
+import { isAuthKeyUnregisteredError, safeCheckAuthorization, safeGetMe } from "./authGuards";
 
 
 const QR_REFRESH_INTERVAL = 2000;
@@ -42,7 +43,7 @@ export async function initializeClientSession(
   await client.connect();
 
   try {
-    if (await client.checkAuthorization()) {
+    if (await safeCheckAuthorization(client)) {
       console.log("✅ Existing session detected. Logged in successfully.");
       closeReadlineInterface();
       const me = await safeGetMe(client);
@@ -183,17 +184,6 @@ function delay(ms: number): Promise<void> {
 }
 
 
-async function safeGetMe(client: TelegramClient) {
-  try {
-    return await client.getMe();
-  } catch (error) {
-    if (isAuthKeyUnregisteredError(error)) {
-      return undefined;
-    }
-    throw error;
-  }
-}
-
 async function resetBrokenSession(client: TelegramClient): Promise<void> {
   try {
     await client.disconnect();
@@ -208,10 +198,3 @@ async function resetBrokenSession(client: TelegramClient): Promise<void> {
   await client.connect();
 }
 
-function isAuthKeyUnregisteredError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-
-  return error.message.includes("AUTH_KEY_UNREGISTERED");
-}

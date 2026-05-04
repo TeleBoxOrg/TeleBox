@@ -8,6 +8,7 @@ import { createConnection } from "net";
 import { PromisedNetSockets } from "teleproto/extensions";
 import * as dns from "dns";
 
+import { safeGetMe } from "../utils/authGuards";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
@@ -291,7 +292,7 @@ class PingPlugin extends Plugin {
         if (!target) {
           // 测量 Telegram API 延迟
           const apiStart = Date.now();
-          await client.getMe();
+          await safeGetMe(client);
           const apiEnd = Date.now();
           const apiLatency = apiEnd - apiStart;
 
