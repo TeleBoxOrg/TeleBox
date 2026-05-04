@@ -41,11 +41,22 @@ export async function initializeClientSession(
 
   await client.connect();
 
-  if (await client.checkAuthorization()) {
-    console.log("✅ Existing session detected. Logged in successfully.");
-    closeReadlineInterface();
-    const me = await client.getMe();
-    return { meId: me?.id ? String(me.id) : undefined };
+  try {
+    if (await client.checkAuthorization()) {
+      console.log("✅ Existing session detected. Logged in successfully.");
+      closeReadlineInterface();
+      const me = await safeGetMe(client);
+      return { meId: me?.id ? String(me.id) : undefined };
+    }
+  } catch (error) {
+    if (!isAuthKeyUnregisteredError(error)) {
+      throw error;
+    }
+
+    console.warn(
+      "⚠️ Stored session is no longer valid. Clearing it and starting a fresh login."
+    );
+    await resetBrokenSession(client);
   }
 
   const useQr = await getUserInput("Use QR code login? [y/N]: ");
@@ -66,7 +77,7 @@ export async function initializeClientSession(
 
   console.log("✅ Login completed. Session saved.");
   closeReadlineInterface();
-  const me = await client.getMe();
+  const me = await safeGetMe(client);
   return { meId: me?.id ? String(me.id) : undefined };
 }
 
@@ -169,4 +180,38 @@ function renderProgressBar(remaining: number, total: number): void {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+async function safeGetMe(client: TelegramClient) {
+  try {
+    return await client.getMe();
+  } catch (error) {
+    if (isAuthKeyUnregisteredError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function resetBrokenSession(client: TelegramClient): Promise<void> {
+  try {
+    await client.disconnect();
+  } catch {}
+
+  try {
+    await client.destroy();
+  } catch {}
+
+  (client.session as StringSession).delete();
+  storeStringSession("");
+  await client.connect();
+}
+
+function isAuthKeyUnregisteredError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  return error.message.includes("AUTH_KEY_UNREGISTERED");
 }
