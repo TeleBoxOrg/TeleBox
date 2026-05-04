@@ -1,5 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { Api } from "teleproto";
+import { safeGetMessages } from "@utils/safeGetMessages";
 import { getGlobalClient } from "@utils/globalClient";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as fs from "fs";
@@ -586,7 +587,7 @@ class BfPlugin extends Plugin {
 
       try {
         // 获取回复的消息
-        const messages = await client.getMessages(msg.peerId, {
+        const messages = await safeGetMessages(client, msg.peerId, {
           ids: [msg.replyTo.replyToMsgId!],
         });
 
