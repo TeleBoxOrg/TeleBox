@@ -1,6 +1,7 @@
 import { Plugin } from "@utils/pluginBase";
 import { getGlobalClient } from "@utils/globalClient";
 import { Api, TelegramClient } from "teleproto";
+import { safeGetMessages, safeGetReplyMessage } from "@utils/safeGetMessages";
 import { getPrefixes } from "@utils/pluginManager";
 import { CustomFile } from "teleproto/client/uploads";
 import { createDirectoryInTemp } from "@utils/pathHelpers";
@@ -98,7 +99,7 @@ class DebugPlugin extends Plugin {
         } else {
           // 原有逻辑：如果有回复消息，优先显示回复信息
           if (msg.replyTo) {
-            const repliedMsg = await msg.getReplyMessage();
+            const repliedMsg = await safeGetReplyMessage(msg);
             if (repliedMsg?.senderId) {
               targetInfo += await formatUserInfo(
                 client,
@@ -138,7 +139,7 @@ class DebugPlugin extends Plugin {
     entity: async (msg, trigger) => {
       const [cmd, ...args] = msg.message.trim().split(/\s+/);
       const input = args.join("");
-      const reply = await msg.getReplyMessage();
+      const reply = await safeGetReplyMessage(msg);
       const entity = await msg.client?.getEntity(
         input || reply?.senderId || msg.peerId
       );
@@ -180,7 +181,7 @@ class DebugPlugin extends Plugin {
       }
     },
     msg: async (msg, trigger) => {
-      const reply = await msg.getReplyMessage();
+      const reply = await safeGetReplyMessage(msg);
       if (!reply) {
         await msg.edit({
           text: `请回复一条消息以获取详细信息。`,
@@ -225,7 +226,7 @@ class DebugPlugin extends Plugin {
 
 
     echo: async (msg, trigger) => {
-      const reply = await msg.getReplyMessage();
+      const reply = await safeGetReplyMessage(msg);
       if (!reply) {
         await msg.edit({
           text: `请回复一条消息以尝试原样发出`,
@@ -365,7 +366,7 @@ async function parseTelegramLink(
           : `@${chatIdentifier}`;
       }
 
-      const messages = await client.getMessages(chatId, {
+      const messages = await safeGetMessages(client, chatId, {
         ids: [parseInt(messageId)],
       });
 
