@@ -1,4 +1,4 @@
-import { Plugin } from "@utils/pluginBase";
+import { Plugin, type PluginRuntimeContext } from "@utils/pluginBase";
 import { Api } from "teleproto";
 import { safeGetMessages } from "@utils/safeGetMessages";
 import { getGlobalClient } from "@utils/globalClient";
@@ -11,23 +11,10 @@ import { spawn, type ChildProcess } from "child_process";
 import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
+import type { GenerationContext } from "@utils/generationContext";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
-const activeChildProcesses = new Set<ChildProcess>();
-
-function trackChildProcess<T extends ChildProcess>(child: T): T {
-  const release = () => {
-    activeChildProcesses.delete(child);
-  };
-
-  activeChildProcesses.add(child);
-  child.once("close", release);
-  child.once("exit", release);
-  child.once("error", release);
-  return child;
-}
-
 // 时区设置
 const CN_TIME_ZONE = "Asia/Shanghai";
 
@@ -163,8 +150,32 @@ function generateBackupName(): string {
   return sanitizeFilename(`telebox_backup_${timestamp}_${randomId}.tar.gz`);
 }
 
+function abortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason;
+  if (typeof reason === "string") return new Error(reason);
+  return new Error("Backup operation aborted");
+}
+
+function throwIfAborted(lifecycle: GenerationContext): void {
+  if (lifecycle.signal.aborted) {
+    throw abortError(lifecycle.signal.reason);
+  }
+}
+
+function trackChildProcess<T extends ChildProcess>(
+  child: T,
+  lifecycle: GenerationContext,
+  label: string
+): T {
+  return lifecycle.trackChildProcess(child, { label }) as T;
+}
+
 // 创建备份压缩包
-async function createBackup(dirs: string[], outputPath: string): Promise<void> {
+async function createBackup(
+  dirs: string[],
+  outputPath: string,
+  lifecycle: GenerationContext
+): Promise<void> {
   const tempDir = path.join(
     os.tmpdir(),
     `backup_${crypto.randomBytes(8).toString("hex")}`
@@ -186,22 +197,27 @@ async function createBackup(dirs: string[], outputPath: string): Promise<void> {
     }
 
     // 创建tar.gz
-    await new Promise<void>((resolve, reject) => {
-      const tar = trackChildProcess(spawn("tar", [
-        "-czf",
-        outputPath,
-        "-C",
-        tempDir,
-        "telebox_backup",
-      ]));
+    await lifecycle.runTask(
+      async () =>
+        await new Promise<void>((resolve, reject) => {
+          const tar = trackChildProcess(spawn("tar", [
+            "-czf",
+            outputPath,
+            "-C",
+            tempDir,
+            "telebox_backup",
+          ]), lifecycle, "bf:create-tar");
 
-      tar.on("close", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`tar exited with code ${code}`));
-      });
+          tar.on("close", (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(`tar exited with code ${code}`));
+          });
 
-      tar.on("error", reject);
-    });
+          tar.on("error", reject);
+          throwIfAborted(lifecycle);
+        }),
+      { label: "bf:create-tar" }
+    );
   } finally {
     // 清理临时目录
     try {
@@ -229,20 +245,29 @@ function copyDirRecursive(src: string, dest: string): void {
 }
 
 // 解压备份文件
-async function extractBackup(archivePath: string): Promise<string> {
+async function extractBackup(archivePath: string, lifecycle: GenerationContext): Promise<string> {
   const extractDir = path.join(os.tmpdir(), `extract_${Date.now()}`);
   fs.mkdirSync(extractDir, { recursive: true });
 
-  await new Promise<void>((resolve, reject) => {
-    const tar = trackChildProcess(spawn("tar", ["-xzf", archivePath, "-C", extractDir]));
+  await lifecycle.runTask(
+    async () =>
+      await new Promise<void>((resolve, reject) => {
+        const tar = trackChildProcess(
+          spawn("tar", ["-xzf", archivePath, "-C", extractDir]),
+          lifecycle,
+          "bf:extract-tar"
+        );
 
-    tar.on("close", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`tar exited with code ${code}`));
-    });
+        tar.on("close", (code) => {
+          if (code === 0) resolve();
+          else reject(new Error(`tar exited with code ${code}`));
+        });
 
-    tar.on("error", reject);
-  });
+        tar.on("error", reject);
+        throwIfAborted(lifecycle);
+      }),
+    { label: "bf:extract-tar" }
+  );
 
   return extractDir;
 }
@@ -296,14 +321,23 @@ const help_text = `<code>${mainPrefix}bf</code> 备份 plugins + assets 目录
 
 // 插件类
 class BfPlugin extends Plugin {
+  private lifecycle: GenerationContext | null = null;
+
+  setup(context: PluginRuntimeContext): void {
+    this.lifecycle = context.lifecycle;
+  }
+
   cleanup(): void {
-    for (const child of activeChildProcesses) {
-      try {
-        child.kill("SIGTERM");
-      } catch {}
-    }
-    activeChildProcesses.clear();
+    this.lifecycle = null;
     ConfigManager.cleanup();
+  }
+
+  private getLifecycle(): GenerationContext {
+    if (!this.lifecycle) {
+      throw new Error("Backup plugin lifecycle is not initialized");
+    }
+    throwIfAborted(this.lifecycle);
+    return this.lifecycle;
   }
 
   description = `\n📦 备份插件\n\n${help_text}
@@ -317,6 +351,7 @@ class BfPlugin extends Plugin {
 
   cmdHandlers = {
     bf: async (msg: Api.Message) => {
+      const lifecycle = this.getLifecycle();
       const args = msg.message.slice(1).split(" ").slice(1);
       const cmd = args[0] || "";
 
@@ -428,42 +463,52 @@ class BfPlugin extends Plugin {
           const parentDir = path.dirname(programDir);
           const dirName = path.basename(programDir);
           
-          await new Promise<void>((resolve, reject) => {
-            const tar = trackChildProcess(spawn("tar", [
-              "-cf",
-              "-",
-              "-C",
-              parentDir,
-              "--exclude=node_modules",
-              "--exclude=.git",
-              "--exclude=my_session",
-              "--exclude=temp",
-              "--exclude=logs",
-              dirName,
-            ], { stdio: ["pipe", "pipe", "pipe"] }));
+          await lifecycle.runTask(
+            async () =>
+              await new Promise<void>((resolve, reject) => {
+                  const tar = trackChildProcess(spawn("tar", [
+                    "-cf",
+                    "-",
+                    "-C",
+                    parentDir,
+                    "--exclude=node_modules",
+                    "--exclude=.git",
+                    "--exclude=my_session",
+                    "--exclude=temp",
+                    "--exclude=logs",
+                    dirName,
+                  ], { stdio: ["pipe", "pipe", "pipe"] }), lifecycle, "bf:full-tar");
 
-            const gzip = trackChildProcess(spawn("gzip", ["-1"], { stdio: ["pipe", "pipe", "pipe"] }));
+                  const gzip = trackChildProcess(
+                    spawn("gzip", ["-1"], { stdio: ["pipe", "pipe", "pipe"] }),
+                    lifecycle,
+                    "bf:full-gzip"
+                  );
 
-            const output = fs.createWriteStream(backupPath);
+                  const output = fs.createWriteStream(backupPath);
 
-            tar.stdout.pipe(gzip.stdin);
-            gzip.stdout.pipe(output);
+                  tar.stdout.pipe(gzip.stdin);
+                  gzip.stdout.pipe(output);
 
-            let tarError = "";
-            let gzipError = "";
-            tar.stderr.on("data", (d) => (tarError += d.toString()));
-            gzip.stderr.on("data", (d) => (gzipError += d.toString()));
+                  let tarError = "";
+                  let gzipError = "";
+                  tar.stderr.on("data", (d) => (tarError += d.toString()));
+                  gzip.stderr.on("data", (d) => (gzipError += d.toString()));
 
-            output.on("finish", () => resolve());
-            tar.on("error", reject);
-            gzip.on("error", reject);
-            tar.on("close", (code) => {
-              if (code !== 0) reject(new Error(`tar: ${tarError || code}`));
-            });
-            gzip.on("close", (code) => {
-              if (code !== 0) reject(new Error(`gzip: ${gzipError || code}`));
-            });
-          });
+                  output.on("finish", () => resolve());
+                  output.on("error", reject);
+                  tar.on("error", reject);
+                  gzip.on("error", reject);
+                  tar.on("close", (code) => {
+                    if (code !== 0) reject(new Error(`tar: ${tarError || code}`));
+                  });
+                  gzip.on("close", (code) => {
+                    if (code !== 0) reject(new Error(`gzip: ${gzipError || code}`));
+                  });
+                  throwIfAborted(lifecycle);
+              }),
+            { label: "bf:full-backup-pipeline" }
+          );
         } else {
           const dirsToBackup = [
             path.join(programDir, "plugins"),
@@ -478,7 +523,7 @@ class BfPlugin extends Plugin {
             return;
           }
 
-          await createBackup(dirsToBackup, backupPath);
+          await createBackup(dirsToBackup, backupPath, lifecycle);
         }
 
         await msg.edit({ text: "📤 正在上传备份...", parseMode: "html" });
@@ -560,6 +605,7 @@ class BfPlugin extends Plugin {
     },
 
     hf: async (msg: Api.Message) => {
+      const lifecycle = this.getLifecycle();
       const args = msg.message.slice(1).split(" ").slice(1);
       const cmd = args[0] || "";
 
@@ -615,7 +661,7 @@ class BfPlugin extends Plugin {
         await msg.edit({ text: "📦 正在解压备份...", parseMode: "html" });
 
         // 解压文件
-        const extractPath = await extractBackup(tempPath);
+        const extractPath = await extractBackup(tempPath, lifecycle);
 
         await msg.edit({ text: "🔄 正在恢复备份...", parseMode: "html" });
 
