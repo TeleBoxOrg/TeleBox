@@ -2,9 +2,9 @@ import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { loadPlugins } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
+import { reloadRuntime } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -89,10 +89,30 @@ async function update(force = false, msg: Api.Message) {
     npm_install_project_dependencies();
 
     console.log("\n✅ 更新完成。");
-    await msg.edit({ text: "✅ 更新完成！" });
-    await loadPlugins(); // 重新加载插件
+    await msg.edit({ text: "✅ 更新完成！正在重新加载插件..." });
+
+    const targetChat = msg.chatId || msg.peerId;
+    const targetMessageId = msg.id;
+
+    // 使用 reloadRuntime 而非 loadPlugins，确保完整的 lifecycle abort+drain+dispose 语义
+    const runtime = await reloadRuntime();
+
     console.log("🔄 插件已重新加载。");
-    await msg.edit({ text: "🔄 插件已重新加载。" });
+    try {
+      await runtime.client.editMessage(targetChat, {
+        message: targetMessageId,
+        text: "🔄 插件已重新加载。",
+      });
+    } catch (editError) {
+      console.error("Failed to update message after reload:", editError);
+      try {
+        await runtime.client.sendMessage(targetChat, {
+          message: "🔄 插件已重新加载。",
+        });
+      } catch (sendError) {
+        console.error("Failed to send completion message after reload:", sendError);
+      }
+    }
   } catch (error: any) {
     console.error("❌ 更新失败:", error);
     await msg.edit({
@@ -104,8 +124,6 @@ async function update(force = false, msg: Api.Message) {
 }
 
 class UpdatePlugin extends Plugin {
-  cleanup(): void {}
-
   description: string = `更新项目：拉取最新代码并安装依赖\n<code>${mainPrefix}update -f/-force</code> 强制更新`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     update: async (msg) => {
