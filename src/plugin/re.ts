@@ -7,7 +7,6 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 class RePlugin extends Plugin {
-  cleanup(): void {}
 
   description: string = `复读\n回复一条消息即可复读\n<code>${mainPrefix}re [消息数] [复读次数]</code>`;
   cmdHandlers: Record<
