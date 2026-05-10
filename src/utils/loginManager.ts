@@ -5,6 +5,7 @@ import { stdin as input, stdout as output } from "process";
 import qr from "qrcode-terminal";
 import { storeStringSession } from "./apiConfig";
 import { isAuthKeyUnregisteredError, safeCheckAuthorization, safeGetMe } from "./authGuards";
+import type { GenerationContext } from "./generationContext";
 
 
 const QR_REFRESH_INTERVAL = 2000;
@@ -29,18 +30,69 @@ function closeReadlineInterface(): void {
   }
 }
 
+function abortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason;
+  if (typeof reason === "string") return new Error(reason);
+  return new Error("Login operation aborted");
+}
+
+function throwIfAborted(lifecycle?: GenerationContext): void {
+  if (lifecycle?.signal.aborted) {
+    throw abortError(lifecycle.signal.reason);
+  }
+}
+
 // 获取用户输入的辅助函数
-async function getUserInput(prompt: string): Promise<string> {
+async function getUserInput(prompt: string, lifecycle?: GenerationContext): Promise<string> {
+  throwIfAborted(lifecycle);
   const readline = getReadlineInterface();
-  return await readline.question(prompt);
+  if (!lifecycle) {
+    return await readline.question(prompt);
+  }
+
+  return await lifecycle.runTask(async (signal) => {
+    return await new Promise<string>((resolve, reject) => {
+      let settled = false;
+      const dispose = lifecycle.trackDisposable(() => closeReadlineInterface(), {
+        label: "login:readline-question",
+      });
+
+      const finish = (callback: () => void): void => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener("abort", onAbort);
+        void Promise.resolve(dispose()).catch((error) => {
+          console.error("[LOGIN] Readline cleanup failed:", error);
+        });
+        callback();
+      };
+
+      const onAbort = (): void => {
+        finish(() => reject(abortError(signal.reason)));
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
+      readline.question(prompt).then(
+        (answer) => finish(() => resolve(answer)),
+        (error: unknown) => finish(() => reject(error))
+      );
+
+      if (signal.aborted) {
+        onAbort();
+      }
+    });
+  }, { label: "login:readline-question" });
 }
 
 export async function initializeClientSession(
-  client: TelegramClient
+  client: TelegramClient,
+  lifecycle?: GenerationContext
 ): Promise<{ meId?: string }> {
   console.log("Connecting to Telegram...");
 
+  throwIfAborted(lifecycle);
   await client.connect();
+  throwIfAborted(lifecycle);
 
   try {
     if (await safeCheckAuthorization(client)) {
@@ -58,21 +110,24 @@ export async function initializeClientSession(
       "⚠️ Stored session is no longer valid. Clearing it and starting a fresh login."
     );
     await resetBrokenSession(client);
+    throwIfAborted(lifecycle);
   }
 
-  const useQr = await getUserInput("Use QR code login? [y/N]: ");
+  const useQr = await getUserInput("Use QR code login? [y/N]: ", lifecycle);
 
   let loggedIn = false;
 
   if (useQr.trim().toLowerCase() === "y") {
-    loggedIn = await loginWithQr(client);
+    loggedIn = await loginWithQr(client, lifecycle);
   }
 
   if (!loggedIn) {
+    throwIfAborted(lifecycle);
     console.log("Falling back to phone login...");
-    await loginWithPhone(client);
+    await loginWithPhone(client, lifecycle);
   }
 
+  throwIfAborted(lifecycle);
   const session = (client.session as StringSession).save();
   storeStringSession(session);
 
@@ -87,19 +142,21 @@ export async function login(): Promise<void> {
   await startRuntime();
 }
 
-async function loginWithPhone(client: TelegramClient): Promise<void> {
+async function loginWithPhone(client: TelegramClient, lifecycle?: GenerationContext): Promise<void> {
+  throwIfAborted(lifecycle);
   await client.start({
-    phoneNumber: async () => await getUserInput("Enter phone number (+86...): "),
-    password: async () => await getUserInput("Enter 2FA password (if any): "),
-    phoneCode: async () => await getUserInput("Enter the verification code: "),
+    phoneNumber: async () => await getUserInput("Enter phone number (+86...): ", lifecycle),
+    password: async () => await getUserInput("Enter 2FA password (if any): ", lifecycle),
+    phoneCode: async () => await getUserInput("Enter the verification code: ", lifecycle),
     onError: (err: Error) => {
       console.error("❌ Login error:", err);
       closeReadlineInterface();
     },
   });
+  throwIfAborted(lifecycle);
 }
 
-async function loginWithQr(client: TelegramClient): Promise<boolean> {
+async function loginWithQr(client: TelegramClient, lifecycle?: GenerationContext): Promise<boolean> {
   console.log("\nRequesting QR login token...");
 
   const startTime = Date.now();
@@ -107,6 +164,7 @@ async function loginWithQr(client: TelegramClient): Promise<boolean> {
   let lastRenderedSecond = -1;
 
   while (Date.now() - startTime < QR_TIMEOUT_MS) {
+    throwIfAborted(lifecycle);
     let result: Api.auth.LoginToken | Api.auth.LoginTokenSuccess | Api.auth.LoginTokenMigrateTo;
 
     try {
@@ -117,8 +175,9 @@ async function loginWithQr(client: TelegramClient): Promise<boolean> {
           exceptIds: [],
         })
       );
+      throwIfAborted(lifecycle);
     } catch {
-      await delay(QR_REFRESH_INTERVAL);
+      await delay(QR_REFRESH_INTERVAL, lifecycle, "login:qr-refresh-retry");
       continue;
     }
 
@@ -145,7 +204,7 @@ async function loginWithQr(client: TelegramClient): Promise<boolean> {
         lastRenderedSecond = remaining;
       }
 
-      await delay(QR_REFRESH_INTERVAL);
+      await delay(QR_REFRESH_INTERVAL, lifecycle, "login:qr-refresh");
       continue;
     }
 
@@ -179,7 +238,10 @@ function renderProgressBar(remaining: number, total: number): void {
   process.stdout.write(`\r${bar}  ${remaining}s remaining`);
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number, lifecycle?: GenerationContext, label = "login:delay"): Promise<void> {
+  if (lifecycle) {
+    return lifecycle.delay(ms, { label });
+  }
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
