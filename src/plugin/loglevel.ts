@@ -10,9 +10,6 @@ const mainPrefix = prefixes[0];
 
 
 class LogLevelPlugin extends Plugin {
-  cleanup(): void {
-    // 当前插件不持有需要在 reload 时额外释放的长期资源。
-  }
 
   description = `📝 日志等级设置工具
   
