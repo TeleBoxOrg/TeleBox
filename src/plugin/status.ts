@@ -9,6 +9,7 @@ import * as path from "path";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
+import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -51,6 +52,8 @@ const HELP_TEXT = `<b>⚙️ Status 系统状态插件</b>
 <b>🔧 使用方法:</b>
 • <code>${mainPrefix}sysinfo</code> - 显示当前系统状态
 • <code>${mainPrefix}status</code> - 显示当前状态
+• <code>${mainPrefix}status lifecycle</code> - 显示当前 generation 生命周期资源计数
+• <code>${mainPrefix}status stress</code> - 输出 reload 压测观察项与当前计数
 • <code>${mainPrefix}status show</code> - 显示当前模板内容
 • <code>${mainPrefix}status set</code> - 回复模板消息，设置自定义格式
 • <code>${mainPrefix}status reset</code> - 重置默认模板
@@ -239,6 +242,12 @@ class TeleBoxSystemMonitor extends Plugin {
         case "show":
           await this.handleShowTemplate(msg);
           return;
+        case "lifecycle":
+          await this.handleLifecycleStatus(msg);
+          return;
+        case "stress":
+          await this.handleLifecycleStress(msg);
+          return;
         default:
           await this.showStatus(msg);
       }
@@ -282,6 +291,58 @@ class TeleBoxSystemMonitor extends Plugin {
     const rendered = this.renderTemplate(template, statusData as unknown as Record<string, string>);
     await msg.edit({
       text: rendered,
+      parseMode: "html",
+    });
+  }
+
+  private formatLifecycleDiagnostics(): string {
+    const context = tryGetCurrentGenerationContext();
+    if (!context) return "<b>🧪 Lifecycle diagnostics</b>\n\n当前没有运行中的 generation。";
+    const snapshot = context.snapshot();
+    const stats = Object.entries(snapshot.stats)
+      .filter(([, stat]) => stat.created > 0 || stat.active > 0 || stat.canceled > 0 || stat.timedOut > 0)
+      .map(([kind, stat]) => {
+        return `• <code>${kind}</code>: active=<code>${stat.active}</code>, created=<code>${stat.created}</code>, drained=<code>${stat.completed}</code>, canceled=<code>${stat.canceled}</code>, timedOut=<code>${stat.timedOut}</code>`;
+      })
+      .join("\n") || "• <code>none</code>";
+    const residuals = snapshot.residualResources
+      .slice(0, 12)
+      .map((resource) => {
+        return `• <code>${resource.kind}#${resource.id}</code> ${resource.label} ${resource.state} age=<code>${resource.ageMs}ms</code>`;
+      })
+      .join("\n") || "• <code>none</code>";
+    const more = snapshot.residualResources.length > 12
+      ? `\n• ...and <code>${snapshot.residualResources.length - 12}</code> more`
+      : "";
+
+    return `<b>🧪 Lifecycle diagnostics</b>\n\n` +
+      `Generation: <code>${snapshot.generation}</code>\n` +
+      `State: <code>${snapshot.state}</code>\n` +
+      `Tracked tasks: <code>${snapshot.trackedTasks}</code>\n` +
+      `Tracked disposables: <code>${snapshot.trackedDisposables}</code>\n\n` +
+      `<b>Resource counters</b>\n${stats}\n\n` +
+      `<b>Residual resources</b>\n${residuals}${more}`;
+  }
+
+  private async handleLifecycleStatus(msg: Api.Message): Promise<void> {
+    await msg.edit({
+      text: this.formatLifecycleDiagnostics(),
+      parseMode: "html",
+    });
+  }
+
+  private async handleLifecycleStress(msg: Api.Message): Promise<void> {
+    const text = this.formatLifecycleDiagnostics() +
+      `\n\n<b>Repeatable stress scenarios</b>\n` +
+      `• idle repeated reload: compare active counters before/after reload; old generation residual should become none.\n` +
+      `• active conversation wait + reload: conversation/handler/timeout should cancel, then drain or appear as residual.\n` +
+      `• PMCaptcha timeout + reload: timeout and promise counters should cancel and not remain active.\n` +
+      `• Shift backup + FLOOD_WAIT + reload: child-process/promise/timeout counters show bounded retention versus leak.\n` +
+      `• AI long request + reload: promise/task residuals identify requests still holding old generation.\n` +
+      `• subprocess running + reload: child-process should be canceled, drained, or listed residual.\n` +
+      `• cron callback mid-flight + reload: cron-job cancels; cron-execution drains or reports residual.`;
+    await msg.edit({
+      text,
       parseMode: "html",
     });
   }
