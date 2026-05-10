@@ -159,7 +159,6 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 class HelpPlugin extends Plugin {
-  cleanup(): void {}
 
   description = "查看帮助信息和可用命令列表";
 
