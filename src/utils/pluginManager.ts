@@ -4,13 +4,25 @@ import { isValidPlugin, Plugin } from "@utils/pluginBase";
 import { getGlobalClient, getCurrentGeneration } from "@utils/globalClient";
 import { NewMessageEvent, NewMessage } from "teleproto/events";
 import { AliasDB } from "./aliasDB";
-import { Api, TelegramClient } from "teleproto";
+import { Api } from "teleproto";
 import { cronManager } from "./cronManager";
 import {
   EditedMessage,
   EditedMessageEvent,
 } from "teleproto/events/EditedMessage";
 import type { TeleBoxRuntime } from "./runtimeManager";
+
+type ClientEventBuilder = NonNullable<Parameters<TeleBoxRuntime["client"]["removeEventHandler"]>[1]>;
+
+type MessageWithText = Api.Message & {
+  text?: string;
+  savedPeerId?: unknown;
+};
+
+type MutableMessageWithText = MessageWithText & {
+  message: string;
+  text: string;
+};
 
 type PluginEntry = {
   original?: string;
@@ -114,13 +126,6 @@ function purgeModuleCache(modulePaths: Iterable<string>): void {
   }
 
   for (const id of idsToDelete) {
-    const mod = require.cache[id];
-    if (!mod) continue;
-
-    if (mod.parent?.children) {
-      mod.parent.children = mod.parent.children.filter((child) => child.id !== id);
-    }
-
     delete require.cache[id];
   }
 
@@ -257,7 +262,7 @@ async function dealCommandPluginWithMessage(param: {
 
     if (original && pluginEntry.aliasFinal && pluginEntry.aliasFinal !== original) {
       const pfs = getPrefixes();
-      const base: any = msg;
+      const base = msg as MessageWithText;
       const text: string = base.message || base.text || "";
       const matched = pfs.find((p) => text.startsWith(p)) || "";
       const rest = text.slice(matched.length).trim();
@@ -274,7 +279,7 @@ async function dealCommandPluginWithMessage(param: {
         const newRest = [...finalParts, ...extraParts].join(" ");
         const newText = matched + newRest;
 
-        const newMsg: any = Object.create(Object.getPrototypeOf(base));
+        const newMsg = Object.create(Object.getPrototypeOf(base)) as MutableMessageWithText;
         Object.assign(newMsg, base);
 
         Object.defineProperty(newMsg, "message", {
@@ -306,7 +311,7 @@ async function dealCommandPlugin(
   event: NewMessageEvent | EditedMessageEvent
 ): Promise<void> {
   const msg = event.message;
-  const savedMessage = (msg as any).savedPeerId;
+  const savedMessage = (msg as MessageWithText).savedPeerId;
   if (msg.out || savedMessage) {
     const cmd = getCommandFromMessage(msg);
     if (cmd) {
@@ -337,37 +342,70 @@ console.log(
   } (可使用环境变量 TB_LISTENER_HANDLE_EDITED 设置, 多个插件用空格分隔)`
 );
 
+async function runPluginSetup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<void> {
+  if (typeof plugin.setup !== "function") return;
+  await runtime.context.runTask(
+    async () => {
+      await plugin.setup?.({
+        generation: runtime.generation,
+        signal: runtime.signal,
+        lifecycle: runtime.context,
+      });
+    },
+    { label: `plugin-setup:${plugin.name || "unknown"}` }
+  );
+}
+
+function trackClientEventHandler<TEvent>(
+  runtime: TeleBoxRuntime,
+  handler: (event: TEvent) => void | Promise<void>,
+  eventBuilder: ClientEventBuilder,
+  label: string
+): void {
+  const { client } = runtime;
+  runtime.context.trackListener<TEvent>(
+    (trackedHandler) => client.addEventHandler(trackedHandler, eventBuilder),
+    (trackedHandler) => client.removeEventHandler(trackedHandler, eventBuilder),
+    (event) => {
+      if (runtime.generation !== getCurrentGeneration()) return;
+      return handler(event);
+    },
+    { label }
+  );
+}
+
 function dealListenMessagePlugin(runtime: TeleBoxRuntime): void {
-  const { client, generation } = runtime;
   for (const plugin of validPlugins) {
     const messageHandler = plugin.listenMessageHandler;
     if (messageHandler) {
-      client.addEventHandler(
-        async (event: NewMessageEvent) => {
-          if (generation !== getCurrentGeneration()) return;
+      trackClientEventHandler<NewMessageEvent>(
+        runtime,
+        async (event) => {
           try {
             await messageHandler(event.message);
           } catch (error) {
             console.log("listenMessageHandler NewMessage error:", error);
           }
         },
-        new NewMessage()
+        new NewMessage(),
+        `listener:${plugin.name || "unknown"}:new-message`
       );
 
-        if (
-          !plugin.listenMessageHandlerIgnoreEdited ||
-          (plugin.name && listenerHandleEdited.includes(plugin.name))
-        ) {
-          client.addEventHandler(
-            async (event: any) => {
-              if (generation !== getCurrentGeneration()) return;
-              try {
-                await messageHandler(event.message, { isEdited: true });
-              } catch (error) {
+      if (
+        !plugin.listenMessageHandlerIgnoreEdited ||
+        (plugin.name && listenerHandleEdited.includes(plugin.name))
+      ) {
+        trackClientEventHandler<EditedMessageEvent>(
+          runtime,
+          async (event) => {
+            try {
+              await messageHandler(event.message, { isEdited: true });
+            } catch (error) {
               console.log("listenMessageHandler EditedMessage error:", error);
             }
           },
-          new EditedMessage({})
+          new EditedMessage({}),
+          `listener:${plugin.name || "unknown"}:edited-message`
         );
       }
     }
@@ -375,16 +413,17 @@ function dealListenMessagePlugin(runtime: TeleBoxRuntime): void {
     const eventHandlers = plugin.eventHandlers;
     if (Array.isArray(eventHandlers) && eventHandlers.length > 0) {
       for (const { event, handler } of eventHandlers) {
-        client.addEventHandler(
-          async (ev: any) => {
-            if (generation !== getCurrentGeneration()) return;
+        trackClientEventHandler(
+          runtime,
+          async (ev: unknown) => {
             try {
               await handler(ev);
             } catch (error) {
               console.log("eventHandler error:", error);
             }
           },
-          event
+          event || new NewMessage(),
+          `event:${plugin.name || "unknown"}`
         );
       }
     }
@@ -392,7 +431,6 @@ function dealListenMessagePlugin(runtime: TeleBoxRuntime): void {
 }
 
 function dealCronPlugin(runtime: TeleBoxRuntime): void {
-  const { generation } = runtime;
   for (const plugin of validPlugins) {
     const cronTasks = plugin.cronTasks;
     if (cronTasks) {
@@ -400,41 +438,55 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
       for (const key of keys) {
         const cronTask = cronTasks[key];
         cronManager.set(key, cronTask.cron, async () => {
-          if (generation !== getCurrentGeneration()) return;
+          if (runtime.signal.aborted || runtime.generation !== getCurrentGeneration()) return;
           const client = await getGlobalClient();
           await cronTask.handler(client);
-        });
+        }, runtime.context);
       }
     }
   }
 }
 
-async function runPluginCleanup(plugin: Plugin): Promise<void> {
+async function runPluginCleanup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<void> {
   if (typeof plugin.cleanup !== "function") return;
-  try {
-    await plugin.cleanup();
-  } catch (error) {
-    console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
-  }
+  await runtime.context.runTask(
+    async () => {
+      try {
+        await plugin.cleanup?.();
+      } catch (error) {
+        console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
+      }
+    },
+    { label: `plugin-cleanup:${plugin.name || "unknown"}` }
+  );
 }
 
 async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
   const oldPlugins = [...validPlugins];
   const oldPluginFiles = [...loadedPluginFiles];
 
+  if (!runtime.signal.aborted) {
+    runtime.context.abort(`Unload generation ${runtime.generation}`);
+  }
+
   for (const plugin of oldPlugins) {
-    await runPluginCleanup(plugin);
+    await runPluginCleanup(plugin, runtime);
   }
 
-  cronManager.clear();
-
-  const client = runtime.client;
-  const handlers = [...client.listEventHandlers()];
-  console.log(`[RELOAD] Removing ${handlers.length} event handlers before reload.`);
-  for (const [eventBuilder, callback] of handlers) {
-    client.removeEventHandler(callback, eventBuilder);
-  }
-  console.log(`[RELOAD] Remaining event handlers after cleanup: ${client.listEventHandlers().length}`);
+  const snapshot = runtime.context.snapshot();
+  const handlerCount = runtime.client.listEventHandlers().length;
+  const disposableCount = snapshot.trackedDisposables;
+  const resourceSummary = Object.entries(snapshot.stats)
+    .filter(([, stat]) => stat.created > 0 || stat.active > 0)
+    .map(([kind, stat]) => `${kind}:active=${stat.active},created=${stat.created}`)
+    .join("; ") || "none";
+  const residualSummary = snapshot.residualResources
+    .slice(0, 10)
+    .map((resource) => `${resource.kind}:${resource.label}:${resource.state}:${resource.ageMs}ms`)
+    .join("; ") || "none";
+  console.log(
+    `[RELOAD] Generation ${runtime.generation} stopped ingress; ${handlerCount} client handlers and ${disposableCount} lifecycle disposables are awaiting drain. resources=[${resourceSummary}] residual=[${residualSummary}]`
+  );
 
   validPlugins.length = 0;
   plugins.clear();
@@ -451,15 +503,23 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
     pluginLoadDepth--;
   }
 
-  const { client, generation } = runtime;
-  client.addEventHandler(async (event: NewMessageEvent) => {
-    if (generation !== getCurrentGeneration()) return;
-    await dealNewMsgEvent(event);
-  }, new NewMessage());
-  client.addEventHandler(async (event: EditedMessageEvent) => {
-    if (generation !== getCurrentGeneration()) return;
-    await dealEditedMsgEvent(event);
-  }, new EditedMessage({}));
+  for (const plugin of validPlugins) {
+    await runPluginSetup(plugin, runtime);
+  }
+
+  const { client } = runtime;
+  trackClientEventHandler<NewMessageEvent>(
+    runtime,
+    dealNewMsgEvent,
+    new NewMessage(),
+    "root:new-message"
+  );
+  trackClientEventHandler<EditedMessageEvent>(
+    runtime,
+    dealEditedMsgEvent,
+    new EditedMessage({}),
+    "root:edited-message"
+  );
   dealListenMessagePlugin(runtime);
   dealCronPlugin(runtime);
   console.log(`[RELOAD] Event handlers registered after reload: ${client.listEventHandlers().length}`);
