@@ -394,7 +394,6 @@ class ReloadPlugin extends Plugin {
       clearTimeout(timer);
     }
     pendingExitTimers.clear();
-    this.lastReloadMemoryMb = null;
   }
 
   description = HELP_TEXT;
@@ -410,7 +409,7 @@ class ReloadPlugin extends Plugin {
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     reload: async (msg) => {
       const beforeMemory = getMemoryUsage();
-      this.lastReloadMemoryMb = beforeMemory.heapUsed;
+      const lastReloadMemoryMb = beforeMemory.heapUsed;
       const statusMessage = await msg.edit({ text: "🔄 正在重新加载插件..." });
       const targetChat = statusMessage?.chatId || statusMessage?.peerId || msg.chatId || msg.peerId;
       const targetMessageId = statusMessage?.id || msg.id;
@@ -428,9 +427,9 @@ class ReloadPlugin extends Plugin {
         }
 
         const output = `✅ Telebox 已重新加载 (用时：${timeText})`;
-        const memoryDelta = this.lastReloadMemoryMb == null
+        const memoryDelta = lastReloadMemoryMb == null
           ? null
-          : afterMemory.heapUsed - this.lastReloadMemoryMb;
+          : afterMemory.heapUsed - lastReloadMemoryMb;
         if (memoryDelta != null) {
           console.log(`[RELOAD] Heap delta after reload: ${memoryDelta.toFixed(2)} MB.`);
         }
