@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
 import { reloadRuntime } from "@utils/runtimeManager";
+import { getGlobalClient } from "@utils/globalClient";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -115,11 +116,34 @@ async function update(force = false, msg: Api.Message) {
     }
   } catch (error: any) {
     console.error("❌ 更新失败:", error);
-    await msg.edit({
-      text:
-        `❌ 更新失败\n失败命令行：${error.cmd}\n失败原因：${error.stderr}\n\n` +
-        "如果是 Git 冲突，请手动解决后再更新，或使用 .update -f 强制更新（会丢弃本地改动）",
-    });
+
+    // 构建安全的错误信息 —— exec 错误有 .cmd/.stderr，
+    // 其他错误（含 reloadRuntime 失败）只有 .message
+    const errCmd = error.cmd || "";
+    const errDetail = error.stderr || error.message || String(error);
+
+    const errorText =
+      `❌ 更新失败\n` +
+      (errCmd ? `失败命令行：${errCmd}\n` : "") +
+      `失败原因：${errDetail}\n\n` +
+      "如果是 Git 冲突，请手动解决后再更新，或使用 .update -f 强制更新（会丢弃本地改动）";
+
+    // msg.edit() 可能因 reloadRuntime 销毁旧 client 而失败，需安全兜底
+    try {
+      await msg.edit({ text: errorText });
+    } catch (editError) {
+      console.error("Failed to send error message after update failure:", editError);
+      // 最后尝试通过新 client 发送
+      try {
+        const client = await getGlobalClient();
+        const targetChat = msg.chatId || msg.peerId;
+        if (client && targetChat) {
+          await client.sendMessage(targetChat, { message: errorText });
+        }
+      } catch (sendError) {
+        console.error("Failed to send error via fallback client:", sendError);
+      }
+    }
   }
 }
 
