@@ -1,6 +1,103 @@
 import { TelegramClient } from "teleproto";
 import { Api } from "teleproto/tl";
 import { Entity } from "teleproto/define";
+import {
+  getCurrentGeneration,
+  tryGetCurrentGenerationContext,
+  type GenerationContext,
+} from "./globalClient";
+
+type EntityHelperCancellationContext = {
+  signal?: AbortSignal;
+  lifecycle?: GenerationContext;
+};
+
+type EntityHelperRetryOptions = EntityHelperCancellationContext & {
+  maxRetries?: number;
+};
+
+function abortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason;
+  if (typeof reason === "string") return new Error(reason);
+  return new Error("Entity helper operation aborted");
+}
+
+function resolveCancellationContext(
+  options?: EntityHelperCancellationContext
+): EntityHelperCancellationContext {
+  const lifecycle = options?.lifecycle ?? tryGetCurrentGenerationContext() ?? undefined;
+  return {
+    lifecycle,
+    signal: options?.signal ?? lifecycle?.signal,
+  };
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw abortError(signal.reason);
+  }
+}
+
+function isCurrentGeneration(lifecycle?: GenerationContext): boolean {
+  return !lifecycle || lifecycle.generation === getCurrentGeneration();
+}
+
+function assertCurrentGeneration(lifecycle?: GenerationContext): void {
+  if (lifecycle && !isCurrentGeneration(lifecycle)) {
+    throw new Error(`Generation ${lifecycle.generation} is no longer current`);
+  }
+}
+
+async function abortableDelay(
+  ms: number,
+  context: EntityHelperCancellationContext,
+  label: string
+): Promise<void> {
+  throwIfAborted(context.signal);
+  assertCurrentGeneration(context.lifecycle);
+
+  if (context.lifecycle) {
+    await context.lifecycle.delay(ms, { label });
+  } else {
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let cleanup = (): void => undefined;
+
+      const finish = (callback: () => void): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        callback();
+      };
+
+      const onAbort = (): void => {
+        finish(() => reject(abortError(context.signal?.reason)));
+      };
+
+      const handle = setTimeout(() => finish(resolve), ms);
+
+      cleanup = (): void => {
+        clearTimeout(handle);
+        context.signal?.removeEventListener("abort", onAbort);
+      };
+
+      context.signal?.addEventListener("abort", onAbort, { once: true });
+      if (context.signal?.aborted) {
+        onAbort();
+      }
+    });
+  }
+
+  throwIfAborted(context.signal);
+  assertCurrentGeneration(context.lifecycle);
+}
+
+function getFloodWaitSeconds(error: unknown): number | null {
+  if (!(error instanceof Error) || !error.message.includes("FLOOD_WAIT")) {
+    return null;
+  }
+  return parseInt(error.message.match(/\d+/)?.[0] || "60");
+}
 
 /**
  * 安全获取实体，确保包含正确的access hash
@@ -40,17 +137,20 @@ export async function safeForwardMessage(
   fromChatId: string | number,
   toChatId: string | number,
   messageId: number,
-  options?: {
+  options?: EntityHelperRetryOptions & {
     replyTo?: number;
     silent?: boolean;
     dropAuthor?: boolean;
-    maxRetries?: number;
   }
 ): Promise<Api.Message[]> {
   const maxRetries = options?.maxRetries || 3;
-  let lastError: any;
+  const cancellationContext = resolveCancellationContext(options);
+  let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    throwIfAborted(cancellationContext.signal);
+    assertCurrentGeneration(cancellationContext.lifecycle);
+
     try {
       // 获取完整实体信息
       const fromEntity = await getEntityWithHash(client, fromChatId);
@@ -91,7 +191,7 @@ export async function safeForwardMessage(
         }
       }
       return messages;
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
       console.warn(
         `[EntityHelper] 转发尝试 ${attempt}/${maxRetries} 失败: ${fromChatId} -> ${toChatId}`,
@@ -99,18 +199,24 @@ export async function safeForwardMessage(
       );
 
       // 处理 FLOOD_WAIT 错误
-      if (error.message && error.message.includes("FLOOD_WAIT")) {
-        const waitTime = parseInt(error.message.match(/\d+/)?.[0] || "60");
-        console.log(`[EntityHelper] FloodWait ${waitTime}s, 等待重试`);
-        await new Promise((resolve) =>
-          setTimeout(resolve, (waitTime + 1) * 1000)
+      const floodWaitSeconds = getFloodWaitSeconds(error);
+      if (floodWaitSeconds !== null) {
+        console.log(`[EntityHelper] FloodWait ${floodWaitSeconds}s, 等待重试`);
+        await abortableDelay(
+          (floodWaitSeconds + 1) * 1000,
+          cancellationContext,
+          "entity-helper-flood-wait"
         );
         continue;
       }
 
       // 如果不是最后一次尝试，等待后重试
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        await abortableDelay(
+          1000 * attempt,
+          cancellationContext,
+          "entity-helper-retry-backoff"
+        );
         continue;
       }
     }
@@ -131,11 +237,16 @@ export async function safeForwardMessage(
  */
 export async function getBatchEntitiesWithHash(
   client: TelegramClient,
-  entityIds: (string | number)[]
+  entityIds: (string | number)[],
+  options?: EntityHelperCancellationContext
 ): Promise<Entity[]> {
+  const cancellationContext = resolveCancellationContext(options);
   const entities: Entity[] = [];
 
   for (const entityId of entityIds) {
+    throwIfAborted(cancellationContext.signal);
+    assertCurrentGeneration(cancellationContext.lifecycle);
+
     try {
       const entity = await getEntityWithHash(client, entityId);
       entities.push(entity);
@@ -193,18 +304,29 @@ export async function withEntityAccess<T>(
   client: TelegramClient,
   operation: (resolvedEntities: Entity[]) => Promise<T>,
   entities: (string | number)[],
-  maxRetries: number = 3
+  options: number | EntityHelperRetryOptions = 3
 ): Promise<T> {
-  let lastError: any;
+  const maxRetries = typeof options === "number" ? options : options.maxRetries ?? 3;
+  const cancellationContext = resolveCancellationContext(
+    typeof options === "number" ? undefined : options
+  );
+  let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    throwIfAborted(cancellationContext.signal);
+    assertCurrentGeneration(cancellationContext.lifecycle);
+
     try {
       // 批量解析实体
-      const resolvedEntities = await getBatchEntitiesWithHash(client, entities);
+      const resolvedEntities = await getBatchEntitiesWithHash(
+        client,
+        entities,
+        cancellationContext
+      );
 
       // 执行操作
       return await operation(resolvedEntities);
-    } catch (error: any) {
+    } catch (error: unknown) {
       lastError = error;
       console.warn(
         `[EntityHelper] 操作尝试 ${attempt}/${maxRetries} 失败:`,
@@ -212,18 +334,24 @@ export async function withEntityAccess<T>(
       );
 
       // 处理 FLOOD_WAIT 错误
-      if (error.message && error.message.includes("FLOOD_WAIT")) {
-        const waitTime = parseInt(error.message.match(/\d+/)?.[0] || "60");
-        console.log(`[EntityHelper] FloodWait ${waitTime}s, 等待重试`);
-        await new Promise((resolve) =>
-          setTimeout(resolve, (waitTime + 1) * 1000)
+      const floodWaitSeconds = getFloodWaitSeconds(error);
+      if (floodWaitSeconds !== null) {
+        console.log(`[EntityHelper] FloodWait ${floodWaitSeconds}s, 等待重试`);
+        await abortableDelay(
+          (floodWaitSeconds + 1) * 1000,
+          cancellationContext,
+          "entity-helper-flood-wait"
         );
         continue;
       }
 
       // 如果不是最后一次尝试，等待后重试
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        await abortableDelay(
+          1000 * attempt,
+          cancellationContext,
+          "entity-helper-retry-backoff"
+        );
         continue;
       }
     }
