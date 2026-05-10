@@ -302,8 +302,13 @@ async function dealCommandPluginWithMessage(param: {
       await handler(targetMsg, trigger);
     }
   } catch (error) {
-    console.log(error);
-    await msg.edit({ text: `处理命令时出错：${error}` });
+    console.error("Command handler error:", error);
+    const errorMsg = `处理命令时出错：${error instanceof Error ? error.message : String(error)}`;
+    try {
+      await msg.edit({ text: errorMsg });
+    } catch (editError) {
+      console.error("Failed to show command error message (client may be destroyed):", editError);
+    }
   }
 }
 

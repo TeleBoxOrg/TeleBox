@@ -328,15 +328,12 @@ export async function reloadRuntime(): Promise<TeleBoxRuntime> {
       newRuntime.state = "running";
       return newRuntime;
     } catch (error) {
+      console.error("[RUNTIME] Failed to load plugins after reload, keeping runtime alive:", error);
+      // Keep the new runtime alive: it has a working client, only plugins failed.
+      // Setting currentRuntime = null previously made the bot completely dead
+      // (getGlobalClient() throws, all commands fail, no message delivery).
       newRuntime.state = "failed";
-      currentRuntime = null;
-      newRuntime.context.abort("Runtime reload startup failed");
-      await newRuntime.context.dispose(RUNTIME_DRAIN_TIMEOUT_MS).catch((disposeError) => {
-        console.error("[RUNTIME] Failed to dispose runtime after reload error:", disposeError);
-      });
-      await destroyClient(newRuntime.client).catch((destroyError) => {
-        console.error("[RUNTIME] Failed to destroy runtime after reload error:", destroyError);
-      });
+      currentRuntime = newRuntime;
       throw error;
     }
   })();

@@ -46,10 +46,14 @@ async function updateReloadStatus(params: {
     });
   } catch (error) {
     console.error("Failed to edit reload status message, falling back to sendMessage:", error);
-    await client?.sendMessage(targetChat, {
-      message: text,
-      parseMode,
-    });
+    try {
+      await client?.sendMessage(targetChat, {
+        message: text,
+        parseMode,
+      });
+    } catch (sendError) {
+      console.error("Fallback sendMessage also failed (client may be destroyed):", sendError);
+    }
   }
 }
 
