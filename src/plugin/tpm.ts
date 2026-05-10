@@ -1333,7 +1333,6 @@ async function updateAllPlugins(msg: Api.Message) {
 }
 
 class TpmPlugin extends Plugin {
-  cleanup(): void {}
 
   description: string = `<b>📦 TeleBox 插件管理器 (TPM)</b>
 
