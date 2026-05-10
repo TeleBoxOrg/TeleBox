@@ -11,6 +11,7 @@ import { Api } from "teleproto";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
+import { tryGetCurrentGenerationContext } from "@utils/globalClient";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -262,6 +263,15 @@ function getRetryDelayMs(error: unknown, attempt: number): number {
   return base + jitter;
 }
 
+async function lifecycleDelay(ms: number, label: string): Promise<void> {
+  const lifecycle = tryGetCurrentGenerationContext();
+  if (lifecycle) {
+    await lifecycle.delay(ms, { label });
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchWithRetry<T>(
   url: string,
   options?: Parameters<typeof axios.get>[1]
@@ -285,7 +295,7 @@ async function fetchWithRetry<T>(
         throw error;
       }
       const delay = getRetryDelayMs(error, attempt);
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await lifecycleDelay(delay, "tpm:fetch-retry");
     }
   }
   throw lastError;
@@ -428,7 +438,7 @@ async function installAllPlugins(msg: Api.Message) {
         }
 
         installedCount++;
-        await new Promise((r) => setTimeout(r, 100));
+        await lifecycleDelay(100, "tpm:batch-install-throttle");
       } catch (error) {
         failedCount++;
         failedPlugins.push(`${plugin} (${htmlEscape(String(error))})`);
@@ -557,7 +567,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
         }
 
         installedCount++;
-        await new Promise((r) => setTimeout(r, 100));
+        await lifecycleDelay(100, "tpm:batch-install-throttle");
       } catch (error) {
         failedCount++;
         failedPlugins.push(`${pluginName} (${htmlEscape(String(error))})`);
@@ -1280,7 +1290,7 @@ async function updateAllPlugins(msg: Api.Message) {
         }
 
         updatedCount++;
-        await new Promise((r) => setTimeout(r, 100));
+        await lifecycleDelay(100, "tpm:update-throttle");
       } catch (error) {
         failedCount++;
         failedPlugins.push(`${pluginName} (${htmlEscape(String(error))})`);
