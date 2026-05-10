@@ -1,9 +1,27 @@
 import { Api, TelegramClient } from "teleproto";
+import type { EventBuilder } from "teleproto/events/common";
+import type { GenerationContext } from "./generationContext";
+
+export interface PluginRuntimeContext {
+  generation: number;
+  signal: AbortSignal;
+  lifecycle: GenerationContext;
+}
 
 type CronTask = {
   cron: string;
   description: string;
   handler: (client: TelegramClient) => Promise<void>;
+};
+
+type PluginDescription =
+  | string
+  | ((...args: unknown[]) => string | void)
+  | ((...args: unknown[]) => Promise<string | void>);
+
+type PluginEventHandler = {
+  event?: EventBuilder;
+  handler: (event: unknown) => Promise<void>;
 };
 
 const cmdIgnoreEdited = !!JSON.parse(
@@ -16,10 +34,7 @@ console.log(
 abstract class Plugin {
   name?: string;
   ignoreEdited?: boolean = cmdIgnoreEdited;
-  abstract description:
-    | string
-    | ((...args: any[]) => string | void)
-    | ((...args: any[]) => Promise<string | void>);
+  abstract description: PluginDescription;
   abstract cmdHandlers: Record<
     string,
     (msg: Api.Message, trigger?: Api.Message) => Promise<void>
@@ -29,55 +44,52 @@ abstract class Plugin {
     msg: Api.Message,
     options?: { isEdited?: boolean }
   ) => Promise<void>;
-  eventHandlers?: Array<{
-    event?: any;
-    handler: (event: any) => Promise<void>;
-  }>;
+  eventHandlers?: PluginEventHandler[];
   cronTasks?: Record<string, CronTask>;
+  setup?(context: PluginRuntimeContext): Promise<void> | void;
   cleanup?(): Promise<void> | void;
 }
 
-// ✅ 运行时校验函数
-function isValidPlugin(obj: any): obj is Plugin {
-  if (!obj) return false;
+function isValidPlugin(obj: unknown): obj is Plugin {
+  if (!obj || typeof obj !== "object") return false;
+  const candidate = obj as Partial<Plugin>;
 
-  // description
-  const desc = obj.description;
+  const desc = candidate.description;
   const isValidDescription =
     typeof desc === "string" || typeof desc === "function";
 
   if (!isValidDescription) return false;
 
-  // cmdHandlers
-  if (typeof obj.cmdHandlers !== "object" || obj.cmdHandlers === null) {
+  if (typeof candidate.cmdHandlers !== "object" || candidate.cmdHandlers === null) {
     return false;
   }
-  for (const key of Object.keys(obj.cmdHandlers)) {
-    if (typeof obj.cmdHandlers[key] !== "function") {
+  for (const key of Object.keys(candidate.cmdHandlers)) {
+    if (typeof candidate.cmdHandlers[key] !== "function") {
       return false;
     }
   }
 
-  // listenMessageHandler (optional)
   if (
-    obj.listenMessageHandler &&
-    typeof obj.listenMessageHandler !== "function"
+    candidate.listenMessageHandler &&
+    typeof candidate.listenMessageHandler !== "function"
   ) {
     return false;
   }
 
-  // cronTasks (optional)
-  if (obj.cronTasks) {
-    if (typeof obj.cronTasks !== "object") return false;
-    for (const key of Object.keys(obj.cronTasks)) {
-      const task = obj.cronTasks[key];
+  if (candidate.cronTasks) {
+    if (typeof candidate.cronTasks !== "object") return false;
+    for (const key of Object.keys(candidate.cronTasks)) {
+      const task = candidate.cronTasks[key];
       if (typeof task.cron !== "string") return false;
       if (typeof task.handler !== "function") return false;
     }
   }
 
-  // cleanup (optional)
-  if (obj.cleanup && typeof obj.cleanup !== "function") {
+  if (candidate.setup && typeof candidate.setup !== "function") {
+    return false;
+  }
+
+  if (candidate.cleanup && typeof candidate.cleanup !== "function") {
     return false;
   }
 
