@@ -8,7 +8,7 @@ import { getGlobalClient } from "@utils/globalClient";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { JSONFilePreset } from "lowdb/node";
-import { getCurrentGeneration } from "@utils/globalClient";
+import { getCurrentGenerationContext } from "@utils/globalClient";
 import { reloadRuntime } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
@@ -166,10 +166,15 @@ function scheduleTrackedTimeout(
   delay: number
 ): ReturnType<typeof setTimeout> {
   let timer: ReturnType<typeof setTimeout>;
-  timer = setTimeout(() => {
+  const context = getCurrentGenerationContext();
+  timer = context.setTimeout(() => {
     pendingExitTimers.delete(timer);
-    void Promise.resolve(callback());
-  }, delay);
+    const task = Promise.resolve(callback());
+    context.trackTask(task, { label: "reload:scheduled-timeout" });
+    task.catch((error) => {
+      console.error("[RELOAD] Scheduled timeout failed:", error);
+    });
+  }, delay, { label: "reload:scheduled-timeout" });
   pendingExitTimers.add(timer);
   return timer;
 }
@@ -224,7 +229,7 @@ function getMemoryUsage() {
     heapTotal: usage.heapTotal / 1024 / 1024,
     rss: usage.rss / 1024 / 1024,
     external: usage.external / 1024 / 1024,
-    arrayBuffers: (usage as any).arrayBuffers / 1024 / 1024
+    arrayBuffers: usage.arrayBuffers / 1024 / 1024
   };
 }
 
@@ -389,7 +394,7 @@ class ReloadPlugin extends Plugin {
       clearTimeout(timer);
     }
     pendingExitTimers.clear();
-    this.lastReloadMemory = null;
+    this.lastReloadMemoryMb = null;
   }
 
   description = HELP_TEXT;
@@ -400,12 +405,12 @@ class ReloadPlugin extends Plugin {
       handler: async () => await memoryMonitorTask()
     }
   };
-  private lastReloadMemory: number | null = null;
+  private lastReloadMemoryMb: number | null = null;
 
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     reload: async (msg) => {
       const beforeMemory = getMemoryUsage();
-      this.lastReloadMemory = beforeMemory.heapUsed;
+      this.lastReloadMemoryMb = beforeMemory.heapUsed;
       const statusMessage = await msg.edit({ text: "🔄 正在重新加载插件..." });
       const targetChat = statusMessage?.chatId || statusMessage?.peerId || msg.chatId || msg.peerId;
       const targetMessageId = statusMessage?.id || msg.id;
@@ -423,6 +428,12 @@ class ReloadPlugin extends Plugin {
         }
 
         const output = `✅ Telebox 已重新加载 (用时：${timeText})`;
+        const memoryDelta = this.lastReloadMemoryMb == null
+          ? null
+          : afterMemory.heapUsed - this.lastReloadMemoryMb;
+        if (memoryDelta != null) {
+          console.log(`[RELOAD] Heap delta after reload: ${memoryDelta.toFixed(2)} MB.`);
+        }
 
         await updateReloadStatus({
           client: runtime.client,
