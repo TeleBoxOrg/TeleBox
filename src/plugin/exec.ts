@@ -1,18 +1,68 @@
 import { exec } from "child_process";
-import { promisify } from "util";
-import { Plugin } from "@utils/pluginBase";
+import { Plugin, type PluginRuntimeContext } from "@utils/pluginBase";
 import { Api } from "teleproto";
+import type { GenerationContext } from "@utils/generationContext";
 
-const execAsync = promisify(exec);
-const activeIntervals = new Set<ReturnType<typeof setInterval>>();
 
 function truncate(text: string, max = 3500) {
   if (text.length <= max) return text;
   return text.slice(0, max) + "\n\n…(输出过长，已截断)";
 }
 
-async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
-  const { msg, shellCommand } = params;
+type ExecResult = {
+  stdout: string;
+  stderr: string;
+};
+
+function abortError(reason?: unknown): Error {
+  if (reason instanceof Error) return reason;
+  if (typeof reason === "string") return new Error(reason);
+  return new Error("Shell command aborted");
+}
+
+function runOwnedExec(shellCommand: string, lifecycle: GenerationContext): Promise<ExecResult> {
+  return lifecycle.runTask(
+    async (signal) =>
+      await new Promise<ExecResult>((resolve, reject) => {
+        let settled = false;
+
+        const finish = (callback: () => void): void => {
+          if (settled) return;
+          settled = true;
+          signal.removeEventListener("abort", onAbort);
+          callback();
+        };
+
+        const child = lifecycle.trackChildProcess(exec(shellCommand, (error, stdout, stderr) => {
+          if (error) {
+            finish(() => reject(error));
+            return;
+          }
+          finish(() => resolve({ stdout, stderr }));
+        }), {
+          label: "exec:shell-command",
+        });
+
+        const onAbort = (): void => {
+          if (!child.killed && child.exitCode === null) {
+            child.kill();
+          }
+          finish(() => reject(abortError(signal.reason)));
+        };
+
+        signal.addEventListener("abort", onAbort, { once: true });
+        child.once("error", (error) => finish(() => reject(error)));
+
+        if (signal.aborted) {
+          onAbort();
+        }
+      }),
+    { label: "exec:shell-command", kind: "promise" }
+  );
+}
+
+async function handleExec(params: { msg: Api.Message; shellCommand: string; lifecycle: GenerationContext }) {
+  const { msg, shellCommand, lifecycle } = params;
 
   const start = Date.now();
 
@@ -26,26 +76,22 @@ async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
 
   let stopped = false;
 
-  const timer = setInterval(async () => {
+  const timer = lifecycle.setInterval(() => {
     if (stopped) return;
     const cost = ((Date.now() - start) / 1000).toFixed(0);
-    try {
-      await msg.edit({
-        text:
-          `✅ 已开始执行 shell 命令…\n` +
-          `命令：\`${shellCommand}\`\n` +
-          `状态：运行中 ${cost}s`,
-        parseMode: "markdown",
-      });
-    } catch {}
-  }, 2000);
-  activeIntervals.add(timer);
+    void msg.edit({
+      text:
+        `✅ 已开始执行 shell 命令…\n` +
+        `命令：\`${shellCommand}\`\n` +
+        `状态：运行中 ${cost}s`,
+      parseMode: "markdown",
+    }).catch(() => undefined);
+  }, 2000, { label: "exec:status-interval" });
 
   try {
-    const { stdout, stderr } = await execAsync(shellCommand);
+    const { stdout, stderr } = await runOwnedExec(shellCommand, lifecycle);
     stopped = true;
     clearInterval(timer);
-    activeIntervals.delete(timer);
 
     const costMs = Date.now() - start;
 
@@ -62,10 +108,9 @@ async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
       text: truncate(text),
       parseMode: "markdown",
     });
-  } catch (error: any) {
+  } catch (error) {
     stopped = true;
     clearInterval(timer);
-    activeIntervals.delete(timer);
 
     const costMs = Date.now() - start;
 
@@ -81,19 +126,24 @@ async function handleExec(params: { msg: Api.Message; shellCommand: string }) {
 }
 
 class ExecPlugin extends Plugin {
+  private lifecycle: GenerationContext | null = null;
+
+  setup(context: PluginRuntimeContext): void {
+    this.lifecycle = context.lifecycle;
+  }
+
   cleanup(): void {
-    // 真实资源清理：释放插件持有的定时器、监听器、运行时状态或临时资源。
-    for (const timer of activeIntervals) {
-      clearInterval(timer);
-    }
-    activeIntervals.clear();
+    this.lifecycle = null;
   }
 
   description: string = `运行 shell 命令`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     exec: async (msg) => {
+      if (!this.lifecycle) {
+        throw new Error("Exec plugin lifecycle is not initialized");
+      }
       const shellCommand = msg.message.slice(1).replace(/^\S+\s+/, "");
-      await handleExec({ msg, shellCommand });
+      await handleExec({ msg, shellCommand, lifecycle: this.lifecycle });
     },
   };
 }
