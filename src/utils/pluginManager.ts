@@ -375,7 +375,9 @@ function trackClientEventHandler<TEvent>(
       if (runtime.generation !== getCurrentGeneration()) return;
       return handler(event);
     },
-    { label }
+    // Command/listener handlers can initiate a runtime reload. Do not make runtime
+    // drain wait for those handler promises, otherwise reload waits on itself.
+    { label, waitForDrain: false }
   );
 }
 
@@ -452,18 +454,16 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
   }
 }
 
-async function runPluginCleanup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<void> {
+async function runPluginCleanup(plugin: Plugin): Promise<void> {
   if (typeof plugin.cleanup !== "function") return;
-  await runtime.context.runTask(
-    async () => {
-      try {
-        await plugin.cleanup?.();
-      } catch (error) {
-        console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
-      }
-    },
-    { label: `plugin-cleanup:${plugin.name || "unknown"}` }
-  );
+  // Cleanup runs after the old generation has stopped ingress. It must not be
+  // scheduled through the old generation context because that context is already
+  // aborted during reload/shutdown.
+  try {
+    await plugin.cleanup();
+  } catch (error) {
+    console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
+  }
 }
 
 async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
@@ -475,7 +475,7 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
   }
 
   for (const plugin of oldPlugins) {
-    await runPluginCleanup(plugin, runtime);
+    await runPluginCleanup(plugin);
   }
 
   const snapshot = runtime.context.snapshot();

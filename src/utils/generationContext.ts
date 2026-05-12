@@ -64,6 +64,7 @@ export interface GenerationContextSnapshot {
 export interface TrackOptions {
   label?: string;
   kind?: GenerationResourceKind;
+  waitForDrain?: boolean;
 }
 
 interface ResourceEntry {
@@ -332,10 +333,20 @@ export class GenerationContext {
       if (this.signal.aborted) return;
       const result = handler(event);
       if (result && typeof result.then === "function") {
-        const task = this.trackTask(result, { label: options?.label ?? "listener", kind: "promise" });
-        task.catch((error) => {
-          console.error(`[GENERATION ${this.generation}] Listener task failed:`, error);
-        });
+        // Event handlers may trigger reload/shutdown themselves. If the handler promise is
+        // included in the generation drain set, reload waits for the command that is
+        // currently performing the reload and times out. Callers can still opt in to
+        // drain tracking for non-control-plane listeners.
+        if (options?.waitForDrain === false) {
+          result.catch((error) => {
+            console.error(`[GENERATION ${this.generation}] Listener task failed:`, error);
+          });
+        } else {
+          const task = this.trackTask(result, { label: options?.label ?? "listener", kind: "promise" });
+          task.catch((error) => {
+            console.error(`[GENERATION ${this.generation}] Listener task failed:`, error);
+          });
+        }
       }
       return result;
     };
