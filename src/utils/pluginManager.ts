@@ -454,16 +454,11 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
 
 async function runPluginCleanup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<void> {
   if (typeof plugin.cleanup !== "function") return;
-  await runtime.context.runTask(
-    async () => {
-      try {
-        await plugin.cleanup?.();
-      } catch (error) {
-        console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
-      }
-    },
-    { label: `plugin-cleanup:${plugin.name || "unknown"}` }
-  );
+  try {
+    await plugin.cleanup();
+  } catch (error) {
+    console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
+  }
 }
 
 async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {

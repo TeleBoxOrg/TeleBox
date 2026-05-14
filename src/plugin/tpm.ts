@@ -1,5 +1,4 @@
-import { Plugin, isValidPlugin } from "@utils/pluginBase";
-import { loadPlugins } from "@utils/pluginManager";
+﻿import { Plugin, isValidPlugin } from "@utils/pluginBase";
 import {
   createDirectoryInTemp,
   createDirectoryInAssets,
@@ -12,6 +11,7 @@ import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
 import { tryGetCurrentGenerationContext } from "@utils/globalClient";
+import { reloadRuntime } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -105,6 +105,16 @@ async function sendOrEditMessage(
 
   const newMsg = await msg.client?.sendMessage(msg.peerId, sendOptions);
   return newMsg || msg;
+}
+
+function scheduleRuntimeReload(): void {
+  setTimeout(() => {
+    void (async () => {
+      await reloadRuntime();
+    })().catch((error) => {
+      console.error("[TPM] 插件变更后的 Runtime 重载失败:", error);
+    });
+  }, 0);
 }
 
 async function updateProgressMessage(
@@ -348,7 +358,7 @@ async function installRemotePlugin(plugin: string, msg: Api.Message) {
     }
 
     await sendOrEditMessage(statusMsg, `插件 ${plugin} 已安装并加载成功`);
-    await loadPlugins();
+    scheduleRuntimeReload();
   } else {
     await sendOrEditMessage(statusMsg, `无法获取远程插件库`);
   }
@@ -446,12 +456,6 @@ async function installAllPlugins(msg: Api.Message) {
       }
     }
 
-    try {
-      await loadPlugins();
-    } catch (error) {
-      console.error("[TPM] 重新加载插件失败:", error);
-    }
-
     const successBar = generateProgressBar(100);
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
     if (failedPlugins.length > 0) {
@@ -465,6 +469,7 @@ async function installAllPlugins(msg: Api.Message) {
     resultMsg += `\n\n🔄 插件已重新加载，可以开始使用!`;
 
     await sendOrEditMessage(statusMsg, resultMsg, { parseMode: "html" });
+    scheduleRuntimeReload();
   } catch (error) {
     await sendOrEditMessage(statusMsg, `❌ 批量安装失败: ${error}`);
     console.error("[TPM] 批量安装插件失败:", error);
@@ -575,12 +580,6 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
       }
     }
 
-    try {
-      await loadPlugins();
-    } catch (error) {
-      console.error("[TPM] 重新加载插件失败:", error);
-    }
-
     const successBar = generateProgressBar(100);
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
 
@@ -605,6 +604,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
     resultMsg += `\n\n🔄 插件已重新加载，可以开始使用!`;
 
     await sendOrEditMessage(statusMsg, resultMsg, { parseMode: "html" });
+    scheduleRuntimeReload();
   } catch (error) {
     await sendOrEditMessage(statusMsg, `❌ 批量安装失败: ${error}`);
     console.error("[TPM] 批量安装插件失败:", error);
@@ -670,8 +670,8 @@ async function installPlugin(args: string[], msg: Api.Message) {
           console.error(`[TPM] 清除数据库记录失败: ${error}`);
         }
 
-        await loadPlugins();
         await sendOrEditMessage(statusMsg, `✅ 插件 ${htmlEscape(pluginName)} 已安装并加载成功${overrideMessage}`, { parseMode: "html" });
+        scheduleRuntimeReload();
       } else {
         await sendOrEditMessage(msg, "请回复一个插件文件");
       }
@@ -711,10 +711,10 @@ async function uninstallPlugin(plugin: string, msg: Api.Message) {
       console.error(`[TPM] 删除插件数据库记录失败: ${error}`);
     }
     await sendOrEditMessage(statusMsg, `插件 ${plugin} 已卸载`);
+    scheduleRuntimeReload();
   } else {
     await sendOrEditMessage(statusMsg, `未找到插件 ${plugin}`);
   }
-  await loadPlugins();
 }
 
 async function uninstallMultiplePlugins(
@@ -794,8 +794,6 @@ async function uninstallMultiplePlugins(
     return;
   }
 
-  await loadPlugins();
-
   const successCount = results.filter((r) => r.success).length;
   const failedCount = results.filter((r) => !r.success).length;
 
@@ -818,6 +816,7 @@ async function uninstallMultiplePlugins(
   }
 
   await sendOrEditMessage(statusMsg, resultText);
+  scheduleRuntimeReload();
 }
 
 async function uninstallAllPlugins(msg: Api.Message) {
@@ -858,12 +857,6 @@ async function uninstallAllPlugins(msg: Api.Message) {
       console.error("[TPM] 清空数据库失败:", e);
     }
 
-    try {
-      await loadPlugins();
-    } catch (e) {
-      console.error("[TPM] 重新加载插件失败:", e);
-    }
-
     let text = `✅ 已清空插件目录并刷新缓存\n\n🗑 删除文件: ${removed}`;
     if (failed.length) {
       const show = failed.slice(0, 10).map(htmlEscape).join("\n• ");
@@ -872,6 +865,7 @@ async function uninstallAllPlugins(msg: Api.Message) {
       }`;
     }
     await sendOrEditMessage(statusMsg, text, { parseMode: "html" });
+    scheduleRuntimeReload();
   } catch (error) {
     console.error("[TPM] 清空插件目录失败:", error);
     await sendOrEditMessage(msg, `❌ 清空插件目录失败: ${error}`);
@@ -1298,11 +1292,7 @@ async function updateAllPlugins(msg: Api.Message) {
       }
     }
 
-    try {
-      await loadPlugins();
-    } catch (error) {
-      console.error("[TPM] 重新加载插件失败:", error);
-    }
+    scheduleRuntimeReload();
 
     try {
       await statusMsg.delete();
