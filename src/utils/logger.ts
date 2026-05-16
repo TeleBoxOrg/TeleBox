@@ -205,7 +205,7 @@ class Logger {
     console.log = (...args: any[]) => {
       // Downgrade known non-actionable Telegram RPC errors from ERROR to WARN
       // teleproto uses console.log for all log levels including errors
-      const msg = args.filter(a => typeof a === 'string').join(' ');
+      const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
         if (this.level <= LogLevel.WARNING) {
           Logger.originalWarn(this.formatLog("WARN ", args));
@@ -236,7 +236,7 @@ class Logger {
     console.error = (...args: any[]) => {
       // Downgrade known non-actionable Telegram RPC errors from ERROR to WARN
       // to prevent log spam from infinite retry loops on stale channel pts
-      const msg = args.filter(a => typeof a === 'string').join(' ');
+      const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
         if (this.level <= LogLevel.WARNING) {
           Logger.originalWarn(this.formatLog("WARN ", args));
