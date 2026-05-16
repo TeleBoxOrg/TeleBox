@@ -454,16 +454,15 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
 
 async function runPluginCleanup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<void> {
   if (typeof plugin.cleanup !== "function") return;
-  await runtime.context.runTask(
-    async () => {
-      try {
-        await plugin.cleanup?.();
-      } catch (error) {
-        console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
-      }
-    },
-    { label: `plugin-cleanup:${plugin.name || "unknown"}` }
-  );
+  // Do NOT wrap cleanup in runTask — by the time cleanup runs, the runtime
+  // context has already been aborted, so runTask would reject immediately
+  // with "Unload generation N" / "Runtime reload", preventing all plugin
+  // cleanup from executing and crashing the reload flow.
+  try {
+    await plugin.cleanup?.();
+  } catch (error) {
+    console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
+  }
 }
 
 async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
@@ -531,15 +530,7 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
 }
 
 async function loadPlugins(): Promise<boolean> {
-  const { tryGetCurrentRuntime }: typeof import("./runtimeManager") = require("./runtimeManager");
-  const runtime = tryGetCurrentRuntime();
-
-  if (!runtime) {
-    console.warn(
-      "[RELOAD] Skip plugin reload because TeleBox runtime is not initialized. Call loadPlugins() from a command handler or another runtime-backed flow, not during plugin module initialization."
-    );
-    return false;
-  }
+  const { reloadRuntime }: typeof import("./runtimeManager") = require("./runtimeManager");
 
   if (isPluginLoadInProgress()) {
     console.warn(
@@ -548,9 +539,23 @@ async function loadPlugins(): Promise<boolean> {
     return false;
   }
 
-  await unloadPluginsForRuntime(runtime);
-  await loadPluginsForRuntime(runtime);
-  return true;
+  try {
+    // Delegate to reloadRuntime() which handles:
+    //   1. Abort the old generation context
+    //   2. Unload old plugins & drain disposables
+    //   3. Create a NEW generation/context/client
+    //   4. Load plugins on the fresh runtime
+    //
+    // The old approach (unloadPluginsForRuntime + loadPluginsForRuntime on
+    // the same aborted runtime) caused all runTask/trackDisposable calls in
+    // the new load phase to immediately reject because the context was
+    // already aborted, breaking plugin setup, event handlers, and cron tasks.
+    await reloadRuntime();
+    return true;
+  } catch (error) {
+    console.error("[RELOAD] loadPlugins via reloadRuntime failed:", error);
+    return false;
+  }
 }
 
 export {
