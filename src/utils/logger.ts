@@ -37,6 +37,11 @@ class Logger {
   private readonly DB_NAME = "logger";
   private context: Record<string, any> = {};
 
+  // Rate-limiting for known-spammy Telegram RPC errors to reduce log noise
+  // Key: error pattern (e.g., channel ID), Value: last log timestamp
+  private static downgradeLastLogged: Map<string, number> = new Map();
+  private static readonly DOWNGRADE_LOG_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
   private static originalDebug = console.debug;
   private static originalLog = console.log;
   private static originalInfo = console.info;
@@ -208,9 +213,16 @@ class Logger {
       // teleproto uses console.log for all log levels including errors
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
-        Logger.originalLog(`[DOWNGRADE-LOG] Intercepted PERSISTENT/HISTORY error, downgrading to WARN. level=${this.level}, WARNING=${LogLevel.WARNING}, condition=${this.level <= LogLevel.WARNING}`);
-        if (this.level <= LogLevel.WARNING) {
-          Logger.originalWarn(this.formatLog("WARN ", args, true));
+        // Rate-limit: only log once per channel per 5-minute window to reduce noise
+        const channelMatch = msg.match(/channel (\d+)/);
+        const rateKey = channelMatch ? `pts_err:${channelMatch[1]}` : 'pts_err:unknown';
+        const now = Date.now();
+        const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
+        if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
+          Logger.downgradeLastLogged.set(rateKey, now);
+          if (this.level <= LogLevel.WARNING) {
+            Logger.originalWarn(this.formatLog("WARN ", args, true));
+          }
         }
         return;
       }
@@ -240,8 +252,16 @@ class Logger {
       // to prevent log spam from infinite retry loops on stale channel pts
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
-        if (this.level <= LogLevel.WARNING) {
-          Logger.originalWarn(this.formatLog("WARN ", args, true));
+        // Rate-limit: only log once per channel per 5-minute window to reduce noise
+        const channelMatch = msg.match(/channel (\d+)/);
+        const rateKey = channelMatch ? `pts_err:${channelMatch[1]}` : 'pts_err:unknown';
+        const now = Date.now();
+        const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
+        if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
+          Logger.downgradeLastLogged.set(rateKey, now);
+          if (this.level <= LogLevel.WARNING) {
+            Logger.originalWarn(this.formatLog("WARN ", args, true));
+          }
         }
         return;
       }
