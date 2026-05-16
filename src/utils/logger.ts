@@ -229,6 +229,8 @@ class Logger {
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
         // Rate-limit: only log once per channel per 5-minute window to reduce noise
+        // Route to stdout (originalLog) instead of stderr (originalWarn) so PM2
+        // does not pollute the error log with these downgraded non-errors.
         const channelMatch = msg.match(/channel (\d+)/);
         const rateKey = channelMatch ? `pts_err:${channelMatch[1]}` : 'pts_err:unknown';
         const now = Date.now();
@@ -236,7 +238,7 @@ class Logger {
         if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
           Logger.downgradeLastLogged.set(rateKey, now);
           if (this.level <= LogLevel.WARNING) {
-            Logger.originalWarn(this.formatLog("WARN ", args, true));
+            Logger.originalLog(this.formatLog("WARN ", args, true));
           }
         }
         return;
@@ -268,6 +270,8 @@ class Logger {
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
         // Rate-limit: only log once per channel per 5-minute window to reduce noise
+        // Route to stdout (originalLog) instead of stderr (originalWarn) so PM2
+        // does not pollute the error log with these downgraded non-errors.
         const channelMatch = msg.match(/channel (\d+)/);
         const rateKey = channelMatch ? `pts_err:${channelMatch[1]}` : 'pts_err:unknown';
         const now = Date.now();
@@ -275,7 +279,7 @@ class Logger {
         if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
           Logger.downgradeLastLogged.set(rateKey, now);
           if (this.level <= LogLevel.WARNING) {
-            Logger.originalWarn(this.formatLog("WARN ", args, true));
+            Logger.originalLog(this.formatLog("WARN ", args, true));
           }
         }
         return;
