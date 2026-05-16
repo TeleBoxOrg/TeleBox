@@ -71,7 +71,7 @@ class Logger {
     this.level = this.db.data.level;
   }
 
-  private formatLog(level: string, args: any[]): string {
+  private formatLog(level: string, args: any[], forceLevel: boolean = false): string {
     const timestamp = dayjs().format("YYYY-MM-DD HH:mm:ss.SSS");
     
     // 颜色映射
@@ -123,13 +123,14 @@ class Logger {
         }
     }
 
+    // forceLevel=true 时跳过 GramJS 级别覆盖（用于降级场景，防止被消息内嵌的级别覆盖）
     // 专为 GramJS 日志做的清洗逻辑
     // GramJS 格式通常为: [YYYY-MM-DDTHH:mm:ss.SSS] [LEVEL] - Message
     // 这里不再锚定行首，避免我们自己的前缀导致匹配失败；锚定行尾获取完整消息
     const gramJsRegex = /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\]\s*\[(\w+)\]\s*-\s*(.*)$/;
     let gramMatched = false;
     // 先尝试将所有字符串参数拼接后匹配（应对分段输出如: 时间戳、等级、消息分开传参的情况）
-    if (stringArgs.length > 0) {
+    if (!forceLevel && stringArgs.length > 0) {
       const joined = stringArgs.join(' ');
       const m = joined.replace(ANSI_REGEX, "").match(gramJsRegex);
       if (m) {
@@ -147,7 +148,7 @@ class Logger {
       }
     }
     // 如未匹配，再逐个参数回退匹配
-    if (!gramMatched) {
+    if (!forceLevel && !gramMatched) {
       for (const s of stringArgs) {
         const m = s.replace(ANSI_REGEX, "").match(gramJsRegex);
         if (m) {
@@ -209,7 +210,7 @@ class Logger {
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
         Logger.originalLog(`[DOWNGRADE-LOG] Intercepted PERSISTENT/HISTORY error, downgrading to WARN. level=${this.level}, WARNING=${LogLevel.WARNING}, condition=${this.level <= LogLevel.WARNING}`);
         if (this.level <= LogLevel.WARNING) {
-          Logger.originalWarn(this.formatLog("WARN ", args));
+          Logger.originalWarn(this.formatLog("WARN ", args, true));
         }
         return;
       }
@@ -240,7 +241,7 @@ class Logger {
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
         if (this.level <= LogLevel.WARNING) {
-          Logger.originalWarn(this.formatLog("WARN ", args));
+          Logger.originalWarn(this.formatLog("WARN ", args, true));
         }
         return;
       }
