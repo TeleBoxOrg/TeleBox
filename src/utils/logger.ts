@@ -128,14 +128,17 @@ class Logger {
         }
     }
 
-    // forceLevel=true 时跳过 GramJS 级别覆盖（用于降级场景，防止被消息内嵌的级别覆盖）
-    // 专为 GramJS 日志做的清洗逻辑
-    // GramJS 格式通常为: [YYYY-MM-DDTHH:mm:ss.SSS] [LEVEL] - Message
-    // 这里不再锚定行首，避免我们自己的前缀导致匹配失败；锚定行尾获取完整消息
+    // GramJS 日志格式清洗: [YYYY-MM-DDTHH:mm:ss.SSS] [LEVEL] - Message
+    // 当 forceLevel=true 时（用于降级场景），仍然匹配并剥离 GramJS 前缀，
+    // 但不使用其内嵌的日志级别，避免产生双重前缀
     const gramJsRegex = /\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}\]\s*\[(\w+)\]\s*-\s*(.*)$/;
     let gramMatched = false;
     // 先尝试将所有字符串参数拼接后匹配（应对分段输出如: 时间戳、等级、消息分开传参的情况）
-    if (!forceLevel && stringArgs.length > 0) {
+    // Save forced level before GramJS detection to restore it after when forceLevel=true
+    const forcedLevel = forceLevel ? level : null;
+    const forcedLevelColor = forceLevel ? levelColor : null;
+    const forcedLevelIcon = forceLevel ? levelIcon : null;
+    if (stringArgs.length > 0) {
       const joined = stringArgs.join(' ');
       const m = joined.replace(ANSI_REGEX, "").match(gramJsRegex);
       if (m) {
@@ -150,10 +153,16 @@ class Logger {
         caller = "";
         msgParts = [gramMsg];
         gramMatched = true;
+        // Restore forced level when downgrade scenario — keep our WARN level, not the detected ERROR
+        if (forceLevel && forcedLevel !== null) {
+          level = forcedLevel;
+          levelColor = forcedLevelColor!;
+          levelIcon = forcedLevelIcon!;
+        }
       }
     }
     // 如未匹配，再逐个参数回退匹配
-    if (!forceLevel && !gramMatched) {
+    if (!gramMatched) {
       for (const s of stringArgs) {
         const m = s.replace(ANSI_REGEX, "").match(gramJsRegex);
         if (m) {
@@ -168,6 +177,12 @@ class Logger {
           caller = "";
           msgParts = [gramMsg];
           gramMatched = true;
+          // Restore forced level when downgrade scenario
+          if (forceLevel && forcedLevel !== null) {
+            level = forcedLevel;
+            levelColor = forcedLevelColor!;
+            levelIcon = forcedLevelIcon!;
+          }
           break;
         }
       }
