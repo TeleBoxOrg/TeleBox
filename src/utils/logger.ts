@@ -225,6 +225,15 @@ class Logger {
     };
 
     console.error = (...args: any[]) => {
+      // Downgrade known non-actionable Telegram RPC errors from ERROR to WARN
+      // to prevent log spam from infinite retry loops on stale channel pts
+      const msg = args.filter(a => typeof a === 'string').join(' ');
+      if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
+        if (this.level <= LogLevel.WARNING) {
+          Logger.originalWarn(this.formatLog("WARN ", args));
+        }
+        return;
+      }
       if (this.level <= LogLevel.ERROR) {
         Logger.originalError(this.formatLog("ERROR", args));
       }
