@@ -207,6 +207,7 @@ class Logger {
       // teleproto uses console.log for all log levels including errors
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
+        Logger.originalLog(`[DOWNGRADE-LOG] Intercepted PERSISTENT/HISTORY error, downgrading to WARN. level=${this.level}, WARNING=${LogLevel.WARNING}, condition=${this.level <= LogLevel.WARNING}`);
         if (this.level <= LogLevel.WARNING) {
           Logger.originalWarn(this.formatLog("WARN ", args));
         }
