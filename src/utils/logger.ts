@@ -203,6 +203,15 @@ class Logger {
     };
 
     console.log = (...args: any[]) => {
+      // Downgrade known non-actionable Telegram RPC errors from ERROR to WARN
+      // teleproto uses console.log for all log levels including errors
+      const msg = args.filter(a => typeof a === 'string').join(' ');
+      if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
+        if (this.level <= LogLevel.WARNING) {
+          Logger.originalWarn(this.formatLog("WARN ", args));
+        }
+        return;
+      }
       if (this.level <= LogLevel.INFO) {
         const derived = this.detectGramJsLevel(args);
         const lvl = derived ?? "INFO ";
