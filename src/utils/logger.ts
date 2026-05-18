@@ -3,6 +3,7 @@ import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as path from "path";
 import dayjs from "dayjs";
 import util from "util";
+import { recordChannelGapFailure, isChannelCircuitBroken } from "@utils/channelGapBreaker";
 
 export enum LogLevel {
   DEBUG = 0,
@@ -231,8 +232,9 @@ class Logger {
         // Rate-limit: only log once per channel per 5-minute window to reduce noise
         // Route to stdout (originalLog) instead of stderr (originalWarn) so PM2
         // does not pollute the error log with these downgraded non-errors.
-        const channelMatch = msg.match(/channel (\d+)/);
-        const rateKey = channelMatch ? `pts_err:${channelMatch[1]}` : 'pts_err:unknown';
+        const channelMatch = msg.match(/channel (\d+)/) || msg.match(/(\d{8,})/);
+        const channelId = channelMatch ? channelMatch[1] : null;
+        const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
         if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
@@ -240,6 +242,12 @@ class Logger {
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
           }
+        }
+        // Circuit-breaker: track consecutive PTS failures per channel.
+        // After enough failures, clear the channel's PTS state so gap
+        // recovery stops triggering hopeless GetChannelDifference calls.
+        if (channelId) {
+          recordChannelGapFailure(channelId);
         }
         return;
       }
@@ -272,8 +280,9 @@ class Logger {
         // Rate-limit: only log once per channel per 5-minute window to reduce noise
         // Route to stdout (originalLog) instead of stderr (originalWarn) so PM2
         // does not pollute the error log with these downgraded non-errors.
-        const channelMatch = msg.match(/channel (\d+)/);
-        const rateKey = channelMatch ? `pts_err:${channelMatch[1]}` : 'pts_err:unknown';
+        const channelMatch = msg.match(/channel (\d+)/) || msg.match(/(\d{8,})/);
+        const channelId = channelMatch ? channelMatch[1] : null;
+        const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
         if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
@@ -281,6 +290,10 @@ class Logger {
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
           }
+        }
+        // Circuit-breaker for console.error path too
+        if (channelId) {
+          recordChannelGapFailure(channelId);
         }
         return;
       }

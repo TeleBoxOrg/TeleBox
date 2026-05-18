@@ -8,6 +8,7 @@ import {
   loadPluginsForRuntime,
   unloadPluginsForRuntime,
 } from "./pluginManager";
+import { resetCircuitBreaker } from "./channelGapBreaker";
 
 import {
   createGenerationContext,
@@ -160,6 +161,8 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
 }
 
 async function startFreshRuntime(): Promise<TeleBoxRuntime> {
+  // Reset channel gap circuit-breaker state for the new runtime
+  resetCircuitBreaker();
   const runtime = await buildRuntime();
   currentRuntime = runtime;
   try {

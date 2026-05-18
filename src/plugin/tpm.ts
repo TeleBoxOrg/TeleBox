@@ -202,8 +202,12 @@ async function sendLongMessage(
   }
 
   for (let i = 1; i < messages.length; i++) {
+    // When there's only one continuation, skip the page number header for cleaner output
+    const header = messages.length === 2
+      ? `📋 <b>续:</b>\n\n`
+      : `📋 <b>续 (${i}/${messages.length - 1}):</b>\n\n`;
     await msg.reply({
-      message: `📋 <b>续 (${i}/${messages.length - 1}):</b>\n\n<blockquote expandable>${messages[i]}</blockquote>`,
+      message: `${header}<blockquote expandable>${messages[i]}</blockquote>`,
       ...messageOptions,
     });
   }
@@ -1193,7 +1197,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
     
     messageParts.push("", `━━━━━━━━━━━━━━━━━`);
     messageParts.push(`📊 总计: ${dbNames.length + notInDb.length} 个插件`);
-    
+    messageParts.push("", `🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxOrg/TeleBox_Plugins">TeleBox_Plugins</a>`);
     const fullMessage = messageParts.join("\n");
     
     await sendLongMessage(statusMsg, fullMessage, { parseMode: "html", linkPreview: false }, true);
