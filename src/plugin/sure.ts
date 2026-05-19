@@ -69,7 +69,7 @@ function buildDisplay(
   id: number,
   entity: any,
   isUser: boolean,
-  mention?: boolean
+  mention?: boolean,
 ) {
   const parts: string[] = [];
   if (entity?.title) parts.push(entity.title);
@@ -77,12 +77,12 @@ function buildDisplay(
   if (entity?.lastName) parts.push(entity.lastName);
   if (entity?.username)
     parts.push(
-      mention ? `@${entity.username}` : `<code>@${entity.username}</code>`
+      mention ? `@${entity.username}` : `<code>@${entity.username}</code>`,
     );
   parts.push(
     isUser
       ? `<a href="tg://user?id=${id}">${id}</a>`
-      : `<a href="https://t.me/c/${id}">${id}</a>`
+      : `<a href="https://t.me/c/${id}">${id}</a>`,
   );
   return parts.join(" ").trim();
 }
@@ -90,7 +90,7 @@ function buildDisplay(
 async function handleAddDel(
   msg: Api.Message,
   target: string,
-  action: "add" | "del"
+  action: "add" | "del",
 ) {
   let entity: any;
   let uid: any;
@@ -159,7 +159,7 @@ async function handleList(msg: Api.Message) {
 async function handleChatAddDel(
   msg: Api.Message,
   target: any,
-  action: "add" | "del"
+  action: "add" | "del",
 ) {
   let entity: any;
   let cid: any;
@@ -219,7 +219,7 @@ async function handleMsgAddDel(
   msg: Api.Message,
   input: any,
   action: "add" | "del",
-  id?: string
+  id?: string,
 ) {
   let raw;
   withSureDB((db) => {
@@ -260,7 +260,7 @@ async function handleMsgList(msg: Api.Message) {
         (m) =>
           `<code>${m.id}</code>: <code>${m.msg}</code>${
             m.redirect ? ` -> <code>${m.redirect}</code>` : ""
-          }`
+          }`,
       )
       .join("\n")}`,
     parseMode: "html",
@@ -301,7 +301,7 @@ class surePlugin extends Plugin {
           }
           const subCommandTxt = ` ${subCommand} `;
           const input = msg.message.substring(
-            msg.message.indexOf(subCommandTxt) + subCommandTxt.length
+            msg.message.indexOf(subCommandTxt) + subCommandTxt.length,
           );
           if (input) {
             await handleMsgAddDel(msg, input, subCommand);
@@ -317,7 +317,7 @@ class surePlugin extends Plugin {
           const subCommandTxt = ` ${id} `;
           const input = parts[4]
             ? msg.message.substring(
-                msg.message.indexOf(subCommandTxt) + subCommandTxt.length
+                msg.message.indexOf(subCommandTxt) + subCommandTxt.length,
               )
             : "";
           if (id) {
@@ -377,7 +377,9 @@ class surePlugin extends Plugin {
 
       const sudoMsg = await msg.client?.sendMessage(msg.peerId, {
         message,
-        replyTo: msg.replyTo?.replyToTopId || msg.replyToMsgId,
+        replyTo:
+          (msg.replyTo?.forumTopic ? msg.replyTo?.replyToTopId : undefined) ||
+          msg.replyToMsgId,
         formattingEntities: message.entities,
       });
       if (cmd && sudoMsg)

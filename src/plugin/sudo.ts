@@ -13,7 +13,8 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 // 缓存下用户设置的 sudo 前缀，减少频繁 IO
-const envPrefixes = process.env.TB_SUDO_PREFIX?.split(/\s+/g).filter((p) => p.length > 0) || [];
+const envPrefixes =
+  process.env.TB_SUDO_PREFIX?.split(/\s+/g).filter((p) => p.length > 0) || [];
 
 // 简单缓存 sudo 用户 ID，减少频繁 IO
 let sudoCache = { ids: [] as number[], cids: [] as number[], ts: 0 };
@@ -52,7 +53,7 @@ function buildDisplay(
   id: number,
   entity: any,
   isUser: boolean,
-  mention?: boolean
+  mention?: boolean,
 ) {
   const parts: string[] = [];
   if (entity?.title) parts.push(entity.title);
@@ -60,12 +61,12 @@ function buildDisplay(
   if (entity?.lastName) parts.push(entity.lastName);
   if (entity?.username)
     parts.push(
-      mention ? `@${entity.username}` : `<code>@${entity.username}</code>`
+      mention ? `@${entity.username}` : `<code>@${entity.username}</code>`,
     );
   parts.push(
     isUser
       ? `<a href="tg://user?id=${id}">${id}</a>`
-      : `<a href="https://t.me/c/${id}">${id}</a>`
+      : `<a href="https://t.me/c/${id}">${id}</a>`,
   );
   return parts.join(" ").trim();
 }
@@ -73,7 +74,7 @@ function buildDisplay(
 async function handleAddDel(
   msg: Api.Message,
   target: string,
-  action: "add" | "del"
+  action: "add" | "del",
 ) {
   let entity: any;
   let uid: any;
@@ -143,7 +144,7 @@ async function handleList(msg: Api.Message) {
 async function handleChatAddDel(
   msg: Api.Message,
   target: any,
-  action: "add" | "del"
+  action: "add" | "del",
 ) {
   let entity: any;
   let cid: any;
@@ -215,8 +216,8 @@ class sudoPlugin extends Plugin {
         .map((p) => `<code>${p}</code>`)
         .join(" ")}`;
     }
-    return text
-  }
+    return text;
+  };
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     sudo: async (msg) => {
       const parts = msg.message.trim().split(/\s+/);
@@ -262,7 +263,9 @@ class sudoPlugin extends Plugin {
       // await dealCommandPluginWithMessage({ cmd, msg });
       const sudoMsg = await msg.client?.sendMessage(msg.peerId, {
         message: msg.message,
-        replyTo: msg.replyTo?.replyToTopId || msg.replyToMsgId,
+        replyTo:
+          (msg.replyTo?.forumTopic ? msg.replyTo?.replyToTopId : undefined) ||
+          msg.replyToMsgId,
         formattingEntities: msg.entities,
       });
       if (sudoMsg)
