@@ -520,8 +520,20 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
     pluginLoadDepth--;
   }
 
+  // Isolate setup failures: a single plugin setup() throwing must NOT prevent
+  // subsequent plugins from being initialized. Otherwise plugins later in the
+  // load order keep their cmdHandlers registered (setPlugins already populated
+  // the `plugins` map) but never receive their lifecycle, so invoking them
+  // raises "lifecycle is not initialized" until the next reload.
   for (const plugin of validPlugins) {
-    await runPluginSetup(plugin, runtime);
+    try {
+      await runPluginSetup(plugin, runtime);
+    } catch (error) {
+      console.error(
+        `[RELOAD] Plugin setup failed: ${plugin.name || "unknown"} (continuing with remaining plugins)`,
+        error
+      );
+    }
   }
 
   const { client } = runtime;

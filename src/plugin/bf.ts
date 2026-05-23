@@ -12,6 +12,7 @@ import { Low } from "lowdb";
 import { JSONFile } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
 import type { GenerationContext } from "@utils/generationContext";
+import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -333,11 +334,22 @@ class BfPlugin extends Plugin {
   }
 
   private getLifecycle(): GenerationContext {
-    if (!this.lifecycle) {
+    // Prefer setup()-injected lifecycle; fall back to the live runtime context
+    // if setup() was skipped due to a sibling plugin's setup failure (avoids
+    // the spurious "Backup plugin lifecycle is not initialized" error).
+    let lifecycle = this.lifecycle;
+    if (!lifecycle || lifecycle.signal.aborted) {
+      const fallback = tryGetCurrentGenerationContext();
+      if (fallback && !fallback.signal.aborted) {
+        this.lifecycle = fallback;
+        lifecycle = fallback;
+      }
+    }
+    if (!lifecycle) {
       throw new Error("Backup plugin lifecycle is not initialized");
     }
-    throwIfAborted(this.lifecycle);
-    return this.lifecycle;
+    throwIfAborted(lifecycle);
+    return lifecycle;
   }
 
   description = `\n📦 备份插件\n\n${help_text}

@@ -2,6 +2,7 @@ import { exec } from "child_process";
 import { Plugin, type PluginRuntimeContext } from "@utils/pluginBase";
 import { Api } from "teleproto";
 import type { GenerationContext } from "@utils/generationContext";
+import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 
 
 function truncate(text: string, max = 3500) {
@@ -136,14 +137,31 @@ class ExecPlugin extends Plugin {
     this.lifecycle = null;
   }
 
+  // Resolve the lifecycle for the current command invocation. Prefers the
+  // setup()-injected context but falls back to the live runtime context.
+  // This guards against a race where setup() failed for an earlier plugin
+  // in the load order, leaving this plugin's cmdHandlers registered but
+  // its `lifecycle` field still null. Since cmdHandlers only fire from the
+  // currently-installed root message handler, the active runtime context
+  // is always the correct one to use.
+  private resolveLifecycle(): GenerationContext {
+    if (this.lifecycle && !this.lifecycle.signal.aborted) {
+      return this.lifecycle;
+    }
+    const fallback = tryGetCurrentGenerationContext();
+    if (fallback && !fallback.signal.aborted) {
+      this.lifecycle = fallback;
+      return fallback;
+    }
+    throw new Error("Exec plugin lifecycle is not initialized");
+  }
+
   description: string = `运行 shell 命令`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     exec: async (msg) => {
-      if (!this.lifecycle) {
-        throw new Error("Exec plugin lifecycle is not initialized");
-      }
+      const lifecycle = this.resolveLifecycle();
       const shellCommand = msg.message.slice(1).replace(/^\S+\s+/, "");
-      await handleExec({ msg, shellCommand, lifecycle: this.lifecycle });
+      await handleExec({ msg, shellCommand, lifecycle });
     },
   };
 }
