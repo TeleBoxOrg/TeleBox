@@ -430,7 +430,7 @@ class ReloadPlugin extends Plugin {
           await configDB.write();
         }
 
-        const output = `✅ Telebox 已重新加载 (用时：${timeText})`;
+        const output = `✅ 重载完成，耗时 ${timeText}`;
         const memoryDelta = lastReloadMemoryMb == null
           ? null
           : afterMemory.heapUsed - lastReloadMemoryMb;

@@ -96,19 +96,22 @@ async function update(force = false, msg: Api.Message) {
     const targetMessageId = msg.id;
 
     // 使用 reloadRuntime 而非 loadPlugins，确保完整的 lifecycle abort+drain+dispose 语义
+    const updateStartTime = Date.now();
     const runtime = await reloadRuntime();
+    const updateTime = Date.now() - updateStartTime;
+    const timeText = updateTime > 1000 ? `${(updateTime / 1000).toFixed(2)}s` : `${updateTime}ms`;
 
-    console.log("🔄 插件已重新加载。");
+    console.log("✅ 更新完成。");
     try {
       await runtime.client.editMessage(targetChat, {
         message: targetMessageId,
-        text: "🔄 插件已重新加载。",
+        text: `✅ 更新完成，耗时 ${timeText}`,
       });
     } catch (editError) {
       console.error("Failed to update message after reload:", editError);
       try {
         await runtime.client.sendMessage(targetChat, {
-          message: "🔄 插件已重新加载。",
+          message: `✅ 更新完成，耗时 ${timeText}`,
         });
       } catch (sendError) {
         console.error("Failed to send completion message after reload:", sendError);
