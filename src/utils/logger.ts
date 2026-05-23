@@ -228,12 +228,8 @@ class Logger {
       // Downgrade known non-actionable Telegram RPC errors from ERROR to WARN
       // teleproto uses console.log for all log levels including errors
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
-      if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
-        // Rate-limit: only log once per channel per 5-minute window to reduce noise
-        // Route to stdout (originalLog) instead of stderr (originalWarn) so PM2
-        // does not pollute the error log with these downgraded non-errors.
-        const channelMatch = msg.match(/channel (\d+)/) || msg.match(/(\d{8,})/);
-        const channelId = channelMatch ? channelMatch[1] : null;
+      if (this.isChannelGapFailure(msg)) {
+        const channelId = this.extractChannelId(msg);
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
@@ -244,8 +240,6 @@ class Logger {
           }
         }
         // Circuit-breaker: track consecutive PTS failures per channel.
-        // After enough failures, clear the channel's PTS state so gap
-        // recovery stops triggering hopeless GetChannelDifference calls.
         if (channelId) {
           recordChannelGapFailure(channelId);
         }
@@ -276,12 +270,8 @@ class Logger {
       // Downgrade known non-actionable Telegram RPC errors from ERROR to WARN
       // to prevent log spam from infinite retry loops on stale channel pts
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
-      if (msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') || msg.includes('HISTORY_GET_FAILED')) {
-        // Rate-limit: only log once per channel per 5-minute window to reduce noise
-        // Route to stdout (originalLog) instead of stderr (originalWarn) so PM2
-        // does not pollute the error log with these downgraded non-errors.
-        const channelMatch = msg.match(/channel (\d+)/) || msg.match(/(\d{8,})/);
-        const channelId = channelMatch ? channelMatch[1] : null;
+      if (this.isChannelGapFailure(msg)) {
+        const channelId = this.extractChannelId(msg);
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
@@ -329,6 +319,41 @@ class Logger {
       case LogLevel.SILENT: return "none";
       default: return "info";
     }
+  }
+
+  /**
+   * Detect channel-gap-related failures across teleproto versions:
+   *   - 1.224.x: "Error recovering channel gap for <id>: PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED"
+   *   - 1.225.x: "fetchChannelDifference <id>: <RPCError ...>" with the same underlying RPC errors
+   *   - all versions: "Could not find a matching Constructor ID" inside _recoverChannelGap / _recoverGap
+   *     (TL schema desync — equally hopeless to retry)
+   *
+   * The string match is intentionally permissive — false positives just mean
+   * we trip the breaker a bit more aggressively for that channel.
+   */
+  private isChannelGapFailure(msg: string): boolean {
+    return (
+      msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
+      msg.includes('HISTORY_GET_FAILED') ||
+      msg.includes('fetchChannelDifference ') ||
+      (msg.includes('Could not find a matching Constructor') && msg.includes('recover'))
+    );
+  }
+
+  /** Extract the first plausible channel ID from a teleproto error message. */
+  private extractChannelId(msg: string): string | null {
+    // teleproto 1.224.x: "Error recovering channel gap for 1680975844: ..."
+    let m = msg.match(/channel gap for (\d+)/);
+    if (m) return m[1];
+    // teleproto 1.225.x: "fetchChannelDifference 1680975844: ..."
+    m = msg.match(/fetchChannelDifference (\d+)/);
+    if (m) return m[1];
+    // generic: "channel <id>"
+    m = msg.match(/channel (\d+)/);
+    if (m) return m[1];
+    // last-resort: any 8+ digit integer
+    m = msg.match(/(\d{8,})/);
+    return m ? m[1] : null;
   }
 }
 

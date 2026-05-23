@@ -21,7 +21,7 @@ import { getGlobalClient } from "./globalClient";
 // --- Configuration -----------------------------------------------------------
 
 /** How many consecutive PTS failures before we circuit-break the channel. */
-const FAILURE_THRESHOLD = 3;
+const FAILURE_THRESHOLD = 2;
 
 /**
  * Sliding window in ms. Failures older than this are forgotten.
@@ -65,8 +65,14 @@ export function recordChannelGapFailure(channelId: string): void {
     channelFailures.set(channelId, record);
   }
 
-  // If we recently broke this channel, skip counting during the cooldown
+  // If we recently broke this channel, skip *counting* during cooldown but
+  // still aggressively clear any new pts that teleproto re-set after the
+  // last break. Without this, every new update for the channel re-establishes
+  // pts -> gap detected -> GetChannelDifference retry -> PTS warn, even
+  // though we're "broken". Silent re-clear keeps the breaker effective for
+  // the full cooldown window.
   if (record.brokenAt && now - record.brokenAt < BREAK_COOLDOWN_MS) {
+    silentlyClearChannelPts(channelId);
     return;
   }
 
@@ -142,6 +148,29 @@ function circuitBreakChannel(channelId: string): void {
     record.timestamps = [];
   } catch {
     // Client might not be available during startup/shutdown
+  }
+}
+
+/**
+ * Silently clear the channel's pts state during cooldown. No log output,
+ * no failure-counter changes — just defang teleproto's gap recovery so
+ * the next update for this channel applies directly.
+ */
+function silentlyClearChannelPts(channelId: string): void {
+  try {
+    const client = tryGetClient();
+    if (!client) return;
+    if (client._channelPts && client._channelPts.has(channelId)) {
+      client._channelPts.delete(channelId);
+    }
+    if (client._pendingChannelUpdates && client._pendingChannelUpdates.has(channelId)) {
+      client._pendingChannelUpdates.delete(channelId);
+    }
+    if (client._fetchingChannelDifference) {
+      client._fetchingChannelDifference.delete(channelId);
+    }
+  } catch {
+    // Client might not be available
   }
 }
 
