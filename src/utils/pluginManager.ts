@@ -49,6 +49,19 @@ const CACHE_PURGE_EXCLUDE = new Set<string>([
   path.resolve(PROJECT_ROOT, "src/utils/cronManager.js"),
   path.resolve(PROJECT_ROOT, "src/utils/runtimeManager.ts"),
   path.resolve(PROJECT_ROOT, "src/utils/runtimeManager.js"),
+  // Logger overrides console.* once at startup. Purging it on reload caused
+  // the new Logger class to capture the already-wrapped console.log as
+  // "original", stacking another wrapper every reload (visible as nested
+  // timestamps in PM2 logs).
+  path.resolve(PROJECT_ROOT, "src/utils/logger.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/logger.js"),
+  // channelGapBreaker holds the per-channel failure window + cooldown map.
+  // Purging it on reload reset the 6h cooldown state, allowing the breaker
+  // to re-fire repeatedly for the same channel within minutes. Also avoids
+  // a split-brain where runtimeManager (excluded) and logger (was purged)
+  // referenced different module instances.
+  path.resolve(PROJECT_ROOT, "src/utils/channelGapBreaker.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/channelGapBreaker.js"),
 ]);
 
 let prefixes = [".", "。", "$"];
