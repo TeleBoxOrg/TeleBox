@@ -105,11 +105,17 @@ export function isChannelCircuitBroken(channelId: string): boolean {
 
 /**
  * Clear the channel's PTS state from the TelegramClient so that
- * _recoverChannelGap no longer detects a gap for this channel.
+ * gap recovery (fetchChannelDifference) stops retrying.
  *
- * After this, incoming updates for this channel will have localPts === undefined,
- * which means the update handler skips gap detection and applies the update
- * directly (see _dispatchUpdate in updates.js, line ~820).
+ * Supports two teleproto layouts:
+ *   - teleproto 1.224 and earlier: client._channelPts / _pendingChannelUpdates /
+ *     _fetchingChannelDifference (flat Maps on the client).
+ *   - teleproto 1.225+: client.updateManager.channels (Map<id, {pts: PtsWaiter,
+ *     timer, inputChannel}>) plus client.updateManager.channelFailRetryTimers
+ *     and client.updateManager.channelFailTimeoutS.
+ *
+ * After this, incoming updates for the channel re-init pts from the server
+ * and gap detection effectively restarts from a clean slate.
  */
 function circuitBreakChannel(channelId: string): void {
   const now = Date.now();
@@ -119,29 +125,17 @@ function circuitBreakChannel(channelId: string): void {
   record.brokenAt = now;
 
   try {
-    // Access the TelegramClient to clear PTS state
     const client = tryGetClient();
     if (!client) return;
 
-    // Delete the channel's cached pts so gap detection is skipped
-    if (client._channelPts && client._channelPts.has(channelId)) {
-      const oldPts = client._channelPts.get(channelId);
-      client._channelPts.delete(channelId);
+    const summary = clearChannelStateOnClient(client, channelId);
+    if (summary.cleared) {
       console.log(
-        `[CircuitBreaker] Cleared pts=${oldPts} for channel ${channelId} — ` +
+        `[CircuitBreaker] Cleared pts=${summary.oldPts ?? "?"} for channel ${channelId} — ` +
         `${record.timestamps.length} PTS failures within ${Math.round(FAILURE_WINDOW_MS / 60000)}min window. ` +
-        `Cooldown: ${Math.round(BREAK_COOLDOWN_MS / 3600000)}h`
+        `Cooldown: ${Math.round(BREAK_COOLDOWN_MS / 3600000)}h ` +
+        `[layout=${summary.layout}]`
       );
-    }
-
-    // Also clear pending updates for this channel to prevent re-triggering
-    if (client._pendingChannelUpdates && client._pendingChannelUpdates.has(channelId)) {
-      client._pendingChannelUpdates.delete(channelId);
-    }
-
-    // Remove from fetching set in case it's stuck
-    if (client._fetchingChannelDifference) {
-      client._fetchingChannelDifference.delete(channelId);
     }
 
     // Reset failure counter after breaking
@@ -160,18 +154,95 @@ function silentlyClearChannelPts(channelId: string): void {
   try {
     const client = tryGetClient();
     if (!client) return;
-    if (client._channelPts && client._channelPts.has(channelId)) {
-      client._channelPts.delete(channelId);
-    }
-    if (client._pendingChannelUpdates && client._pendingChannelUpdates.has(channelId)) {
-      client._pendingChannelUpdates.delete(channelId);
-    }
-    if (client._fetchingChannelDifference) {
-      client._fetchingChannelDifference.delete(channelId);
-    }
+    clearChannelStateOnClient(client, channelId);
   } catch {
     // Client might not be available
   }
+}
+
+/**
+ * Probe both teleproto layouts and clear whichever one is in use. Returns
+ * a summary so the caller can log the resolved layout for diagnostics.
+ */
+function clearChannelStateOnClient(
+  client: any,
+  channelId: string,
+): { cleared: boolean; oldPts: number | string | null; layout: string } {
+  let cleared = false;
+  let oldPts: number | string | null = null;
+  let layout: string = "none";
+
+  // teleproto 1.225+ layout: client.updateManager.{channels, channelFailRetryTimers, channelFailTimeoutS}
+  const um = client.updateManager;
+  if (um && um.channels && typeof um.channels.get === "function") {
+    layout = "updateManager";
+    const tracker = um.channels.get(channelId);
+    if (tracker) {
+      try {
+        if (tracker.pts && typeof tracker.pts.current === "function") {
+          oldPts = tracker.pts.current();
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        if (tracker.timer) {
+          clearTimeout(tracker.timer);
+          tracker.timer = undefined;
+        }
+        if (tracker.pts && typeof tracker.pts.clearSkippedUpdates === "function") {
+          tracker.pts.clearSkippedUpdates();
+        }
+        if (tracker.pts && typeof tracker.pts.setRequesting === "function") {
+          tracker.pts.setRequesting(false);
+        }
+      } catch {
+        // best-effort
+      }
+      um.channels.delete(channelId);
+      cleared = true;
+    }
+    if (um.channelFailRetryTimers && typeof um.channelFailRetryTimers.get === "function") {
+      const t = um.channelFailRetryTimers.get(channelId);
+      if (t) {
+        try { clearTimeout(t); } catch { /* ignore */ }
+        um.channelFailRetryTimers.delete(channelId);
+        cleared = true;
+      }
+    }
+    if (um.channelFailTimeoutS && typeof um.channelFailTimeoutS.delete === "function") {
+      if (um.channelFailTimeoutS.has?.(channelId)) {
+        um.channelFailTimeoutS.delete(channelId);
+        cleared = true;
+      }
+    }
+  }
+
+  // teleproto 1.224 and earlier: flat maps on the client
+  if (!cleared) {
+    if (client._channelPts && typeof client._channelPts.get === "function" && client._channelPts.has(channelId)) {
+      layout = "legacy";
+      oldPts = client._channelPts.get(channelId);
+      client._channelPts.delete(channelId);
+      cleared = true;
+    }
+    if (client._pendingChannelUpdates && typeof client._pendingChannelUpdates.delete === "function") {
+      if (client._pendingChannelUpdates.has?.(channelId)) {
+        layout = layout === "none" ? "legacy" : layout;
+        client._pendingChannelUpdates.delete(channelId);
+        cleared = true;
+      }
+    }
+    if (client._fetchingChannelDifference && typeof client._fetchingChannelDifference.delete === "function") {
+      if (client._fetchingChannelDifference.has?.(channelId)) {
+        layout = layout === "none" ? "legacy" : layout;
+        client._fetchingChannelDifference.delete(channelId);
+        cleared = true;
+      }
+    }
+  }
+
+  return { cleared, oldPts, layout };
 }
 
 /**
