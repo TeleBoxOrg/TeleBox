@@ -14,6 +14,7 @@ temp/*
 !temp/.gitkeep
 node_modules/*
 !node_modules/.gitkeep
+package-lock.json
 my_session/*
 .env
 .env.*
