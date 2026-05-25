@@ -261,6 +261,26 @@ class Logger {
     };
 
     console.warn = (...args: any[]) => {
+      // Downgrade known non-actionable Telegram RPC errors (e.g. "difference too long")
+      // that arrive via console.warn, same as the console.log/console.error paths
+      const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
+      if (this.isChannelGapFailure(msg)) {
+        const channelId = this.extractChannelId(msg);
+        const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
+        const now = Date.now();
+        const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
+        if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
+          Logger.downgradeLastLogged.set(rateKey, now);
+          if (this.level <= LogLevel.WARNING) {
+            Logger.originalLog(this.formatLog("WARN ", args, true));
+          }
+        }
+        // Circuit-breaker for console.warn path too
+        if (channelId) {
+          recordChannelGapFailure(channelId);
+        }
+        return;
+      }
       if (this.level <= LogLevel.WARNING) {
         Logger.originalWarn(this.formatLog("WARN ", args));
       }
@@ -325,6 +345,9 @@ class Logger {
    * Detect channel-gap-related failures across teleproto versions:
    *   - 1.224.x: "Error recovering channel gap for <id>: PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED"
    *   - 1.225.x: "fetchChannelDifference <id>: <RPCError ...>" with the same underlying RPC errors
+   *   - all versions: "Channel <id> difference too long" — teleproto reports this when
+   *     GetChannelDifference returns the differenceTooLong flag, meaning the gap is
+   *     too large to recover. Without circuit-breaking, teleproto keeps retrying forever.
    *   - all versions: "Could not find a matching Constructor ID" inside _recoverChannelGap / _recoverGap
    *     (TL schema desync — equally hopeless to retry)
    *
@@ -335,24 +358,30 @@ class Logger {
     return (
       msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
       msg.includes('HISTORY_GET_FAILED') ||
-      msg.includes('fetchChannelDifference ') ||
+      msg.includes('difference too long') ||
+      (msg.includes('fetchChannelDifference ') && (
+        msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
+        msg.includes('HISTORY_GET_FAILED')
+      )) ||
       (msg.includes('Could not find a matching Constructor') && msg.includes('recover'))
     );
   }
 
   /** Extract the first plausible channel ID from a teleproto error message. */
   private extractChannelId(msg: string): string | null {
+    // Strip ANSI escape sequences so patterns like "[0m [Channel 123 ...]" are matched
+    const clean = msg.replace(ANSI_REGEX, '');
     // teleproto 1.224.x: "Error recovering channel gap for 1680975844: ..."
-    let m = msg.match(/channel gap for (\d+)/);
+    let m = clean.match(/channel gap for (\d+)/);
     if (m) return m[1];
     // teleproto 1.225.x: "fetchChannelDifference 1680975844: ..."
-    m = msg.match(/fetchChannelDifference (\d+)/);
+    m = clean.match(/fetchChannelDifference (\d+)/);
     if (m) return m[1];
-    // generic: "channel <id>"
-    m = msg.match(/channel (\d+)/);
+    // "Channel 1680975844 difference too long" (after ANSI strip)
+    m = clean.match(/Channel (\d+)/);
     if (m) return m[1];
     // last-resort: any 8+ digit integer
-    m = msg.match(/(\d{8,})/);
+    m = clean.match(/(\d{8,})/);
     return m ? m[1] : null;
   }
 }
