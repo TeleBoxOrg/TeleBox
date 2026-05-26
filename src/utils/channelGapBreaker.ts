@@ -30,17 +30,24 @@ const FAILURE_THRESHOLD = 2;
 const FAILURE_WINDOW_MS = 30 * 60 * 1000;
 
 /**
- * Cooldown in ms after circuit-breaking a channel before we allow it to
+ * Base cooldown in ms after circuit-breaking a channel before we allow it to
  * accumulate failures again. This prevents the breaker from firing on
  * every single update when a broken channel is still receiving messages.
+ *
+ * For channels that repeatedly circuit-break, the cooldown grows exponentially
+ * (base × 2^(repeatCount-1)), capped at MAX_COOLDOWN_MS. A permanently
+ * desynced channel (e.g. 1680975844) would go: 6h → 12h → 24h → 48h → 72h,
+ * drastically reducing API waste and log noise.
  */
-const BREAK_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+const BASE_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+const MAX_COOLDOWN_MS = 72 * 60 * 60 * 1000; // 72 hours (3 days)
 
 // --- Types -------------------------------------------------------------------
 
 interface FailureRecord {
   timestamps: number[];
   brokenAt: number | null; // timestamp when circuit-breaker was triggered
+  breakCount: number;     // how many times this channel has been circuit-broken
 }
 
 // --- State -------------------------------------------------------------------
@@ -61,9 +68,12 @@ export function recordChannelGapFailure(channelId: string): void {
   let record = channelFailures.get(channelId);
 
   if (!record) {
-    record = { timestamps: [], brokenAt: null };
+    record = { timestamps: [], brokenAt: null, breakCount: 0 };
     channelFailures.set(channelId, record);
   }
+
+  // Compute the effective cooldown for this channel based on its repeat break count
+  const effectiveCooldown = getEffectiveCooldown(record.breakCount);
 
   // If we recently broke this channel, skip *counting* during cooldown but
   // still aggressively clear any new pts that teleproto re-set after the
@@ -71,7 +81,7 @@ export function recordChannelGapFailure(channelId: string): void {
   // pts -> gap detected -> GetChannelDifference retry -> PTS warn, even
   // though we're "broken". Silent re-clear keeps the breaker effective for
   // the full cooldown window.
-  if (record.brokenAt && now - record.brokenAt < BREAK_COOLDOWN_MS) {
+  if (record.brokenAt && now - record.brokenAt < effectiveCooldown) {
     silentlyClearChannelPts(channelId);
     return;
   }
@@ -93,15 +103,46 @@ export function isChannelCircuitBroken(channelId: string): boolean {
   const record = channelFailures.get(channelId);
   if (!record || !record.brokenAt) return false;
   const now = Date.now();
-  if (now - record.brokenAt >= BREAK_COOLDOWN_MS) {
+  const effectiveCooldown = getEffectiveCooldown(record.breakCount);
+  if (now - record.brokenAt >= effectiveCooldown) {
     // Cooldown expired — allow the channel to recover naturally
-    channelFailures.delete(channelId);
+    // Don't delete the record; keep breakCount so that the next break
+    // uses the escalated cooldown.
+    record.brokenAt = null;
+    record.timestamps = [];
     return false;
   }
   return true;
 }
 
 // --- Internal ----------------------------------------------------------------
+
+/**
+ * Compute the effective cooldown for a channel based on how many times it has
+ * been circuit-broken. Uses exponential backoff:
+ *   1st break: BASE_COOLDOWN_MS (6h)
+ *   2nd break: BASE_COOLDOWN_MS × 2 (12h)
+ *   3rd break: BASE_COOLDOWN_MS × 4 (24h)
+ *   4th break: BASE_COOLDOWN_MS × 8 (48h)
+ *   5th+ break: MAX_COOLDOWN_MS (72h)
+ */
+function getEffectiveCooldown(breakCount: number): number {
+  if (breakCount <= 0) return BASE_COOLDOWN_MS;
+  const multiplier = Math.pow(2, breakCount - 1);
+  return Math.min(BASE_COOLDOWN_MS * multiplier, MAX_COOLDOWN_MS);
+}
+
+/**
+ * Format a millisecond duration as a human-readable string for logging.
+ */
+function formatCooldown(ms: number): string {
+  const hours = Math.round(ms / 3600000);
+  if (hours >= 24) {
+    const days = Math.round(hours / 24);
+    return `${days}d`;
+  }
+  return `${hours}h`;
+}
 
 /**
  * Clear the channel's PTS state from the TelegramClient so that
@@ -122,7 +163,10 @@ function circuitBreakChannel(channelId: string): void {
   const record = channelFailures.get(channelId);
   if (!record) return;
 
+  record.breakCount++;
   record.brokenAt = now;
+
+  const effectiveCooldown = getEffectiveCooldown(record.breakCount);
 
   try {
     const client = tryGetClient();
@@ -133,7 +177,7 @@ function circuitBreakChannel(channelId: string): void {
       console.log(
         `[CircuitBreaker] Cleared pts=${summary.oldPts ?? "?"} for channel ${channelId} — ` +
         `${record.timestamps.length} PTS failures within ${Math.round(FAILURE_WINDOW_MS / 60000)}min window. ` +
-        `Cooldown: ${Math.round(BREAK_COOLDOWN_MS / 3600000)}h ` +
+        `Cooldown: ${formatCooldown(effectiveCooldown)} (repeat #${record.breakCount}) ` +
         `[layout=${summary.layout}]`
       );
     }
