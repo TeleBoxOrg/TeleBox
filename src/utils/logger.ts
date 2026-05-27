@@ -3,7 +3,7 @@ import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as path from "path";
 import dayjs from "dayjs";
 import util from "util";
-import { recordChannelGapFailure, isChannelCircuitBroken } from "@utils/channelGapBreaker";
+import { recordChannelGapFailure } from "@utils/channelGapBreaker";
 
 export enum LogLevel {
   DEBUG = 0,
