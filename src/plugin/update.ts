@@ -91,9 +91,12 @@ async function update(force = false, msg: Api.Message) {
 
     console.log("\n✅ 更新完成。");
 
-    // 用 executeExit 退出进程，由 pm2 重新拉起；重启后 reload 插件会自动
-    // 把消息编辑成 "✅ 更新完成\n\n✅ 重启完成，耗时 Xms"
-    await executeExit(msg, { finalText: "✅ 更新完成" });
+    // 退出进程，pm2 拉起后由 reload 插件接管 exitFile：
+    // 退出前显示 "🔄 正在重启进程..."；重启完成后编辑为 "✅ 更新完成，耗时 Xms"
+    await executeExit(msg, {
+      pendingText: "🔄 正在重启进程...",
+      successText: "✅ 更新完成，耗时 {elapsedMs}ms",
+    });
   } catch (error: any) {
     console.error("❌ 更新失败:", error);
 

@@ -186,7 +186,7 @@ function scheduleTrackedTimeout(
 const editExitMsg = async () => {
   try {
     const data = fs.readFileSync(exitFile, "utf-8");
-    const { messageId, chatId, time, finalText, parseMode } = JSON.parse(data);
+    const { messageId, chatId, time, successText, parseMode } = JSON.parse(data);
     const client = await getGlobalClient();
     if (client) {
       let targetChat: any = chatId;
@@ -195,8 +195,9 @@ const editExitMsg = async () => {
       } catch (innerE) {
         console.error("Failed to resolve entity for exit message:", innerE);
       }
-      const restartLine = `✅ 重启完成，耗时 ${Date.now() - time}ms`;
-      const text = finalText ? `${finalText}\n\n${restartLine}` : restartLine;
+      const elapsedMs = Date.now() - time;
+      const tmpl: string = successText || "✅ 重启完成，耗时 {elapsedMs}ms";
+      const text = tmpl.replace(/\{elapsedMs\}/g, String(elapsedMs));
       await client.editMessage(targetChat, {
         message: messageId,
         text,
@@ -215,14 +216,15 @@ if (fs.existsSync(exitFile)) {
 
 export async function executeExit(
   msg: Api.Message,
-  options?: { finalText?: string; parseMode?: "html" | "markdown" }
+  options?: {
+    pendingText?: string;
+    successText?: string;
+    parseMode?: "html" | "markdown";
+  }
 ) {
-  const exitingLine = "🔄 正在结束进程...";
-  const text = options?.finalText
-    ? `${options.finalText}\n\n${exitingLine}`
-    : exitingLine;
+  const pendingText = options?.pendingText ?? "🔄 正在结束进程...";
   const result = await msg.edit({
-    text,
+    text: pendingText,
     ...(options?.parseMode ? { parseMode: options.parseMode } : {}),
   });
   if (result) {
@@ -232,7 +234,7 @@ export async function executeExit(
         messageId: result.id,
         chatId: result.chatId || result.peerId,
         time: Date.now(),
-        finalText: options?.finalText,
+        successText: options?.successText,
         parseMode: options?.parseMode,
       }),
       "utf-8"
