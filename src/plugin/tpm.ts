@@ -11,7 +11,7 @@ import { Api } from "teleproto";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
-import { tryGetCurrentGenerationContext } from "@utils/globalClient";
+import { tryGetCurrentGenerationContext, getGlobalClient } from "@utils/globalClient";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -1305,36 +1305,38 @@ async function updateAllPlugins(msg: Api.Message) {
       }
     }
 
+    // 记录 reload 前的关键信息：reloadRuntime() 会 abort 当前 GenerationContext
+    // 并销毁旧 TelegramClient，导致 statusMsg.edit / statusMsg.delete 静默失败
+    // （消息对象绑定的是已销毁的 client）。reload 后必须用新 client 按 peerId + msgId
+    // 重新编辑，才能把 "✅ 更新完成" 真正写回去。
+    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
+    const targetPeerId = statusMsg.peerId;
+    const targetMsgId = statusMsg.id;
+
     try {
       await loadPlugins();
     } catch (error) {
       console.error("[TPM] 重新加载插件失败:", error);
     }
 
+    // reload 完成后，从新 runtime 拿到活的 client 来更新消息
     try {
-      await statusMsg.delete();
+      const freshClient = await getGlobalClient();
+      await freshClient.editMessage(targetPeerId, {
+        message: targetMsgId,
+        text: finalText,
+        parseMode: "html",
+      });
       console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
     } catch (error) {
-      console.log(`[TPM] 删除状态消息失败: ${error}`);
-      try {
-        await statusMsg.edit({ 
-          text: `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`, 
-          parseMode: "html" 
-        });
-      } catch (editError) {
-        console.log(`[TPM] 最终编辑也失败: ${editError}`);
-      }
+      console.log(`[TPM] 最终状态消息编辑失败 (reload 后): ${error}`);
     }
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
     try {
-      await statusMsg.delete();
-    } catch (deleteError) {
-      try {
-        await statusMsg.edit({ text: `❌ 一键更新失败: ${htmlEscape(String(error))}`, parseMode: "html" });
-      } catch (editError) {
-        console.log(`[TPM] 错误消息编辑失败: ${editError}`);
-      }
+      await statusMsg.edit({ text: `❌ 一键更新失败: ${htmlEscape(String(error))}`, parseMode: "html" });
+    } catch (editError) {
+      console.log(`[TPM] 错误消息编辑失败: ${editError}`);
     }
   }
 }
