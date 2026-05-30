@@ -1,4 +1,5 @@
 import type { ChildProcess } from "child_process";
+import { AsyncLocalStorage } from "async_hooks";
 
 export type GenerationLifecycleState =
   | "active"
@@ -150,6 +151,7 @@ export class GenerationContext {
   private readonly tasks = new Set<TaskEntry>();
   private readonly resources = new Map<number, ResourceEntry>();
   private readonly stats = createEmptyStats();
+  private readonly currentTaskStorage = new AsyncLocalStorage<TaskEntry>();
   private lifecycleState: GenerationLifecycleState = "active";
   private abortCause: unknown;
   private nextResourceId = 1;
