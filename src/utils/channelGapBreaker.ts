@@ -16,7 +16,10 @@
  * itself is not modified.
  */
 
-import { getGlobalClient } from "./globalClient";
+// Note: this module intentionally does NOT import getGlobalClient — it needs
+// SYNC access to the active runtime's client (see tryGetClient() below), and
+// getGlobalClient() is async. We grab the client via a lazy require() of
+// runtimeManager.tryGetCurrentRuntime() instead.
 
 // --- Configuration -----------------------------------------------------------
 
@@ -296,8 +299,8 @@ function clearChannelStateOnClient(
  */
 function tryGetClient(): any | null {
   try {
-    // getGlobalClient is async, but we need sync access.
-    // Access the runtime's client directly.
+    // Sync access required; getGlobalClient() is async and unsuitable here.
+    // tryGetCurrentRuntime returns the live runtime synchronously when set.
     const { tryGetCurrentRuntime } = require("./runtimeManager") as typeof import("./runtimeManager");
     const runtime = tryGetCurrentRuntime();
     if (runtime?.client) {
