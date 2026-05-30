@@ -99,7 +99,7 @@ async function update(force = false, msg: Api.Message) {
     const updateStartTime = Date.now();
     const runtime = await reloadRuntime();
     const updateTime = Date.now() - updateStartTime;
-    const timeText = updateTime > 1000 ? `${(updateTime / 1000).toFixed(2)}s` : `${updateTime}ms`;
+    const timeText = `${updateTime}ms`;
 
     console.log("✅ 更新完成。");
     try {

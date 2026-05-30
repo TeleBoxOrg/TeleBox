@@ -421,7 +421,7 @@ class ReloadPlugin extends Plugin {
         const startTime = Date.now();
         const runtime = await reloadRuntime();
         const loadTime = Date.now() - startTime;
-        const timeText = loadTime > 1000 ? `${(loadTime / 1000).toFixed(2)}s` : `${loadTime}ms`;
+        const timeText = `${loadTime}ms`;
         const configDB = await initConfig();
         const afterMemory = getMemoryUsage();
 
