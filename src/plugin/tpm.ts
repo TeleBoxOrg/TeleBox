@@ -107,6 +107,47 @@ async function sendOrEditMessage(
   return newMsg || msg;
 }
 
+/**
+ * 在调用 loadPlugins() 之后写最终状态消息。
+ *
+ * loadPlugins() 内部会触发 reloadRuntime()，它会 abort 当前 GenerationContext
+ * 并销毁旧 TelegramClient。statusMsg 对象绑定的是已销毁的 client，
+ * 此后 statusMsg.edit / statusMsg.delete / sendOrEditMessage 都会静默失败
+ * （报 "Cannot send requests while disconnected"，被 try/catch 吞掉），
+ * 用户最终看到的就是 "正在更新..." 这种中间态卡住。
+ *
+ * 这个 helper 在 reload 前快照 peerId+msgId，reload 后从新 runtime 拿活的
+ * client，按 id 重新编辑消息。所有需要在 reload 之后显示最终状态的命令
+ * （install / installAll / installMultiple / uninstall / uninstallMultiple
+ * / uninstallAll / update）都应通过它走。
+ */
+async function reloadAndFinalize(
+  statusMsg: Api.Message,
+  finalText: string,
+  options?: { parseMode?: string; linkPreview?: boolean }
+): Promise<void> {
+  const targetPeerId = statusMsg.peerId;
+  const targetMsgId = statusMsg.id;
+
+  try {
+    await loadPlugins();
+  } catch (error) {
+    console.error("[TPM] 重新加载插件失败:", error);
+  }
+
+  try {
+    const freshClient = await getGlobalClient();
+    await freshClient.editMessage(targetPeerId, {
+      message: targetMsgId,
+      text: finalText,
+      parseMode: options?.parseMode,
+      linkPreview: options?.linkPreview !== false,
+    });
+  } catch (error) {
+    console.log(`[TPM] 最终状态消息编辑失败 (reload 后): ${error}`);
+  }
+}
+
 async function updateProgressMessage(
   msg: Api.Message, 
   text: string, 
@@ -351,8 +392,7 @@ async function installRemotePlugin(plugin: string, msg: Api.Message) {
       console.error(`[TPM] 记录插件信息失败: ${error}`);
     }
 
-    await sendOrEditMessage(statusMsg, `插件 ${plugin} 已安装并加载成功`);
-    await loadPlugins();
+    await reloadAndFinalize(statusMsg, `插件 ${plugin} 已安装并加载成功`);
   } else {
     await sendOrEditMessage(statusMsg, `无法获取远程插件库`);
   }
@@ -450,12 +490,6 @@ async function installAllPlugins(msg: Api.Message) {
       }
     }
 
-    try {
-      await loadPlugins();
-    } catch (error) {
-      console.error("[TPM] 重新加载插件失败:", error);
-    }
-
     const successBar = generateProgressBar(100);
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
     if (failedPlugins.length > 0) {
@@ -468,7 +502,7 @@ async function installAllPlugins(msg: Api.Message) {
     }
     resultMsg += `\n\n🔄 插件已重新加载，可以开始使用!`;
 
-    await sendOrEditMessage(statusMsg, resultMsg, { parseMode: "html" });
+    await reloadAndFinalize(statusMsg, resultMsg, { parseMode: "html" });
   } catch (error) {
     await sendOrEditMessage(statusMsg, `❌ 批量安装失败: ${error}`);
     console.error("[TPM] 批量安装插件失败:", error);
@@ -579,12 +613,6 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
       }
     }
 
-    try {
-      await loadPlugins();
-    } catch (error) {
-      console.error("[TPM] 重新加载插件失败:", error);
-    }
-
     const successBar = generateProgressBar(100);
     let resultMsg = `🎉 <b>批量安装完成!</b>\n\n${successBar}\n\n📊 <b>安装统计:</b>\n✅ 成功安装: ${installedCount}/${totalPlugins}\n❌ 安装失败: ${failedCount}/${totalPlugins}`;
 
@@ -608,7 +636,7 @@ async function installMultiplePlugins(pluginNames: string[], msg: Api.Message) {
 
     resultMsg += `\n\n🔄 插件已重新加载，可以开始使用!`;
 
-    await sendOrEditMessage(statusMsg, resultMsg, { parseMode: "html" });
+    await reloadAndFinalize(statusMsg, resultMsg, { parseMode: "html" });
   } catch (error) {
     await sendOrEditMessage(statusMsg, `❌ 批量安装失败: ${error}`);
     console.error("[TPM] 批量安装插件失败:", error);
@@ -674,8 +702,11 @@ async function installPlugin(args: string[], msg: Api.Message) {
           console.error(`[TPM] 清除数据库记录失败: ${error}`);
         }
 
-        await loadPlugins();
-        await sendOrEditMessage(statusMsg, `✅ 插件 ${htmlEscape(pluginName)} 已安装并加载成功${overrideMessage}`, { parseMode: "html" });
+        await reloadAndFinalize(
+          statusMsg,
+          `✅ 插件 ${htmlEscape(pluginName)} 已安装并加载成功${overrideMessage}`,
+          { parseMode: "html" }
+        );
       } else {
         await sendOrEditMessage(msg, "请回复一个插件文件");
       }
@@ -702,6 +733,7 @@ async function uninstallPlugin(plugin: string, msg: Api.Message) {
   }
   const statusMsg = await sendOrEditMessage(msg, `正在卸载插件 ${plugin}...`);
   const pluginPath = path.join(PLUGIN_PATH, `${plugin}.ts`);
+  let finalText: string;
   if (fs.existsSync(pluginPath)) {
     fs.unlinkSync(pluginPath);
     try {
@@ -714,11 +746,11 @@ async function uninstallPlugin(plugin: string, msg: Api.Message) {
     } catch (error) {
       console.error(`[TPM] 删除插件数据库记录失败: ${error}`);
     }
-    await sendOrEditMessage(statusMsg, `插件 ${plugin} 已卸载`);
+    finalText = `插件 ${plugin} 已卸载`;
   } else {
-    await sendOrEditMessage(statusMsg, `未找到插件 ${plugin}`);
+    finalText = `未找到插件 ${plugin}`;
   }
-  await loadPlugins();
+  await reloadAndFinalize(statusMsg, finalText);
 }
 
 async function uninstallMultiplePlugins(
@@ -798,8 +830,6 @@ async function uninstallMultiplePlugins(
     return;
   }
 
-  await loadPlugins();
-
   const successCount = results.filter((r) => r.success).length;
   const failedCount = results.filter((r) => !r.success).length;
 
@@ -821,7 +851,7 @@ async function uninstallMultiplePlugins(
       .join("\n")}`;
   }
 
-  await sendOrEditMessage(statusMsg, resultText);
+  await reloadAndFinalize(statusMsg, resultText);
 }
 
 async function uninstallAllPlugins(msg: Api.Message) {
@@ -862,12 +892,6 @@ async function uninstallAllPlugins(msg: Api.Message) {
       console.error("[TPM] 清空数据库失败:", e);
     }
 
-    try {
-      await loadPlugins();
-    } catch (e) {
-      console.error("[TPM] 重新加载插件失败:", e);
-    }
-
     let text = `✅ 已清空插件目录并刷新缓存\n\n🗑 删除文件: ${removed}`;
     if (failed.length) {
       const show = failed.slice(0, 10).map(htmlEscape).join("\n• ");
@@ -875,7 +899,7 @@ async function uninstallAllPlugins(msg: Api.Message) {
         failed.length > 10 ? `\n• ... 还有 ${failed.length - 10} 个失败` : ""
       }`;
     }
-    await sendOrEditMessage(statusMsg, text, { parseMode: "html" });
+    await reloadAndFinalize(statusMsg, text, { parseMode: "html" });
   } catch (error) {
     console.error("[TPM] 清空插件目录失败:", error);
     await sendOrEditMessage(msg, `❌ 清空插件目录失败: ${error}`);
@@ -1305,32 +1329,9 @@ async function updateAllPlugins(msg: Api.Message) {
       }
     }
 
-    // 记录 reload 前的关键信息：reloadRuntime() 会 abort 当前 GenerationContext
-    // 并销毁旧 TelegramClient，导致 statusMsg.edit / statusMsg.delete 静默失败
-    // （消息对象绑定的是已销毁的 client）。reload 后必须用新 client 按 peerId + msgId
-    // 重新编辑，才能把 "✅ 更新完成" 真正写回去。
     const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
-    const targetPeerId = statusMsg.peerId;
-    const targetMsgId = statusMsg.id;
-
-    try {
-      await loadPlugins();
-    } catch (error) {
-      console.error("[TPM] 重新加载插件失败:", error);
-    }
-
-    // reload 完成后，从新 runtime 拿到活的 client 来更新消息
-    try {
-      const freshClient = await getGlobalClient();
-      await freshClient.editMessage(targetPeerId, {
-        message: targetMsgId,
-        text: finalText,
-        parseMode: "html",
-      });
-      console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
-    } catch (error) {
-      console.log(`[TPM] 最终状态消息编辑失败 (reload 后): ${error}`);
-    }
+    await reloadAndFinalize(statusMsg, finalText, { parseMode: "html" });
+    console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
     try {
