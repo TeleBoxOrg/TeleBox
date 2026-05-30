@@ -1,5 +1,6 @@
 import { Plugin, isValidPlugin } from "@utils/pluginBase";
 import { loadPlugins } from "@utils/pluginManager";
+import { executeExit } from "./reload";
 import {
   createDirectoryInTemp,
   createDirectoryInAssets,
@@ -1330,8 +1331,8 @@ async function updateAllPlugins(msg: Api.Message) {
     }
 
     const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
-    await reloadAndFinalize(statusMsg, finalText, { parseMode: "html" });
     console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
+    await executeExit(statusMsg, { finalText, parseMode: "html" });
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
     try {
