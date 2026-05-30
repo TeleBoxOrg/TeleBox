@@ -4,8 +4,8 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
-import { reloadRuntime } from "@utils/runtimeManager";
 import { getGlobalClient } from "@utils/globalClient";
+import { executeExit } from "./reload";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -90,38 +90,15 @@ async function update(force = false, msg: Api.Message) {
     npm_install_project_dependencies();
 
     console.log("\n✅ 更新完成。");
-    await msg.edit({ text: "✅ 更新完成！正在重新加载插件..." });
 
-    const targetChat = msg.chatId || msg.peerId;
-    const targetMessageId = msg.id;
-
-    // 使用 reloadRuntime 而非 loadPlugins，确保完整的 lifecycle abort+drain+dispose 语义
-    const updateStartTime = Date.now();
-    const runtime = await reloadRuntime();
-    const updateTime = Date.now() - updateStartTime;
-    const timeText = `${updateTime}ms`;
-
-    console.log("✅ 更新完成。");
-    try {
-      await runtime.client.editMessage(targetChat, {
-        message: targetMessageId,
-        text: `✅ 更新完成，耗时 ${timeText}`,
-      });
-    } catch (editError) {
-      console.error("Failed to update message after reload:", editError);
-      try {
-        await runtime.client.sendMessage(targetChat, {
-          message: `✅ 更新完成，耗时 ${timeText}`,
-        });
-      } catch (sendError) {
-        console.error("Failed to send completion message after reload:", sendError);
-      }
-    }
+    // 用 executeExit 退出进程，由 pm2 重新拉起；重启后 reload 插件会自动
+    // 把消息编辑成 "✅ 更新完成\n\n✅ 重启完成，耗时 Xms"
+    await executeExit(msg, { finalText: "✅ 更新完成" });
   } catch (error: any) {
     console.error("❌ 更新失败:", error);
 
     // 构建安全的错误信息 —— exec 错误有 .cmd/.stderr，
-    // 其他错误（含 reloadRuntime 失败）只有 .message
+    // 其他错误只有 .message
     const errCmd = error.cmd || "";
     const errDetail = error.stderr || error.message || String(error);
 
@@ -131,7 +108,7 @@ async function update(force = false, msg: Api.Message) {
       `失败原因：${errDetail}\n\n` +
       "如果是 Git 冲突，请手动解决后再更新，或使用 .update -f 强制更新（会丢弃本地改动）";
 
-    // msg.edit() 可能因 reloadRuntime 销毁旧 client 而失败，需安全兜底
+    // 兜底：edit 失败再用 fresh client 重发
     try {
       await msg.edit({ text: errorText });
     } catch (editError) {
