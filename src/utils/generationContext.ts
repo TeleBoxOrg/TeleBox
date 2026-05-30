@@ -330,16 +330,46 @@ export class GenerationContext {
     handler: (event: TEvent) => void | Promise<void>,
     options?: TrackOptions
   ): (event: TEvent) => void | Promise<void> {
+    const label = options?.label ?? "listener";
+    const taskKind = classifyKind(options, "promise");
     const trackedHandler = (event: TEvent): void | Promise<void> => {
       if (this.signal.aborted) return;
-      const result = handler(event);
-      if (result && typeof result.then === "function") {
-        const task = this.trackTask(result, { label: options?.label ?? "listener", kind: "promise" });
-        task.catch((error) => {
-          console.error(`[GENERATION ${this.generation}] Listener task failed:`, error);
+
+      const resource = this.createResource(taskKind, label);
+      const entry: TaskEntry = {
+        resource,
+        promise: Promise.resolve(),
+      };
+      this.tasks.add(entry);
+
+      let syncResult: void | Promise<void> = undefined;
+      const wrapped = new Promise<unknown>((resolve, reject) => {
+        this.currentTaskStorage.run(entry, () => {
+          try {
+            const result = handler(event);
+            syncResult = result;
+            if (result && typeof (result as Promise<void>).then === "function") {
+              (result as Promise<void>).then(resolve, reject);
+            } else {
+              resolve(result);
+            }
+          } catch (error) {
+            reject(error);
+          }
         });
-      }
-      return result;
+      });
+      entry.promise = wrapped;
+      wrapped
+        .finally(() => {
+          this.tasks.delete(entry);
+          this.completeResource(resource, "completed");
+        })
+        .catch(() => undefined);
+      wrapped.catch((error) => {
+        console.error(`[GENERATION ${this.generation}] Listener task failed:`, error);
+      });
+
+      return syncResult;
     };
 
     add(trackedHandler);
@@ -408,8 +438,11 @@ export class GenerationContext {
     );
 
     const waitForTasks = async (): Promise<void> => {
-      while (this.tasks.size > 0) {
-        await Promise.allSettled([...this.tasks].map((entry) => entry.promise));
+      while (true) {
+        const selfEntry = this.currentTaskStorage.getStore();
+        const pending = [...this.tasks].filter((entry) => entry !== selfEntry);
+        if (pending.length === 0) break;
+        await Promise.allSettled(pending.map((entry) => entry.promise));
       }
     };
 
@@ -418,7 +451,9 @@ export class GenerationContext {
     const timedOut = result === "timeout";
 
     if (timedOut) {
+      const selfEntry = this.currentTaskStorage.getStore();
       for (const entry of this.tasks) {
+        if (entry === selfEntry) continue;
         this.markResourceTimedOut(entry.resource);
       }
     } else {
@@ -426,11 +461,16 @@ export class GenerationContext {
       this.completeAbortToken();
     }
 
+    const selfEntry = this.currentTaskStorage.getStore();
+    const pendingTaskCount = selfEntry && this.tasks.has(selfEntry)
+      ? Math.max(0, this.tasks.size - 1)
+      : this.tasks.size;
+
     return {
       completed: !timedOut && errors.length === 0,
       timedOut,
       errors,
-      pendingTasks: this.tasks.size,
+      pendingTasks: pendingTaskCount,
       pendingDisposables: this.disposables.size,
       canceledResources: this.sumStats("canceled"),
       drainedResources: this.sumStats("completed"),
