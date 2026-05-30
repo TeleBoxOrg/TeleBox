@@ -1305,13 +1305,33 @@ async function updateAllPlugins(msg: Api.Message) {
       }
     }
 
-    // 记录 reload 前的关键信息：reloadRuntime() 会 abort 当前 GenerationContext
-    // 并销毁旧 TelegramClient，导致 statusMsg.edit / statusMsg.delete 静默失败
-    // （消息对象绑定的是已销毁的 client）。reload 后必须用新 client 按 peerId + msgId
-    // 重新编辑，才能把 "✅ 更新完成" 真正写回去。
-    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
+    const hasFailures = failedCount > 0;
+    const finalLines = [
+      hasFailures ? "⚠️ 插件更新完成，部分失败" : "✅ 插件更新完成",
+      "",
+      "📊 更新结果:",
+      `✅ 成功: ${updatedCount}`,
+      `⏭️ 跳过: ${skipCount}`,
+      `❌ 失败: ${failedCount}`,
+      `📦 总计: ${dbPlugins.length}`,
+    ];
+
+    if (failedPlugins.length > 0) {
+      finalLines.push("", "失败插件:", ...failedPlugins.map((plugin) => `- ${plugin}`));
+    }
+
+    finalLines.push("", "🔄 正在重新加载插件...");
     const targetPeerId = statusMsg.peerId;
     const targetMsgId = statusMsg.id;
+
+    try {
+      await statusMsg.edit({
+        text: finalLines.join("\n"),
+        parseMode: "html",
+      });
+    } catch (error) {
+      console.log(`[TPM] 最终状态消息编辑失败: ${error}`);
+    }
 
     try {
       await loadPlugins();
@@ -1319,12 +1339,14 @@ async function updateAllPlugins(msg: Api.Message) {
       console.error("[TPM] 重新加载插件失败:", error);
     }
 
-    // reload 完成后，从新 runtime 拿到活的 client 来更新消息
+    const doneLines = [...finalLines];
+    doneLines[doneLines.length - 1] = "🔄 插件已重新加载";
+
     try {
       const freshClient = await getGlobalClient();
       await freshClient.editMessage(targetPeerId, {
         message: targetMsgId,
-        text: finalText,
+        text: doneLines.join("\n"),
         parseMode: "html",
       });
       console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
