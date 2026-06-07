@@ -315,7 +315,6 @@ export async function reloadRuntime(): Promise<TeleBoxRuntime> {
     oldRuntime.state = "reloading";
 
     try {
-      oldRuntime.context.abort("Runtime reload");
       await unloadPluginsForRuntime(oldRuntime);
       await disposeRuntime(oldRuntime, "Runtime reload");
     } catch (error) {
