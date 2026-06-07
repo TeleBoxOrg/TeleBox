@@ -1,6 +1,23 @@
 # Changelog
 
-## [0.2.7-docs] --2026-03-20
+## [0.2.7-docs-2] - 2026-06-07
+
+### 文档优化
+
+- 删除已废弃的 `ecosystem.config.cjs` 配置文件及所有文档引用
+- 修复 `package.json` 仓库 URL（TeleBoxDev → TeleBoxOrg）
+- 修正 README 中的开发模式启动命令（`NODE_ENV=development tpm run dev` → `npm run dev`）
+- 优化 INSTALL.md 中 PM2 管理命令组织结构
+- 规范技术栈版本号格式，添加 `^` 前缀保持与 package.json 一致
+- 完善首次启动配置说明，补充登录成功后的操作指引
+- 新增常见问题排查章节（登录问题、依赖安装问题、运行问题）
+
+### 配置变更
+
+- 移除预设 PM2 配置文件，推荐使用标准命令 `pm2 start "npm start" --name telebox`
+- 用户如需高级配置（集群模式、自定义环境变量等）可自行创建 ecosystem.config.cjs
+
+## [0.2.7-docs] - 2026-03-20
 
 ### 文档
 

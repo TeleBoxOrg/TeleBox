@@ -370,10 +370,10 @@ utils/* (工具模块)
 
 ### 版本信息
 
-- **当前版本**: 0.2.6
+- **当前版本**: 0.2.7
 - **Node.js要求**: 24.x
 - **TypeScript版本**: ^5.9.2
-- **Telegram库版本**: ^2.26.22
+- **Telegram库版本**: ^1.223.1
 - **协议**: LGPL-2.1-only
 
 ## 🔌 插件系统
@@ -879,11 +879,11 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
 ```json
 {
   "name": "telebox",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "scripts": {
-    "start": "tsx -r tsconfig-paths/register ./src/index.ts",
-    "tpm": "tsx -r tsconfig-paths/register ./src/plugin/tpm.ts",
-    "dev": "NODE_ENV=development tsx -r tsconfig-paths/register ./src/index.ts"
+    "start": "node scripts/run-tsx.cjs ./src/index.ts",
+    "tpm": "node scripts/run-tsx.cjs ./src/plugin/tpm.ts",
+    "dev": "NODE_ENV=development node scripts/run-tsx.cjs ./src/index.ts"
   },
   "repository": {
     "type": "git",
@@ -891,7 +891,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
   },
   "license": "LGPL-2.1-only",
   "dependencies": {
-    "telegram": "^2.26.22",
+    "teleproto": "^1.223.1",
     "dotenv": "^17.2.2",
     "cron": "^4.3.3",
     "axios": "^1.11.0",
@@ -899,7 +899,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
     "lowdb": "^7.0.1",
     "lodash": "^4.17.21",
     "dayjs": "^1.11.18",
-    "cheerio": "^1.1.2",
+    "cheerio": "^1.2.0",
     "better-sqlite3": "^12.2.0",
     "opencc-js": "^1.0.5",
     "modern-gif": "^2.0.4",
