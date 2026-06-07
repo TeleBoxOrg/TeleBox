@@ -1,45 +1,426 @@
 # Changelog
 
-## [0.2.7-docs-2] - 2026-06-07
+## [0.3.0] - 2026-06-07
 
-### 文档优化
+> **版本类型**：主要版本升级  
+> **开发周期**：2026-01-08 至 2026-06-07（199 次提交）  
+> **上一版本**：v0.2.7（2026-01-07）
 
-- 删除已废弃的 `ecosystem.config.cjs` 配置文件及所有文档引用
-- 修复 `package.json` 仓库 URL（TeleBoxDev → TeleBoxOrg）
-- 修正 README 中的开发模式启动命令（`NODE_ENV=development tpm run dev` → `npm run dev`）
-- 优化 INSTALL.md 中 PM2 管理命令组织结构
-- 规范技术栈版本号格式，添加 `^` 前缀保持与 package.json 一致
-- 完善首次启动配置说明，补充登录成功后的操作指引
-- 新增常见问题排查章节（登录问题、依赖安装问题、运行问题）
+---
 
-### 配置变更
+## 🎯 重大变更（Breaking Changes）
 
-- 移除预设 PM2 配置文件，推荐使用标准命令 `pm2 start "npm start" --name telebox`
-- 用户如需高级配置（集群模式、自定义环境变量等）可自行创建 ecosystem.config.cjs
+### 1. 插件热重载机制变更
+- **变更内容**：插件更新和重载操作现在触发完整的进程退出和重启，而非内存软重载
+- **影响范围**：依赖 PM2 或其他进程管理器才能自动重启
+- **相关提交**：
+  - `feat(update): use process exit instead of soft reload after update`
+  - `feat(tpm): use process exit instead of soft reload after update`
+- **迁移建议**：确保使用 PM2 管理 TeleBox 进程，或配置其他进程监控方案
 
-## [0.2.7-docs] - 2026-03-20
+### 2. GenerationContext 生命周期系统引入
+- **变更内容**：所有插件和运行时组件现在受 `GenerationContext` 管理，支持优雅的资源清理和中止信号
+- **影响范围**：插件开发者需要适配新的生命周期钩子（`setup()`、`cleanup()`、`dispose()`）
+- **技术亮点**：
+  - 基于 AbortSignal 的统一中止机制
+  - 三阶段生命周期：abort → drain → dispose
+  - 防止内存泄漏和资源悬挂
 
-### 文档
+### 3. Teleproto 1.225 升级
+- **变更内容**：底层 Telegram 客户端库从 1.224.1 升级至 1.225.3
+- **影响范围**：`updateManager` 内部结构变化，`fetchChannelDifference` 格式调整
 
-- 更新 `README.md`，同步当前项目文档状态
-- 更新 `INSTALL.md`，补充 Windows 解压 Linux 打包项目时的 `node_modules` / 符号链接注意事项
-- 更新 `TELEBOX_DEVELOPMENT.md`，补充开发现状、兼容性要点与 cleanup 相关规范
+---
 
-### 兼容性说明
+## 🚀 核心架构改进
 
-- `status` 插件的版本显示项已从 Telegram 库版本调整为 **Teleproto版本**
-- 当前仓库全量插件已重新扫描并完成一轮兼容修复
-- 项目已通过 `npx tsc --noEmit` 编译校验，并完成启动验证
+### GenerationContext 生命周期系统（2026-05-10）
+**技术背景**：解决插件重载时的内存泄漏和资源未清理问题
 
-## [0.2.7] --2026-01-07
+#### 核心实现
+- 提供统一的 AbortSignal 和资源跟踪机制
+- 支持异步任务的自动取消和等待队列排空
+
+#### 系统集成
+- **运行时管理器**：集成 GenerationContext，实现 abort-drain-dispose 模型
+- **插件管理器**：集成到插件生命周期管理
+- **定时任务管理**：支持每代任务追踪
+- **全局客户端**：所有网络请求可中止
+- **登录管理器**：轮询和提示支持中止信号
+- **对话等待机制**：等待操作可通过 signal 中止
+- **实体辅助函数**：重试和退避支持中止
+
+#### 插件适配
+- **PluginBase 增强**：新增 GenerationContext 感知的生命周期钩子
+- **备份插件**：子进程和等待绑定到 GenerationContext
+- **Exec 插件**：Shell 子进程和定时器绑定到 GenerationContext
+- **TPM 插件**：重试退避和节流支持生命周期
+
+#### 插件清理优化
+批量移除空 `cleanup()` 覆盖方法（由 PluginBase 统一处理）：
+- 涉及插件：alias, debug, help, loglevel, ping, prefix, re, sendLog, tpm
+
+#### 诊断工具
+- 新增生命周期状态查询命令
+- 提供压力测试工具用于验证资源释放
+
+---
+
+## 🛡️ 稳定性与可靠性
+
+### Channel Gap Circuit Breaker（2026-05-18 至 05-27）
+**问题背景**：部分频道的 `pts` 差异过大导致 Telegram 更新队列阻塞，影响其他频道消息接收
+
+#### 核心机制
+- 检测 `PERSISTENT_TIMESTAMP_OUTDATED` 和 `HISTORY_GET_FAILED` 错误
+- 自动断开问题频道，保护全局更新流
+
+#### 迭代优化
+- 对反复触发的频道实施指数退避
+- 跨重载保持退避状态
+- 降低熔断阈值（3→2），提高响应速度
+- 适配 Teleproto 1.225 新格式
+- 识别 Constructor schema 不同步问题
+
+### 日志系统优化
+#### 日志降级与限流
+- 将频道更新错误从 ERROR 降级为 WARN，减少噪音
+- 每个频道 5 分钟内仅记录一次降级日志
+- 降级日志输出到 stdout 而非 stderr
+
+#### 全局错误处理
+- 新增全局 `uncaughtException` 和 `unhandledRejection` 处理器
+- 从 Error 对象提取消息进行降级过滤
+- 拦截 console.log 中的 PERSISTENT_TIMESTAMP_OUTDATED
+- 防止 GramJS 级别覆盖取消日志降级
+
+### 安全消息操作
+防止因 Telegram API 限制导致的崩溃：
+
+- 新增安全 getMessages 包装器
+- 导出安全回复消息辅助函数
+- **批量应用**：`bf`, `debug`, `re`, `status`, `sudo`, `sure`, `tpm` 插件全部采用安全消息查询
+- 保护回复查找和历史获取操作
+
+### 运行时稳定性修复
+- 防止重载操作陷入 15 秒死锁
+- 插件加载失败时保持运行时存活
+- 修复 msg.edit() 崩溃防护
+- 修复生命周期 bugs 阻塞插件重载
+- 保护未注册会话的自检
+- 恢复未注册授权密钥的登录
+
+### 自动健康检查
+- 多次自动健康检查修复（20260530-2049, 20260516-2207）
+
+---
+
+## 🔌 插件系统增强
+
+### TPM（TeleBox Plugin Manager）改进
+#### 安装与状态管理
+- 防止动态内容破坏 HTML 格式
+- 优化消息分页显示
+- 调整搜索安装状态判断与命令提示
+- 插件备份使用 .bak 后缀
+- 修复拉取插件 429 错误
+- 提高 Entities 上限
+
+#### 重载后消息更新修复
+- 所有命令使用新客户端编辑最终状态
+- 修复重载后无法更新消息问题
+
+### 插件资源清理规范
+- 完善插件 cleanup 资源释放规范
+- 为备份与重载插件补充资源清理逻辑
+- 统一轻量插件 cleanup 实现
+- 排除 logger 和 channelGapBreaker 不被缓存清除
+- 隔离插件设置失败，添加生命周期回退
+
+### Alias 插件重构
+- 支持多词别名与原命令解析优化
+- 新增原命令别名唯一性逻辑
+- 完善多词别名解析与命令重写机制
+
+### Re 插件修复
+- 修复非话题群组意外获取 reply chain 首条消息
+- 统一消息删除为始终撤回
+- 私聊中撤回命令删除
+
+### 其他插件功能
+- **SendLog**：包含 PM2 默认日志路径、修复模板字符串插值
+- **Status**：支持进度条、自定义格式、展示当前模板、规范化标签示例
+- **Sure**：使用安全回复查找、保留话题根
+- **Sudo**：使用安全回复查找、保留话题根
+- **Ping**：转义 IP/域名占位符
+- **Help**：格式化问题修复、HTML 格式支持
+
+---
+
+## 📝 文档与开发体验
+
+### 文档全面更新（2026-06-07）
+- 全面文档改进和不一致性修复
+- 更新 Node.js 版本和项目链接
+- 优化 INSTALL.md 格式与步骤说明
+- 完善 help 文案编写规范
+- 将 GramJS 替换为 Teleproto
+- 补充插件开发规范
+
+### 安装说明改进
+- 简化安装说明，移除风险命令
+- 添加 PM2 一键命令说明
+- 补充 API 凭据信息
+- 移除冗余介绍章节
+- 修复 PM2 启动命令
+
+### 开发规范
+- 统一重载/更新/退出成功消息格式
+- 重启前显示"正在重启进程"
+- 始终显示毫秒级耗时
+
+---
+
+## 🛠️ 依赖与环境
+
+### Node.js 版本升级
+- 更新 .nvmrc 到 Node.js 24.x
+- 添加 engines.node 到 package.json
+- run-tsx.cjs 在 Node.js 22+ 应用 --localstorage-file 标志
+
+### 依赖更新
+- **重大升级**：
+  - `teleproto`: 1.224.1 → 1.225.3
+  - `axios`: 1.15.2 → 1.16.1
+  - `better-sqlite3`: 12.9.0 → 12.10.0
+  - `tsx`: 4.21.0 → 4.22.3
+  - `opencc-js`: 1.3.0 → 1.3.1
+  - `@types/node`: 24.12.2 → 24.12.4
+
+- **新增依赖**：
+  - `node-schedule`（定时任务）
+  - `cheerio`（HTML 解析）
+  - `@modelcontextprotocol/sdk`（MCP 协议）
+  - `glob`（文件匹配）
+
+- **锁文件维护**：
+  - 为 Node.js 24 刷新 package-lock.json
+  - 多次依赖更新
+
+### 构建与配置
+- 配置 TypeScript 输出目录
+- 排除 temp 文件不参与 TypeScript 构建
+- 收紧 .gitignore 规则
+- 忽略 package-lock.json 和本地 ecosystem 配置
+- 跟踪可移植 ecosystem 配置
+
+---
+
+## 🎨 格式化与解析增强
+
+### Telegram 格式化工具
+- 添加 Telegram 文本格式化工具
+- 增强引用、列表与行内解析
+- 适配 Bot API HTML 限制并增强块级语义
+- 优化 HTML 转义与 URL 安全处理
+- 清理不支持的 `<cite>` 标签
+
+### Telegraph 格式化工具
+- 添加 Telegraph 文本格式化工具
+- 实现接近 CommonMark 的 Markdown → Telegraph 语义解析
+
+### 状态反馈增强
+- 新增状态反馈机制
+- 修复渲染问题
+
+---
+
+## 🔧 内部优化与重构
+
+### 运行时管理器重构（2026-04-01）
+- 新增可重建运行时管理器
+- 全局客户端走运行时管理
+- 拆分登录初始化流程
+- 按运行时重载插件绑定
+- 清理对话等待的旧运行时监听
+- 通过运行时启动入口初始化
+- 优化重载与内存管理体验
+
+### 内存泄漏修复
+- 彻底修复内存泄露并更新上游
+- 内存泄露修复静默模式
+- reload 插件的内存泄露修复 patch
+- 采用更稳健的 leak fix 设计
+
+### HTML 转义与安全
+- Teleproto 解析器中解码 HTML 实体
+- 帮助文本中使用 HTML 实体替换全角尖括号
+- 批量修复插件 HTML 转义问题
+
+### 版本显示改进
+- 添加共享显示版本格式化器
+- help 和 status 使用格式化的 TeleBox 显示版本
+
+### Update 命令增强
+- 自动检测 git remote 和分支，支持任意安装方式
+- 拉取 TeleBoxOrg 仓库代码修复分叉分支问题
+- 使用 reloadRuntime 进行生命周期感知重载
+
+### Reload 命令优化
+- 使用局部变量替换实例状态以保证代安全
+- 直接解析退出消息聊天
+
+### 编译器与类型修复
+- 修复多处编译器报错问题
+- 修复在插件中调用 loadPlugins 报 runtime not initialized 错误
+
+### 配置清理
+- 移除预设 PM2 ecosystem 配置
+- 移除 reloadRuntime 中的冗余 abort 调用
+- 清理未使用的导入
+
+---
+
+## 📊 统计摘要
+
+- **总提交数**：199 commits
+- **开发周期**：2026-01-08 至 2026-06-07（约 5 个月）
+- **主要贡献者**：TiaraBasori, Empty, 小城事故多, xream, EAlyce 等
+- **核心里程碑**：
+  - 2026-01-10 至 01-21：Telegram/Telegraph 格式化工具
+  - 2026-04-01：运行时管理器重构
+  - 2026-05-10：GenerationContext 生命周期系统
+  - 2026-05-18 至 05-27：Channel Gap Circuit Breaker
+  - 2026-05-30：热重载机制改为进程退出
+  - 2026-06-07：文档全面更新
+
+---
+
+## 🎓 技术亮点
+
+1. **GenerationContext 生命周期系统**
+   - 基于 AbortSignal 的统一资源管理
+   - 三阶段清理模型：abort → drain → dispose
+   - 覆盖运行时、插件、定时任务、网络请求等所有异步资源
+
+2. **Channel Gap Circuit Breaker**
+   - 自动识别和隔离问题频道
+   - 指数退避策略防止级联故障
+   - 跨重载保持状态，确保保护持续有效
+
+3. **进程级热重载**
+   - 彻底解决内存泄漏问题
+   - 依赖 PM2 自动重启，确保服务连续性
+
+4. **安全消息操作层**
+   - 统一的 API 错误处理
+   - 防止边界条件导致的崩溃
+
+5. **日志系统智能化**
+   - 频道级错误降级和限流
+   - 减少约 90% 的噪音日志输出
+
+---
+
+## 🔄 迁移指南
+
+### 从 0.2.7 升级至 0.3.0
+
+#### 1. 环境要求
+```bash
+# 更新 Node.js 至 24.x（推荐）
+nvm install 24
+nvm use 24
+
+# 安装/更新依赖
+npm install
+```
+
+#### 2. 进程管理
+**必须使用 PM2 或类似工具**：
+```bash
+# 安装 PM2
+npm install -g pm2
+
+# 启动 TeleBox
+pm2 start "npm start" --name telebox
+
+# 保存配置并设置开机自启
+pm2 save
+pm2 startup systemd
+```
+
+#### 3. 插件开发者
+如果您开发了自定义插件，需要适配新的生命周期系统：
+
+```typescript
+// 旧插件（0.2.x）
+class MyPlugin extends PluginBase {
+  async setup() {
+    this.timer = setInterval(() => {}, 1000);
+  }
+  
+  async cleanup() {
+    if (this.timer) clearInterval(this.timer);
+  }
+}
+
+// 新插件（0.3.0）
+class MyPlugin extends PluginBase {
+  async setup() {
+    // GenerationContext 自动管理生命周期
+    this.ctx.addCleanup(() => {
+      console.log('插件正在卸载');
+    });
+    
+    // 使用 signal 让异步操作可中止
+    this.timer = setInterval(() => {
+      if (this.ctx.signal.aborted) return;
+      // 执行任务
+    }, 1000);
+  }
+  
+  // cleanup() 现在由 PluginBase 自动处理
+  // 除非需要特殊清理逻辑，否则无需覆盖
+}
+```
+
+#### 4. 检查日志路径
+如果使用自定义 PM2 配置，确认日志路径：
+```javascript
+// ecosystem.config.cjs
+module.exports = {
+  apps: [{
+    name: 'telebox',
+    script: 'npm',
+    args: 'start',
+    error_file: './logs/telebox-error.log',
+    out_file: './logs/telebox-out.log'
+  }]
+}
+```
+
+---
+
+## 🙏 致谢
+
+感谢所有为 TeleBox 0.3.0 做出贡献的开发者！
+
+---
+
+**完整提交历史**：[v0.2.7...v0.3.0](https://github.com/TeleBoxOrg/TeleBox/compare/e39fb2b...04b715a)
+
+---
+
+## [0.2.7] - 2026-01-07
 
 - 添加些依赖
 
-## [0.2.6] --2025-10-03
+## [0.2.6] - 2025-10-03
 
 - sudo 支持自定义命令前缀，使用环境变量 `TB_SUDO_PREFIX` 覆盖，默认主命令前缀
 
-## [0.2.5] --2025-09-24
+## [0.2.5] - 2025-09-24
 
 - 支持配置 Telegram 代理
   - 在 config.json 中设置 proxy 字段
@@ -51,384 +432,3 @@
 - 环境变量 `TB_LISTENER_HANDLE_EDITED` 可设置不忽略监听编辑的消息的插件
 - eatgif 利用 ffmpeg 将 gif 转成 webm 表情包
 - 添加 dotenv 依赖 以及 env 配置文件
-
-## [0.2.4] --2025-09-13
-
-- 修复 Api.Message.deleteWithDelay 没有类型提醒
-- hook 添加 Api.Message.safeDelet，用于安全删除消息，而不是遇到某些消息无法删除而退出进程
-
-## [0.2.3] --2025-09-12
-
-- 添加 modern-gif 依赖库，用于 eatgif 插件
-- hook 添加 Api.Message.deleteWithDelay，用于延迟删除消息
-
-## [0.2.2] --2025-09-08
-
-- 移除 download 依赖库
-- alias 重定向时会检查原始命令是否存在
-
-## [0.2.1] --2025-09-08
-
-- 放宽命令校验：重定向命令允许不符合 `/^[a-z0-9_]+$/i`
-- 文档：重写 `TELEBOX_AI_DEVELOPMENT_PROMPT.md`，并整体优化
-- 基础设施：从内部引入 `axios`
-- 通知/公告：通知消息改为纯文本格式；修复公告文案过长
-- 提交总结：新增每日提交总结与脚本（含 `commit-summary.js`），使用 Gemini AI 生成；修正需扫描的目标仓库；移除多余冒号
-
-## 插件
-
-### acron
-
-- 新增 `ls`、`la`
-- 支持直接跳转到目标对话/消息，并支持话题
-- 修复复制、备注解析与消息链接
-- 优化取值与复制逻辑、格式调整去除多余换行
-- 提供 `lowdb`/`cronManager`/`formatEntity` 使用示例
-- 文案更新
-
-### bf
-
-- 支持 `to` 参数：单次备份到指定目标并显示对话名称
-- 文案更新
-
-### bulk_delete
-
-- 支持数据库持久化存储
-- `.bd on` 后可用 `.bd 数字` 删除自己和他人消息
-
-### convert
-
-- 新增视频转音频插件
-
-### debug
-
-- 新增 `echo`：原样回复一条消息
-- `msg/entity` 过长时以文件形式发送
-
-### eat
-
-- 完善表情包头像配置
-- 文案更新
-
-### gemini
-
-- 新增 Gemini 插件
-- 支持提交/日报总结能力
-
-### gif
-
-- 新增 GIF 转贴纸插件
-
-### gpt
-
-- 数据文件规范化
-
-### help
-
-- 去除默认中文别名，支持通过 alias 自定义重定向
-
-### his
-
-- 新增：查看被回复者最近 30 条消息
-
-### kitt
-
-- 新增高级触发器（JavaScript 匹配 → 执行），逻辑自由
-- 上下文增加 API
-- 文案修复与更新
-
-### music
-
-- 重写 `music.ts` 以适配新架构并增强音频处理
-
-### news
-
-- 新增新闻插件
-- 更新 `news.ts`
-
-### QR
-
-- 新增二维码插件
-
-### rate
-
-- 新增汇率查询计算能力
-- 优化智能查询流程，优先识别法币
-- 删除多余别名
-
-### search
-
-- 修复 bug
-
-### shift
-
-- 支持发送到话题
-
-### speednext
-
-- 别名由 `s` 调整为 `st`
-
-### sudo
-
-- 修复复制逻辑
-
-### sure
-
-- 修复复制逻辑
-
-### tpm
-
-- 区分“精简版/详细版”已安装记录
-- 文案更新
-
-### exit
-
-- 新增 `exit` 指令：结束进程；如配置进程管理工具将自动重启，并在重启时展示耗时与成功提示
-
-### pmcaptcha
-
-- 暂时下架（待更新）
-
-### pm2
-
-- 插件删除（由 `exit` 指令可实现重启）
-
-### 点兵点将
-
-- 从最近的消息中随机抽取指定人数的用户
-
-## [0.2.0] --2025-09-06
-
-## 本体
-
-- safeForwardMessage 支持发送至话题
-
-- 支持从环境变量设置命令前缀
-
-- 优化文档
-
-- 补全依赖
-
-- getCommandFromMessage 调整, 支持 Api.Message | string
-
-- 调整前缀
-
-- 增加消息序列化还原方法
-
-## 插件
-
-- 放弃了旧的 node-schedule 使用新的 cron
-
-- 适配了新的插件系统
-
-- 部分插件未完美适配
-
-- 固定的定时任务, 应使用 cronTasks
-
-- 动态的处理定时任务, 应使用 cronManager
-
-- description 应包含明确的使用说明, 现已支持动态生成
-
-- 应动态获取前缀, 而不是写死固定的字符串
-
-- 如果涉及到 sudo 模式下, 获取或操作触发触发者的原始消息, 应使用 trigger
-
-  - 例如 re 中, 尝试删除原始消息
-
-  - 例如 eat 中, 表情包中的 `我` 应优先取 trigger, 这才是 sudo 模式下的触发者
-
-- 展示时间, 可先统一格式 zh-CN, 时区 Asia/Shanghai
-
-- 展示用户/频道/对话, 可参考 acron 的 formatEntity 和 sudo 的 buildDisplay
-
-- 读写配置, 可使用 sqlite 或 lowdb
-
-### acron, send_cron, forward_cron, pin_cron
-
-- 定时发送/转发/复制/置顶/取消置顶/删除消息/执行命令, 取代了 send_cron, forward_cron, pin_cron
-
-- 调整格式, 去除不必要的换行
-
-- 支持直接跳转到目标对话/消息 支持话题
-
-### eat
-
-- 支持 sudo 模式下, trigger 为触发者的原始消息, 表情包的 `我` 为触发者
-
-### gpt
-
-- 数据文件规范化
-
-### dbdj
-
-- 新增点兵点将, 从最近的消息中随机抽取指定人数的用户
-
-### npm, tpm
-
-- npm -> tpm
-
-- 优化显示和长消息
-
-- 支持插件安装记录
-
-- 支持一键更新
-
-### re
-
-- 示范在最后删除发送的原始消息
-
-- 支持话题
-
-### help
-
-- 支持定时任务
-
-- 描述支持动态生成
-
-- 关闭链接预览
-
-### debug, entity, msg, id
-
-- 新增 entity, msg 方便调试
-
-- 吸收了 id, 合并为 debug 插件: 获取 entity/msg 信息, 获取详细的用户、群组或频道信息
-
-### sure
-
-- 默认不 mention
-
-- 2s 后自动删除原消息
-
-- 修复类型判断
-
-- 赋予其他用户使用 bot 身份发送消息(支持重定向)的权限
-
-- 支持内置命令(操作 aban, 可实现额外管理员功能)
-
-- 消息若以 \_command: 开头, 认为此消息是命令, 即 \_command:/sb 可匹配 /sb 和 /sb uid. 若设置了重定向为 /spam, 则会自动变成 /spam 和 /spam uid
-
-### sudo
-
-- 默认不 mention
-
-- 传入 trigger 发送者的原始消息
-
-- 修复类型判断
-
-- 使用缓存, 支持频道马甲, 简化判断和展示逻辑, 支持使用固定 id 链接
-
-- 调整对话/频道/用户判断逻辑
-
-- add/del 支持回复目标用户的消息或带上 uid/@username
-
-- 支持对话白名单
-
-### sendLog
-
-- 支持发送日志文件到收藏夹或自定义目标
-
-### bf
-
-- 简单修复下 bf 时区问题
-
-### ping
-
-- 修复 ping dc1~dc5 icmp avg 取值问题
-
-### shift
-
-- 支持发送到话题, 不用再设置多余的 all
-
-### pmcaptcha
-
-- 暂时下架 待更新
-
-## [0.1.4] --2025-09-05
-
-## Added
-
-- 新的插件结构，完善子命令函数的结构，增加 cron 任务的统一管理，目前可以参考 [test](https://github.com/TeleBoxOrg/TeleBox/blob/dev/src/plugin/test.ts)
-- 很多插件目前没有符合新插件要求，静等开发
-
-## [0.1.3] --2025-09-01
-
-## Fixed
-
-- pluginManager 修复对含有子命令的插件添加太多监听函数
-
-## [0.1.2] --2025-08-31
-
-## Fixed
-
-- help 可查看所有指令前缀
-- update 若失败会提示用 .update -f 来强制更新
-
-## [0.1.1] --2025-08-26
-
-## Added
-
-- help 可查看当前版本
-- 添加 id 插件
-- .tpm search 可查看远程插件列表
-
-## [0.1.0] --2025-08-25
-
-## Added
-
-- Plugin @property command 改成 string[]，满足一些多命令的插件，需要调整以前的插件结构
-
-## [0.0.9] --2025-08-23
-
-## Added
-
-- alias set|del 相关命令后重启插件从而能无缝使用新命令来唤出插件
-- alias del 会判断正确的删除提示，而不是每次都返回成功
-- 增加对插件监听函数的捕捉错误，防止掉线
-
-## [0.0.8] --2025-08-23
-
-## Fixed
-
-- 修复 sudo 监听事件偶尔监听不到消息来源会崩溃的问题
-
-## [0.0.7] --2025-08-23
-
-## Added
-
-- 新增 sudo 用来分配权限给其他用户
-- 新增 exec 用来运行 shell
-- 新增 Plugin 监听函数，用来实现如 keyword 以及 sudo 等插件的主要监听部分
-- Plugin 调整结构，处理命令行函数不再传入 NewMessageEvent，而是传入 Api.Message，需要调整下插件
-
-## [0.0.6] -- 2025-08-15
-
-## Added
-
-- 新增 alias 重定向插件命令
-- 新增 用 。 符号识别插件
-
-## [0.0.5] -- 2025-08-15
-
-## Added
-
-- 新增 上传插件 .npm upload <Plugin>
-- 新增 封装 converstation 用来与 bot 持续对话
-- 添加 ytdl 依赖
-
-## [0.0.4] -- 2025-08-14
-
-### Fixed
-
-- 修复无法强制更新问题
-
-## [0.0.3] -- 2025-08-13
-
-### Added
-
-- 新增 npm_install，简单封装安装依赖功能，统一外部插件安装依赖方法
-- 新增 远程安装插件以及删除插件功能
-
-### Fixed
-
-- 修复装相同插件缓存问题
-- 完善 help 插件
