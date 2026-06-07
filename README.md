@@ -5,7 +5,7 @@
 [![License](https://img.shields.io/badge/License-LGPL%202.1-blue.svg?style=for-the-badge)](LICENSE)
 [![Node.js](https://img.shields.io/badge/Node.js-24.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/Version-0.2.7-orange.svg?style=for-the-badge)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-0.2.8-orange.svg?style=for-the-badge)](CHANGELOG.md)
 
 **现代化 Telegram UserBot 开发框架**
 

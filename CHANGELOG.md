@@ -1,8 +1,8 @@
 # Changelog
 
-## [0.3.0] - 2026-06-07
+## [0.2.8] - 2026-06-07
 
-> **版本类型**：主要版本升级  
+> **版本类型**：次要版本升级  
 > **开发周期**：2026-01-08 至 2026-06-07（199 次提交）  
 > **上一版本**：v0.2.7（2026-01-07）
 
@@ -324,7 +324,7 @@
 
 ## 🔄 迁移指南
 
-### 从 0.2.7 升级至 0.3.0
+### 从 0.2.7 升级至 0.2.8
 
 #### 1. 环境要求
 ```bash
@@ -365,7 +365,7 @@ class MyPlugin extends PluginBase {
   }
 }
 
-// 新插件（0.3.0）
+// 新插件（0.2.8）
 class MyPlugin extends PluginBase {
   async setup() {
     // GenerationContext 自动管理生命周期
@@ -404,11 +404,11 @@ module.exports = {
 
 ## 🙏 致谢
 
-感谢所有为 TeleBox 0.3.0 做出贡献的开发者！
+感谢所有为 TeleBox 0.2.8 做出贡献的开发者！
 
 ---
 
-**完整提交历史**：[v0.2.7...v0.3.0](https://github.com/TeleBoxOrg/TeleBox/compare/e39fb2b...04b715a)
+**完整提交历史**：[v0.2.7...v0.2.8](https://github.com/TeleBoxOrg/TeleBox/compare/e39fb2b...04b715a)
 
 ---
 

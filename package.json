@@ -1,6 +1,6 @@
 {
   "name": "telebox",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "",
   "scripts": {
     "start": "node scripts/run-tsx.cjs ./src/index.ts",
