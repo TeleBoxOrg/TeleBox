@@ -203,30 +203,37 @@ pm2 startup systemd
 **📊 监控和管理：**
 
 ```bash
-
 # 查看服务状态
 pm2 status
 
 # 查看运行日志
 pm2 logs telebox
 
-# 可选插件
-## pm2-logrotate 日志管理及分割
-pm2 install pm2-logrotate
-
 # 🔄 重启服务
 pm2 restart telebox
 
 # 🛑 停止服务
 pm2 stop telebox
+
+# 🗑️ 删除进程
+pm2 delete telebox
 ```
 
-**🎯 PM2 管理命令：**
+**🧰 可选增强功能：**
 
-- `pm2 list` - 📋 查看所有进程
-- `pm2 monit` - 📊 实时监控面板
-- `pm2 reload telebox` - 🔄 无缝重载
-- `pm2 delete telebox` - 🗑️ 删除进程
+```bash
+# 📦 安装日志管理和分割插件
+pm2 install pm2-logrotate
+
+# 📊 实时监控面板
+pm2 monit
+
+# 🔄 无缝重载（零停机时间）
+pm2 reload telebox
+
+# 📋 查看所有进程
+pm2 list
+```
 
 </details>
 

@@ -9,16 +9,16 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TeleBoxDev/TeleBox.git"
+    "url": "git+https://github.com/TeleBoxOrg/TeleBox.git"
   },
   "keywords": [],
   "author": "",
   "license": "LGPL-2.1-only",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/TeleBoxDev/TeleBox/issues"
+    "url": "https://github.com/TeleBoxOrg/TeleBox/issues"
   },
-  "homepage": "https://github.com/TeleBoxDev/TeleBox#readme",
+  "homepage": "https://github.com/TeleBoxOrg/TeleBox#readme",
   "engines": {
     "node": "24.x"
   },
