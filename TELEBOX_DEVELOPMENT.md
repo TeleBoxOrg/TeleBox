@@ -26,8 +26,6 @@
   - [config.json - Telegram API 配置](#configjson---telegram-api配置)
   - [.env - 环境变量配置](#env---环境变量配置)
   - [package.json - 项目配置](#packagejson---项目配置)
-- [进程管理配置](#进程管理配置)
-  - [ecosystem.config.js - PM2配置](#ecosystemconfigjs---pm2配置)
 - [环境变量详解](#环境变量详解)
   - [命令前缀配置](#命令前缀配置)
   - [插件行为配置](#插件行为配置)
@@ -208,8 +206,7 @@ telebox/
 ├── config.json            # Telegram API配置
 ├── .env                   # 环境变量配置
 ├── package.json          # 项目配置
-├── tsconfig.json         # TypeScript配置
-└── ecosystem.config.js   # PM2进程管理配置
+└── tsconfig.json         # TypeScript配置
 ```
 
 ### 核心模块
@@ -913,44 +910,6 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
   }
 }
 ```
-
-### 进程管理配置
-
-#### ecosystem.config.js - PM2配置
-
-**作用**：使用PM2进行进程管理和自动重启
-
-```javascript
-module.exports = {
-  apps: [
-    {
-      name: "telebox",
-      script: "npm",
-      args: "start",
-      cwd: __dirname,
-      error_file: "./logs/error.log",
-      out_file: "./logs/out.log",
-      merge_logs: true,
-      time: true,
-      autorestart: true,
-      max_restarts: 10,
-      min_uptime: "10s",
-      restart_delay: 4000,
-      env: {
-        NODE_ENV: "production"
-      }
-    }
-  ]
-}
-```
-
-**配置说明**：
-- `name` - 进程名称
-- `script` - 启动脚本（使用npm start）
-- `error_file` / `out_file` - 日志文件路径
-- `autorestart` - 自动重启
-- `max_restarts` - 最大重启次数
-- `restart_delay` - 重启延迟时间
 
 ### 环境变量详解
 

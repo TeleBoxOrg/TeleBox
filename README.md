@@ -373,7 +373,7 @@ abstract class Plugin {
 
 ```bash
 # 🚀 启动开发模式
-NODE_ENV=development tpm run dev
+npm run dev
 ```
 
 💡 _开发模式下使用_ `!` _和_ `！` _作为命令前缀_
