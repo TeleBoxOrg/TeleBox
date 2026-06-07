@@ -171,7 +171,9 @@ npm start
    ```
    [INFO] - [Signed in successfully as xxx]
    ```
-   > 🎉 看到此消息表示登录成功，按 `CTRL+C` 停止
+   > 🎉 看到此消息表示登录成功，TeleBox 正在运行
+   
+   > 💡 **接下来：** 现在可以在 Telegram 中向自己发送命令测试（如 `.help`），确认后按 `CTRL+C` 停止，然后继续步骤 6 进行生产环境部署
 
 </details>
 
@@ -234,6 +236,89 @@ pm2 reload telebox
 # 📋 查看所有进程
 pm2 list
 ```
+
+</details>
+
+---
+
+## 🔧 常见问题排查
+
+<details>
+<summary><b>❓ 登录问题</b></summary>
+
+**问题：无法获取验证码**
+- 确认手机号格式正确（需要包含国际区号，如 `+86`）
+- 检查 Telegram 账号是否正常
+- 尝试使用二维码登录方式（输入 `y`）
+
+**问题：API 凭据无效**
+- 确认从 [my.telegram.org](https://my.telegram.org) 正确复制了 `api_id` 和 `api_hash`
+- 检查 `config.json` 文件格式是否正确（JSON 格式）
+- 尝试使用 [TeleBox API频道](https://t.me/TeleBox_API) 提供的备用凭据
+
+**问题：代理连接失败**
+- 如需使用代理，在 `config.json` 中正确配置 `proxy` 字段：
+  ```json
+  {
+    "api_id": "your_api_id",
+    "api_hash": "your_api_hash",
+    "proxy": {
+      "ip": "127.0.0.1",
+      "port": 7890,
+      "socksType": 5
+    }
+  }
+  ```
+
+</details>
+
+<details>
+<summary><b>❓ 依赖安装问题</b></summary>
+
+**问题：`npm install` 失败**
+- 确认 Node.js 版本为 24.x：`node --version`
+- 清理缓存后重试：
+  ```bash
+  npm cache clean --force
+  rm -rf node_modules package-lock.json
+  npm install
+  ```
+
+**问题：原生模块编译失败（如 sharp、better-sqlite3）**
+- 确认已安装编译工具：
+  ```bash
+  # Debian/Ubuntu
+  sudo apt install -y build-essential python3
+  
+  # CentOS/RHEL
+  sudo yum groupinstall "Development Tools"
+  sudo yum install python3
+  ```
+
+**问题：网络超时**
+- 配置 npm 镜像源：
+  ```bash
+  npm config set registry https://registry.npmmirror.com
+  ```
+
+</details>
+
+<details>
+<summary><b>❓ 运行问题</b></summary>
+
+**问题：PM2 启动后立即退出**
+- 查看错误日志：`pm2 logs telebox --err`
+- 确认首次启动配置（步骤 5）已完成
+- 检查 `config.json` 和 `.env` 文件是否存在
+
+**问题：命令无响应**
+- 确认使用了正确的命令前缀（默认为 `.` 或 `。`）
+- 检查 PM2 进程状态：`pm2 status`
+- 查看实时日志：`pm2 logs telebox`
+
+**问题：权限不足**
+- 某些命令需要 sudo 权限，使用 `.sudo add <user_id>` 添加管理员
+- 获取自己的 user_id：`.id`
 
 </details>
 
