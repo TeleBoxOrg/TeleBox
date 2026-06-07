@@ -23,7 +23,10 @@
     "node": "24.x"
   },
   "overrides": {
-    "glob": "^11.0.0"
+    "glob": "^11.0.0",
+    "smartcrop-sharp": {
+      "sharp": "$sharp"
+    }
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
