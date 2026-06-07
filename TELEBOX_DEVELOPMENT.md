@@ -373,7 +373,7 @@ utils/* (工具模块)
 - **当前版本**: 0.2.8
 - **Node.js要求**: 24.x
 - **TypeScript版本**: ^5.9.2
-- **Telegram库版本**: ^1.223.1
+- **Telegram库版本**: ^1.225.4
 - **协议**: LGPL-2.1-only
 
 ## 🔌 插件系统
@@ -891,7 +891,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
   },
   "license": "LGPL-2.1-only",
   "dependencies": {
-    "teleproto": "^1.223.1",
+    "teleproto": "^1.225.4",
     "dotenv": "^17.2.2",
     "cron": "^4.3.3",
     "axios": "^1.11.0",
