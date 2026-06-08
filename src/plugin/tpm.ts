@@ -17,7 +17,7 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const MAX_MESSAGE_LENGTH = 4000;
 const PLUGINS_INDEX_URL =
-  "https://raw.githubusercontent.com/TeleBoxDev/TeleBox_Plugins/main/plugins.json";
+  "https://raw.githubusercontent.com/TeleBoxOrg/TeleBox_Plugins/main/plugins.json";
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RETRIES = 4;
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
