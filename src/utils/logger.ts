@@ -3,7 +3,7 @@ import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as path from "path";
 import dayjs from "dayjs";
 import util from "util";
-import { recordChannelGapFailure } from "@utils/channelGapBreaker";
+import { recordChannelGapFailure, isChannelCircuitBroken } from "@utils/channelGapBreaker";
 
 export enum LogLevel {
   DEBUG = 0,
@@ -230,6 +230,11 @@ class Logger {
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (this.isChannelGapFailure(msg)) {
         const channelId = this.extractChannelId(msg);
+        // Record failure and suppress logging entirely for circuit-broken channels
+        if (channelId) {
+          recordChannelGapFailure(channelId);
+          if (isChannelCircuitBroken(channelId)) return;
+        }
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
@@ -238,10 +243,6 @@ class Logger {
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
           }
-        }
-        // Circuit-breaker: track consecutive PTS failures per channel.
-        if (channelId) {
-          recordChannelGapFailure(channelId);
         }
         return;
       }
@@ -266,6 +267,11 @@ class Logger {
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (this.isChannelGapFailure(msg)) {
         const channelId = this.extractChannelId(msg);
+        // Record failure and suppress logging entirely for circuit-broken channels
+        if (channelId) {
+          recordChannelGapFailure(channelId);
+          if (isChannelCircuitBroken(channelId)) return;
+        }
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
@@ -274,10 +280,6 @@ class Logger {
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
           }
-        }
-        // Circuit-breaker for console.warn path too
-        if (channelId) {
-          recordChannelGapFailure(channelId);
         }
         return;
       }
@@ -292,6 +294,11 @@ class Logger {
       const msg = args.map(a => typeof a === 'string' ? a : (a instanceof Error ? a.message + ' ' + a.stack : (a?.message ? String(a.message) : ''))).join(' ');
       if (this.isChannelGapFailure(msg)) {
         const channelId = this.extractChannelId(msg);
+        // Record failure and suppress logging entirely for circuit-broken channels
+        if (channelId) {
+          recordChannelGapFailure(channelId);
+          if (isChannelCircuitBroken(channelId)) return;
+        }
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
@@ -300,10 +307,6 @@ class Logger {
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
           }
-        }
-        // Circuit-breaker for console.error path too
-        if (channelId) {
-          recordChannelGapFailure(channelId);
         }
         return;
       }
