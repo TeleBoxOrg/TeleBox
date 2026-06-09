@@ -2,14 +2,12 @@ import { Plugin } from "@utils/pluginBase";
 import { getGlobalClient } from "@utils/globalClient";
 import { getPrefixes } from "@utils/pluginManager";
 import { createDirectoryInAssets, createDirectoryInTemp } from "@utils/pathHelpers";
-import type { Message } from "@mtcute/node";
-import type { MessageContext } from "@mtcute/dispatcher";
-import { html } from "@mtcute/html-parser";
+import { Api } from "teleproto";
 import sharp from "sharp";
 import * as fs from "fs";
 import * as path from "path";
 import { JSONFilePreset } from "lowdb/node";
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+import { sleep } from "teleproto/Helpers";
 import { safeGetMessages } from "@utils/safeGetMessages";
 
 // 必需工具函数
@@ -76,7 +74,7 @@ class PicToStickerPlugin extends Plugin {
   private tempDir: string;
   private assetsDir: string;
   
-  cmdHandlers: Record<string, (msg: MessageContext) => Promise<void>> = {
+  cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     "pic_to_sticker": this.handlePicToSticker.bind(this),
     "pts": this.handlePicToSticker.bind(this),
   };
@@ -117,12 +115,13 @@ class PicToStickerPlugin extends Plugin {
     }
   }
 
-  private async handlePicToSticker(msg: MessageContext): Promise<void> {
+  private async handlePicToSticker(msg: Api.Message): Promise<void> {
     const client = await getGlobalClient();
     
     if (!client) {
       await msg.edit({
-        text: html`❌ <b>客户端未初始化</b>`,
+        text: "❌ 客户端未初始化",
+        parseMode: "html"
       });
       return;
     }
@@ -136,7 +135,7 @@ class PicToStickerPlugin extends Plugin {
     try {
       // 处理帮助命令
       if (sub === "help" || sub === "h") {
-        await msg.edit({ text: this.help_text });
+        await msg.edit({ text: this.help_text, parseMode: "html" });
         return;
       }
 
@@ -160,12 +159,13 @@ class PicToStickerPlugin extends Plugin {
     } catch (error: any) {
       console.error("[pic_to_sticker] 插件执行失败:", error);
       await msg.edit({
-        text: html`❌ <b>转换失败:</b> ${error.message || '未知错误'}`,
+        text: `❌ <b>转换失败:</b> ${htmlEscape(error.message || '未知错误')}`,
+        parseMode: "html"
       });
     }
   }
 
-  private async handleConfig(msg: MessageContext, args: string[]): Promise<void> {
+  private async handleConfig(msg: Api.Message, args: string[]): Promise<void> {
     const option = (args[0] || "").toLowerCase();
     const value = args[1] || "";
 
@@ -190,7 +190,7 @@ class PicToStickerPlugin extends Plugin {
 ` +
           `💡 使用 <code>${mainPrefix}pts config [选项] [值]</code> 修改配置`;
         
-        await msg.edit({ text: configDisplay });
+        await msg.edit({ text: configDisplay, parseMode: "html" });
         return;
       }
 
@@ -260,37 +260,39 @@ class PicToStickerPlugin extends Plugin {
         await this.saveConfig();
       }
 
-      await msg.edit({ text: message });
+      await msg.edit({ text: message, parseMode: "html" });
     } catch (error: any) {
       await msg.edit({
-        text: html`❌ <b>配置失败:</b> ${error.message}`,
+        text: `❌ <b>配置失败:</b> ${htmlEscape(error.message)}`,
+        parseMode: "html"
       });
     }
   }
 
-  private async handleBatchConvert(msg: MessageContext): Promise<void> {
+  private async handleBatchConvert(msg: Api.Message): Promise<void> {
     const client = await getGlobalClient();
     if (!client) return;
 
     try {
       // 检查是否回复了消息
-      if (!msg.replyToMessage || msg.replyToMessage.id == null) {
+      if (!msg.replyTo || !('replyToMsgId' in msg.replyTo)) {
         await msg.edit({
-          text: html`❌ <b>请回复包含图片的消息</b><br><br>使用方法:<br>1. 回复包含多张图片的消息<br>2. 发送 <code>${mainPrefix}pts batch</code>`,
+          text: `❌ <b>请回复包含图片的消息</b>\n\n使用方法:\n1. 回复包含多张图片的消息\n2. 发送 <code>${mainPrefix}pts batch</code>`,
+          parseMode: "html"
         });
         return;
       }
 
-      await msg.edit({ text: "🔄 正在批量处理图片..." });
+      await msg.edit({ text: "🔄 正在批量处理图片...", parseMode: "html" });
 
       // 获取回复的消息
-      const replyMsgId = msg.replyToMessage!.id!;
-      const messages = await safeGetMessages(client, msg.chat.id, {
+      const replyMsgId = msg.replyTo.replyToMsgId;
+      const messages = await safeGetMessages(client, msg.peerId!, {
         ids: [replyMsgId]
       } as any);
 
       if (!messages || messages.length === 0) {
-        await msg.edit({ text: "❌ 无法获取回复的消息" });
+        await msg.edit({ text: "❌ 无法获取回复的消息", parseMode: "html" });
         return;
       }
 
@@ -300,11 +302,18 @@ class PicToStickerPlugin extends Plugin {
 
       // 处理消息中的所有媒体
       if (targetMsg.media) {
-        if (targetMsg.media ?.type === 'photo') {
+        if (targetMsg.media instanceof Api.MessageMediaPhoto) {
           // 单张图片
           const result = await this.processImage(targetMsg, this.config.defaultEmoji);
           if (result) {
-            await client.sendMedia(msg.chat.id, { type: 'sticker', file: result.path }, { replyTo: msg.id });
+            await client.sendFile(msg.peerId!, {
+              file: result.path,
+              attributes: [new Api.DocumentAttributeSticker({
+                alt: this.config.defaultEmoji,
+                stickerset: new Api.InputStickerSetEmpty()
+              })],
+              replyTo: msg.id
+            });
             processedCount++;
             // 清理临时文件
             if (fs.existsSync(result.path)) {
@@ -315,17 +324,24 @@ class PicToStickerPlugin extends Plugin {
           }
         } else if ((targetMsg as any).groupedId) {
           // 媒体组（多张图片）
-          const groupMessages = await safeGetMessages(client, msg.chat.id, {
+          const groupMessages = await safeGetMessages(client, msg.peerId!, {
             limit: 10,
             offsetId: targetMsg.id
           } as any);
 
           for (const groupMsg of groupMessages) {
             if ((groupMsg as any).groupedId === (targetMsg as any).groupedId && 
-                groupMsg.media ?.type === 'photo') {
+                groupMsg.media instanceof Api.MessageMediaPhoto) {
               const result = await this.processImage(groupMsg, this.config.defaultEmoji);
               if (result) {
-                await client.sendMedia(msg.chat.id, { type: 'sticker', file: result.path }, { replyTo: msg.id });
+                await client.sendFile(msg.peerId!, {
+                  file: result.path,
+                  attributes: [new Api.DocumentAttributeSticker({
+                    alt: this.config.defaultEmoji,
+                    stickerset: new Api.InputStickerSetEmpty()
+                  })],
+                  replyTo: msg.id
+                });
                 processedCount++;
                 // 清理临时文件
                 if (fs.existsSync(result.path)) {
@@ -344,7 +360,7 @@ class PicToStickerPlugin extends Plugin {
         ? `✅ <b>批量转换完成</b>\n\n成功: ${processedCount} 张\n失败: ${failedCount} 张`
         : `❌ 未找到可转换的图片`;
 
-      await msg.edit({ text: resultMessage });
+      await msg.edit({ text: resultMessage, parseMode: "html" });
 
       if (this.config.autoDelete && processedCount > 0) {
         await sleep(3000);
@@ -353,22 +369,23 @@ class PicToStickerPlugin extends Plugin {
     } catch (error: any) {
       console.error("[pic_to_sticker] 批量转换失败:", error);
       await msg.edit({
-        text: html`❌ <b>批量转换失败:</b> ${error.message}`,
+        text: `❌ <b>批量转换失败:</b> ${htmlEscape(error.message)}`,
+        parseMode: "html"
       });
     }
   }
 
-  private async convertSingleImage(msg: MessageContext, emoji: string): Promise<void> {
+  private async convertSingleImage(msg: Api.Message, emoji: string): Promise<void> {
     const client = await getGlobalClient();
     if (!client) return;
 
     try {
-      let targetMsg: Message = msg;
+      let targetMsg = msg;
       
       // 检查是否回复了消息
-      if (msg.replyToMessage && msg.replyToMessage.id != null) {
-        const replyMsgId = msg.replyToMessage.id;
-        const messages = await safeGetMessages(client, msg.chat.id, {
+      if (msg.replyTo && 'replyToMsgId' in msg.replyTo && msg.replyTo.replyToMsgId) {
+        const replyMsgId = msg.replyTo.replyToMsgId;
+        const messages = await safeGetMessages(client, msg.peerId!, {
           ids: [replyMsgId]
         });
         
@@ -378,26 +395,36 @@ class PicToStickerPlugin extends Plugin {
       }
 
       // 检查是否有图片
-      if (!targetMsg.media || !(targetMsg.media ?.type === 'photo')) {
+      if (!targetMsg.media || !(targetMsg.media instanceof Api.MessageMediaPhoto)) {
         await msg.edit({
-          text: html`❌ <b>请回复包含图片的消息</b><br><br>使用方法：<br>1. 回复包含图片的消息<br>2. 发送 <code>${mainPrefix}pts</code> 或 <code>${mainPrefix}pts [表情]</code>`,
+          text: `❌ <b>请回复包含图片的消息</b>\n\n使用方法：\n1. 回复包含图片的消息\n2. 发送 <code>${mainPrefix}pts</code> 或 <code>${mainPrefix}pts [表情]</code>`,
+          parseMode: "html"
         });
         return;
       }
 
-      await msg.edit({ text: "🔍 正在分析图片..." });
+      await msg.edit({ text: "🔍 正在分析图片...", parseMode: "html" });
 
       // 处理图片
       const result = await this.processImage(targetMsg, emoji);
       if (!result) {
-        await msg.edit({ text: "❌ 图片处理失败" });
+        await msg.edit({ text: "❌ 图片处理失败", parseMode: "html" });
         return;
       }
 
-      await msg.edit({ text: "📤 正在发送贴纸..." });
+      await msg.edit({ text: "📤 正在发送贴纸...", parseMode: "html" });
 
       // 发送贴纸
-      await client.sendMedia(msg.chat.id, { type: 'sticker', file: result.path }, { replyTo: msg.id });
+      await client.sendFile(msg.peerId!, {
+        file: result.path,
+        attributes: [
+          new Api.DocumentAttributeSticker({
+            alt: emoji,
+            stickerset: new Api.InputStickerSetEmpty()
+          })
+        ],
+        replyTo: msg.id
+      });
 
       // 清理临时文件
       if (fs.existsSync(result.path)) {
@@ -408,7 +435,7 @@ class PicToStickerPlugin extends Plugin {
       if (this.config.autoDelete) {
         await msg.delete();
       } else {
-        await msg.edit({ text: `✅ 贴纸已发送 ${emoji}` });
+        await msg.edit({ text: `✅ 贴纸已发送 ${emoji}`, parseMode: "html" });
       }
 
     } catch (error: any) {
@@ -427,11 +454,11 @@ class PicToStickerPlugin extends Plugin {
         errorMsg = `❌ <b>请求过于频繁</b>\n\n请等待 ${waitTime} 秒后重试`;
       }
       
-      await msg.edit({ text: errorMsg });
+      await msg.edit({ text: errorMsg, parseMode: "html" });
     }
   }
 
-  private async processImage(msg: Message, emoji: string): Promise<{ path: string } | null> {
+  private async processImage(msg: Api.Message, emoji: string): Promise<{ path: string } | null> {
     const client = await getGlobalClient();
     if (!client || !msg.media) return null;
 
@@ -441,10 +468,11 @@ class PicToStickerPlugin extends Plugin {
       const stickerPath = path.join(this.tempDir, `sticker_${timestamp}_${Math.random().toString(36).substring(7)}.webp`);
 
       // 下载图片
-      const media = msg.media as unknown as import("@mtcute/node").FileLocation;
-      await client.downloadToFile(originalPath, media);
+      const buffer = await client.downloadMedia(msg.media, {
+        outputFile: originalPath
+      });
 
-      if (!fs.existsSync(originalPath)) {
+      if (!buffer || !fs.existsSync(originalPath)) {
         console.error("[pic_to_sticker] 下载失败");
         return null;
       }
