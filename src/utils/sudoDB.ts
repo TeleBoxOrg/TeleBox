@@ -75,6 +75,14 @@ class SudoDB {
   }
 
   /**
+   * 检查用户是否存在
+   */
+  public has(uid: number): boolean {
+    const row = this.db.prepare("SELECT 1 FROM users WHERE uid = ?").get(uid);
+    return !!row;
+  }
+
+  /**
    * 列出所有用户
    */
   public ls(): UserRecord[] {
