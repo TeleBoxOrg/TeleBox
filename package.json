@@ -64,7 +64,7 @@
     "smartcrop-sharp": "^2.0.8",
     "ssh2": "^1.15.0",
     "telegraf": "^4.16.3",
-    "teleproto": "^1.225.4",
+    "teleproto": "^1.227.0",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.4",
     "typescript": "^5.9.2"
