@@ -380,8 +380,14 @@ class Logger {
     // teleproto 1.225.x: "fetchChannelDifference 1680975844: ..."
     m = clean.match(/fetchChannelDifference (\d+)/);
     if (m) return m[1];
+    // teleproto 1.225.x alt: "error fetching difference for 1680975844: ..."
+    m = clean.match(/fetching difference for (\d+)/);
+    if (m) return m[1];
     // "Channel 1680975844 difference too long" (after ANSI strip)
     m = clean.match(/Channel (\d+)/);
+    if (m) return m[1];
+    // "WRN updates 1680975844" — channel ID at end of PTS error lines
+    m = clean.match(/updates (\d{8,})/);
     if (m) return m[1];
     // last-resort: any 8+ digit integer
     m = clean.match(/(\d{8,})/);
