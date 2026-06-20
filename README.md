@@ -317,7 +317,7 @@ abstract class Plugin {
 | :----------------: | :------------------: | :---------: |
 |   🚀 **运行时**    |       Node.js        |    `24.x`    |
 |  💎 **开发语言**   |      TypeScript      |   `^5.9.2`   |
-| 📡 **Telegram 库** |       Teleproto       |  `^1.225.4` |
+| 📡 **Telegram 库** |       Teleproto       |  `^1.227.0` |
 |   💾 **数据库**    |    better-sqlite3    |  `^12.2.0`   |
 |   💾 **数据库**    |        lowdb         |   `^7.0.1`   |
 |  ⚡ **构建工具**   | tsx + tsconfig-paths |  `^4.20.4`   |
