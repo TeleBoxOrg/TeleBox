@@ -42,27 +42,25 @@ async function telegramTcpPing(
   port: number = 80,
   timeout: number = 3000
 ): Promise<number> {
-  return new Promise(async (resolve) => {
-    try {
-      const socket = new PromisedNetSockets();
-      const start = performance.now();
+  const socket = new PromisedNetSockets();
+  try {
+    const start = performance.now();
 
-      // 设置超时
-      const timeoutId = setTimeout(() => {
-        socket.close();
-        resolve(-1);
-      }, timeout);
+    const result = await Promise.race<number>([
+      (async () => {
+        await socket.connect(port, hostname);
+        const end = performance.now();
+        return Math.round(end - start);
+      })(),
+      new Promise<number>((resolve) => setTimeout(() => resolve(-1), timeout)),
+    ]);
 
-      await socket.connect(port, hostname);
-      const end = performance.now();
-
-      clearTimeout(timeoutId);
-      await socket.close();
-      resolve(Math.round(end - start));
-    } catch (error) {
-      resolve(-1);
-    }
-  });
+    return result;
+  } catch {
+    return -1;
+  } finally {
+    try { await socket.close(); } catch { /* ignore close errors */ }
+  }
 }
 
 /**
