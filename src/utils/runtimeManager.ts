@@ -1,4 +1,4 @@
-import { TelegramClient } from "teleproto";
+import { TelegramClient, UpdateConnectionState } from "teleproto";
 import { StringSession } from "teleproto/sessions";
 import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
@@ -114,22 +114,17 @@ async function createClient(): Promise<TelegramClient> {
     console.log("使用代理连接 Telegram:", proxy);
   }
 
-  let connectionRetries = 5;
-  const envValue = process.env.TB_CONNECTION_RETRIES;
-  if (envValue) {
-    const parsed = Number(envValue);
-    connectionRetries = Number.isInteger(parsed) ? parsed : 5;
-  }
-
-  console.log(
-    `连接重试次数: ${connectionRetries}, 可使用环境变量 TB_CONNECTION_RETRIES 设置`
-  );
-
   const client = new TelegramClient(
     new StringSession(api.session),
     api.api_id!,
     api.api_hash!,
-    { connectionRetries, deviceModel: readAppName(), proxy }
+    {
+      connectionRetries: Infinity,
+      reconnectRetries: Infinity,
+      autoReconnect: true,
+      deviceModel: readAppName(),
+      proxy,
+    }
   );
   client.setLogLevel(logger.getGramJSLogLevel() as never);
   return client;
@@ -157,6 +152,42 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
     { label: "runtime:initialize-client-session" }
   );
   runtime.meId = sessionInfo.meId;
+
+  // Connection watchdog: if the underlying client reports disconnected and
+  // stays that way beyond the grace period, trigger a full runtime reload.
+  let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const DISCONNECT_RELOAD_DELAY_MS = 30_000;
+  client.addEventHandler((event: UpdateConnectionState) => {
+    if (event.state === UpdateConnectionState.disconnected) {
+      if (disconnectTimer) return; // already scheduled
+      console.log(`[RUNTIME] Client disconnected, scheduling reload in ${DISCONNECT_RELOAD_DELAY_MS / 1000}s...`);
+      disconnectTimer = setTimeout(async () => {
+        disconnectTimer = null;
+        if (runtime.state !== "running") return;
+        console.log("[RUNTIME] Disconnect grace period elapsed, triggering runtime reload...");
+        try {
+          await reloadRuntime();
+        } catch (err) {
+          console.error("[RUNTIME] Auto-reload on disconnect failed:", err);
+        }
+      }, DISCONNECT_RELOAD_DELAY_MS);
+    } else if (event.state === UpdateConnectionState.connected) {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+        console.log("[RUNTIME] Client reconnected before reload, canceling scheduled reload.");
+      }
+    }
+  }, new UpdateConnectionState({}));
+
+  // Register cleanup so the timer doesn't fire after destroy/shutdown.
+  context.addDisposable(() => {
+    if (disconnectTimer) {
+      clearTimeout(disconnectTimer);
+      disconnectTimer = null;
+    }
+  }, { label: "runtime:disconnect-timer-cleanup" });
+
   return runtime;
 }
 
