@@ -90,7 +90,7 @@ async function waitForMessage(
   const generation = options.lifecycle?.generation ?? getCurrentGeneration();
   const eventBuilder = new NewMessage({});
 
-  const task = new Promise<NewMessageEvent>(async (resolve, reject) => {
+  const task = new Promise<NewMessageEvent>((resolve, reject) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let removeListener: (() => void | Promise<void>) | undefined;
@@ -120,47 +120,49 @@ async function waitForMessage(
       settle(() => reject(abortError(getAbortedSignal(options.signals)?.reason)));
     };
 
-    try {
-      const entity = await client.getEntity(peer);
-      throwIfAborted(options.signals);
-      const peerId = getEntityId(entity);
+    void (async () => {
+      try {
+        const entity = await client.getEntity(peer);
+        throwIfAborted(options.signals);
+        const peerId = getEntityId(entity);
 
-      const listener = (event: NewMessageEvent) => {
-        if (settled) return;
-        if (generation !== getCurrentGeneration() || getAbortedSignal(options.signals)) {
+        const listener = (event: NewMessageEvent) => {
+          if (settled) return;
+          if (generation !== getCurrentGeneration() || getAbortedSignal(options.signals)) {
+            onAbort();
+            return;
+          }
+          const userId = getPeerUserId(event.message?.peerId);
+          if (userId?.equals(peerId)) {
+            settle(() => resolve(event));
+          }
+        };
+
+        client.addEventHandler(listener, eventBuilder);
+        const disposeListener = (): void => client.removeEventHandler(listener, eventBuilder);
+        removeListener = options.lifecycle
+          ? options.lifecycle.trackDisposable(disposeListener, {
+            label: "conversation-wait-message:handler",
+            kind: "handler",
+          })
+          : disposeListener;
+
+        options.signals.forEach((signal) => signal.addEventListener("abort", onAbort, { once: true }));
+        timer = options.lifecycle
+          ? options.lifecycle.setTimeout(() => {
+            settle(() => reject(new Error("等待 Bot 回复超时")));
+          }, options.timeout, { label: "conversation-wait-message:timeout" })
+          : setTimeout(() => {
+            settle(() => reject(new Error("等待 Bot 回复超时")));
+          }, options.timeout);
+
+        if (getAbortedSignal(options.signals)) {
           onAbort();
-          return;
         }
-        const userId = getPeerUserId(event.message?.peerId);
-        if (userId?.equals(peerId)) {
-          settle(() => resolve(event));
-        }
-      };
-
-      client.addEventHandler(listener, eventBuilder);
-      const disposeListener = (): void => client.removeEventHandler(listener, eventBuilder);
-      removeListener = options.lifecycle
-        ? options.lifecycle.trackDisposable(disposeListener, {
-          label: "conversation-wait-message:handler",
-          kind: "handler",
-        })
-        : disposeListener;
-
-      options.signals.forEach((signal) => signal.addEventListener("abort", onAbort, { once: true }));
-      timer = options.lifecycle
-        ? options.lifecycle.setTimeout(() => {
-          settle(() => reject(new Error("等待 Bot 回复超时")));
-        }, options.timeout, { label: "conversation-wait-message:timeout" })
-        : setTimeout(() => {
-          settle(() => reject(new Error("等待 Bot 回复超时")));
-        }, options.timeout);
-
-      if (getAbortedSignal(options.signals)) {
-        onAbort();
+      } catch (error) {
+        settle(() => reject(error));
       }
-    } catch (error) {
-      settle(() => reject(error));
-    }
+    })();
   });
 
   return options.lifecycle
