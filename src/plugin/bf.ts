@@ -690,11 +690,11 @@ class BfPlugin extends Plugin {
         try {
           const pluginManager = require("@utils/pluginManager");
           if (pluginManager.loadPlugins) {
-            await pluginManager.loadPlugins();
             await msg.edit({
               text: "✅ 恢复完成并已重载插件",
               parseMode: "html",
             });
+            await pluginManager.loadPlugins();
           } else {
             await msg.edit({
               text: "✅ 恢复完成，请重启程序",

@@ -103,13 +103,13 @@ class PrefixPlugin extends Plugin {
       } catch (e) {
         persisted = false;
       }
-      await loadPlugins();
       await msg.edit({
         text: `✅ 已设置前缀: ${uniq
           .map((p) => `<code>${htmlEscape(p)}</code>`)
           .join(" • ")} ${persisted ? "(已写入 .env)" : "(.env 写入失败, 仅本次生效)"}`,
         parseMode: "html",
       });
+      await loadPlugins();
     },
   };
 }

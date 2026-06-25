@@ -74,9 +74,9 @@ async function setAlias(args: string[], msg: Api.Message) {
   db.set(final, original);
   db.close();
 
-  await loadPlugins();
-
   await msg.edit({ text: `插件命令重命名成功，${final} -> ${original}` });
+
+  await loadPlugins();
 }
 
 async function delAlias(args: string[], msg: Api.Message) {
