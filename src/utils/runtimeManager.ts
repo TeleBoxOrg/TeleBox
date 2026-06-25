@@ -1,4 +1,5 @@
-import { TelegramClient, UpdateConnectionState } from "teleproto";
+import { TelegramClient, events } from "teleproto";
+import { UpdateConnectionState } from "teleproto/network";
 import { StringSession } from "teleproto/sessions";
 import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
@@ -157,7 +158,9 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
   // stays that way beyond the grace period, trigger a full runtime reload.
   let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const DISCONNECT_RELOAD_DELAY_MS = 30_000;
-  client.addEventHandler((event: UpdateConnectionState) => {
+  client.addEventHandler((event: any) => {
+    // Filter: only handle UpdateConnectionState events
+    if (!(event instanceof UpdateConnectionState)) return;
     if (event.state === UpdateConnectionState.disconnected) {
       if (disconnectTimer) return; // already scheduled
       console.log(`[RUNTIME] Client disconnected, scheduling reload in ${DISCONNECT_RELOAD_DELAY_MS / 1000}s...`);
@@ -178,10 +181,10 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
         console.log("[RUNTIME] Client reconnected before reload, canceling scheduled reload.");
       }
     }
-  }, new UpdateConnectionState({}));
+  }, new events.Raw({}));
 
   // Register cleanup so the timer doesn't fire after destroy/shutdown.
-  context.addDisposable(() => {
+  context.trackDisposable(() => {
     if (disconnectTimer) {
       clearTimeout(disconnectTimer);
       disconnectTimer = null;
