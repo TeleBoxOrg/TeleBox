@@ -701,7 +701,8 @@ class BfPlugin extends Plugin {
               parseMode: "html",
             });
           }
-        } catch {
+        } catch (reloadErr) {
+          console.error("Failed to reload plugins after restore:", reloadErr);
           await msg.edit({
             text: "✅ 恢复完成，请重启程序",
             parseMode: "html",
