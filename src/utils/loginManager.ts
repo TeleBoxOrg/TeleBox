@@ -249,11 +249,15 @@ function delay(ms: number, lifecycle?: GenerationContext, label = "login:delay")
 async function resetBrokenSession(client: TelegramClient): Promise<void> {
   try {
     await client.disconnect();
-  } catch {}
+  } catch (e) {
+    console.warn("[LOGIN] disconnect() error during session reset:", e);
+  }
 
   try {
     await client.destroy();
-  } catch {}
+  } catch (e) {
+    console.warn("[LOGIN] destroy() error during session reset:", e);
+  }
 
   (client.session as StringSession).delete();
   storeStringSession("");

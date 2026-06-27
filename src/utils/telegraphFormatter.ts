@@ -118,7 +118,9 @@ const sanitizeUrl = (url: string): string => {
   try {
     const u = new URL(url);
     if (u.protocol === "http:" || u.protocol === "https:") return u.toString();
-  } catch {}
+  } catch {
+    // Invalid URL or non-http protocol — return empty string as safe fallback
+  }
   return "";
 };
 
