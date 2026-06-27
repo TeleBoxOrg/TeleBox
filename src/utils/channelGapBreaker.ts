@@ -57,6 +57,18 @@ interface FailureRecord {
 
 const channelFailures = new Map<string, FailureRecord>();
 
+/**
+ * Maximum number of channel records to track. If exceeded, oldest inactive
+ * records are evicted to prevent unbounded memory growth over long uptimes.
+ */
+const MAX_TRACKED_CHANNELS = 500;
+
+/**
+ * Minimum age (ms) before a record with no active failures can be evicted.
+ * Only entries that have been inactive for at least this long are candidates.
+ */
+const EVICTION_MIN_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
+
 // --- Public API --------------------------------------------------------------
 
 /**
@@ -68,6 +80,12 @@ const channelFailures = new Map<string, FailureRecord>();
  */
 export function recordChannelGapFailure(channelId: string): void {
   const now = Date.now();
+
+  // Evict stale entries if the map grows too large
+  if (channelFailures.size >= MAX_TRACKED_CHANNELS) {
+    evictStaleRecords(now);
+  }
+
   let record = channelFailures.get(channelId);
 
   if (!record) {
@@ -116,6 +134,32 @@ export function isChannelCircuitBroken(channelId: string): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Evict stale channel records to bound memory usage. Removes entries that
+ * have no active failures and have been idle for EVICTION_MIN_AGE_MS.
+ * Records with active circuit-breaks or recent failures are never evicted.
+ */
+function evictStaleRecords(now: number): void {
+  for (const [channelId, record] of channelFailures) {
+    const hasActiveFailures = record.timestamps.some((t) => now - t < FAILURE_WINDOW_MS);
+    const isCircuitBroken = record.brokenAt !== null && now - record.brokenAt < getEffectiveCooldown(record.breakCount);
+
+    // Determine last activity: prefer brokenAt, then latest timestamp.
+    // If no failures ever recorded (brand-new record), lastActivity = 0 → not stale.
+    const lastActivity = record.brokenAt
+      ? record.brokenAt
+      : (record.timestamps[record.timestamps.length - 1] ?? 0);
+
+    // Only evict if the record has seen at least one failure in its lifetime
+    // and has been idle for the minimum age.
+    const isStale = lastActivity > 0 && now - lastActivity >= EVICTION_MIN_AGE_MS;
+
+    if (!hasActiveFailures && !isCircuitBroken && isStale) {
+      channelFailures.delete(channelId);
+    }
+  }
 }
 
 // --- Internal ----------------------------------------------------------------
