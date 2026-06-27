@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node scripts/run-tsx.cjs ./src/index.ts",
     "tpm": "node scripts/run-tsx.cjs ./src/plugin/tpm.ts",
-    "dev": "NODE_ENV=development node scripts/run-tsx.cjs ./src/index.ts"
+    "dev": "NODE_ENV=development node scripts/run-tsx.cjs ./src/index.ts",
+    "leech:smoke": "node scripts/run-tsx.cjs ./scripts/leech-smoke.ts"
   },
   "repository": {
     "type": "git",
