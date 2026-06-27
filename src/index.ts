@@ -12,6 +12,8 @@ import "./hook/patches/telegram.patch";
 process.on("unhandledRejection", (reason: unknown) => {
   const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
   console.error(`[FATAL] Unhandled promise rejection: ${message}`);
+  // Exit so PM2 can restart with a clean state rather than running in a broken state
+  process.exit(1);
 });
 
 process.on("uncaughtException", (error: Error) => {
@@ -21,7 +23,13 @@ process.on("uncaughtException", (error: Error) => {
 });
 
 async function run() {
-  await startRuntime();
+  try {
+    await startRuntime();
+  } catch (error) {
+    const message = error instanceof Error ? error.stack || error.message : String(error);
+    console.error(`[FATAL] Runtime failed to start: ${message}`);
+    process.exit(1);
+  }
 }
 
 run();
