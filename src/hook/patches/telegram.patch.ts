@@ -1,7 +1,6 @@
 import { Api } from "teleproto/tl";
 import { sleep } from "teleproto/Helpers";
-
-const { HTMLParser } = require("teleproto/extensions/html");
+import { HTMLParser } from "teleproto/extensions/html";
 
 const ENTITY_SENTINELS = {
   lt: "\uE000",
