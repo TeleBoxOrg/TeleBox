@@ -42,6 +42,23 @@ class Logger {
   // Key: error pattern (e.g., channel ID), Value: last log timestamp
   private static downgradeLastLogged: Map<string, number> = new Map();
   private static readonly DOWNGRADE_LOG_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  private static readonly DOWNGRADE_MAX_ENTRIES = 200;
+  private static readonly DOWNGRADE_EVICT_BATCH = 50; // evict this many oldest when over limit
+
+  /**
+   * Evict oldest entries from downgradeLastLogged when it exceeds the max size.
+   * Uses insertion-order iteration (Map preserves insertion order) to remove oldest first.
+   */
+  private static evictDowngradeLog(): void {
+    const entries = Logger.downgradeLastLogged;
+    if (entries.size <= Logger.DOWNGRADE_MAX_ENTRIES) return;
+    let evicted = 0;
+    for (const key of entries.keys()) {
+      entries.delete(key);
+      evicted++;
+      if (evicted >= Logger.DOWNGRADE_EVICT_BATCH) break;
+    }
+  }
 
   private static originalDebug = console.debug;
   private static originalLog = console.log;
@@ -239,6 +256,7 @@ class Logger {
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
         if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
+          Logger.evictDowngradeLog();
           Logger.downgradeLastLogged.set(rateKey, now);
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
@@ -276,6 +294,7 @@ class Logger {
         const now = Date.now();
         const lastLogged = Logger.downgradeLastLogged.get(rateKey) || 0;
         if (now - lastLogged >= Logger.DOWNGRADE_LOG_INTERVAL_MS) {
+          Logger.evictDowngradeLog();
           Logger.downgradeLastLogged.set(rateKey, now);
           if (this.level <= LogLevel.WARNING) {
             Logger.originalLog(this.formatLog("WARN ", args, true));
