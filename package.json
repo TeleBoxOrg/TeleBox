@@ -66,7 +66,7 @@
     "telegraf": "^4.16.3",
     "teleproto": "^1.227.1",
     "tsconfig-paths": "^4.2.0",
-    "tsx": "^4.20.4",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "tsx": "^4.22.4"
   }
 }
