@@ -1,6 +1,7 @@
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
+import type { EntityLike } from "teleproto/define";
 import { createDirectoryInTemp, createDirectoryInAssets } from "@utils/pathHelpers";
 import fs from "fs";
 import path from "path";
@@ -32,7 +33,7 @@ const pendingExitTimers = new Set<ReturnType<typeof setTimeout>>();
 
 async function updateReloadStatus(params: {
   client: Api.Message["client"];
-  targetChat: any;
+  targetChat: EntityLike | number | string;
   targetMessageId: number;
   text: string;
   parseMode?: "html";
@@ -189,7 +190,7 @@ const editExitMsg = async () => {
     const { messageId, chatId, time, successText, parseMode } = JSON.parse(data);
     const client = await getGlobalClient();
     if (client) {
-      let targetChat: any = chatId;
+      let targetChat: EntityLike | number | string = chatId;
       try {
         targetChat = await client.getEntity(chatId);
       } catch (innerE) {
