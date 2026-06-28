@@ -7,19 +7,18 @@ import "./hook/patches/telegram.patch";
 // patchMsgEdit();
 
 // Global error handlers to prevent unhandled rejections and exceptions
-// from crashing the process silently. These log the error and let PM2
-// restart if needed, rather than losing all context.
+// from crashing the process silently. These log the error for debugging.
+// Note: We intentionally do NOT call process.exit() here — exiting on every
+// unhandled rejection is too aggressive for a production bot with 120+ plugins
+// where a single missing .catch() would crash the entire process. PM2's own
+// restart strategy handles actual fatal crashes.
 process.on("unhandledRejection", (reason: unknown) => {
   const message = reason instanceof Error ? reason.stack || reason.message : String(reason);
-  console.error(`[FATAL] Unhandled promise rejection: ${message}`);
-  // Exit so PM2 can restart with a clean state rather than running in a broken state
-  process.exit(1);
+  console.error(`[WARN] Unhandled promise rejection: ${message}`);
 });
 
 process.on("uncaughtException", (error: Error) => {
-  console.error(`[FATAL] Uncaught exception: ${error.stack || error.message}`);
-  // Exit after logging so PM2 can restart cleanly
-  process.exit(1);
+  console.error(`[ERROR] Uncaught exception: ${error.stack || error.message}`);
 });
 
 async function run() {
