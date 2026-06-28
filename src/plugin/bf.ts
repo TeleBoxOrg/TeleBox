@@ -514,18 +514,25 @@ class BfPlugin extends Plugin {
 
                   let tarError = "";
                   let gzipError = "";
+                  let settled = false;
                   tar.stderr.on("data", (d) => (tarError += d.toString()));
                   gzip.stderr.on("data", (d) => (gzipError += d.toString()));
 
-                  output.on("finish", () => resolve());
-                  output.on("error", reject);
-                  tar.on("error", reject);
-                  gzip.on("error", reject);
+                  const finish = (callback: () => void): void => {
+                    if (settled) return;
+                    settled = true;
+                    callback();
+                  };
+
+                  output.on("finish", () => finish(() => resolve()));
+                  output.on("error", (err) => finish(() => reject(err)));
+                  tar.on("error", () => finish(() => reject(new Error(`tar process error: ${tarError}`))));
+                  gzip.on("error", () => finish(() => reject(new Error(`gzip process error: ${gzipError}`))));
                   tar.on("close", (code) => {
-                    if (code !== 0) reject(new Error(`tar: ${tarError || code}`));
+                    if (code !== 0) finish(() => reject(new Error(`tar exited with code ${code}: ${tarError}`)));
                   });
                   gzip.on("close", (code) => {
-                    if (code !== 0) reject(new Error(`gzip: ${gzipError || code}`));
+                    if (code !== 0) finish(() => reject(new Error(`gzip exited with code ${code}: ${gzipError}`)));
                   });
                   throwIfAborted(lifecycle);
               }),
