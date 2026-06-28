@@ -158,7 +158,7 @@ async function buildRuntime(): Promise<TeleBoxRuntime> {
   // stays that way beyond the grace period, trigger a full runtime reload.
   let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
   const DISCONNECT_RELOAD_DELAY_MS = 30_000;
-  client.addEventHandler((event: any) => {
+  client.addEventHandler((event) => {
     // Filter: only handle UpdateConnectionState events
     if (!(event instanceof UpdateConnectionState)) return;
     if (event.state === UpdateConnectionState.disconnected) {
