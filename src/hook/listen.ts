@@ -2,7 +2,7 @@ import { Api } from "teleproto";
 import { EditMessageParams } from "teleproto/client/messages";
 import { SudoDB } from "@utils/sudoDB";
 
-function checkIfSenderIdFromSudoUser(msg: Api.Message, uid: Number): Boolean {
+function checkIfSenderIdFromSudoUser(msg: Api.Message, uid: number): boolean {
   const sudoDB = new SudoDB();
   const list = sudoDB.ls();
   sudoDB.close();
