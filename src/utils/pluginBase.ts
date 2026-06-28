@@ -24,9 +24,18 @@ type PluginEventHandler = {
   handler: (event: unknown) => Promise<void>;
 };
 
-const cmdIgnoreEdited = !!JSON.parse(
-  process.env.TB_CMD_IGNORE_EDITED || "true"
-);
+let cmdIgnoreEdited = true;
+try {
+  const raw = process.env.TB_CMD_IGNORE_EDITED;
+  if (raw !== undefined && raw !== "") {
+    cmdIgnoreEdited = !!JSON.parse(raw);
+  }
+} catch {
+  console.warn(
+    `[CMD_IGNORE_EDITED] 环境变量 TB_CMD_IGNORE_EDITED 不是有效 JSON 值，使用默认值 true。` +
+      `收到的值: "${process.env.TB_CMD_IGNORE_EDITED}"`
+  );
+}
 console.log(
   `[CMD_IGNORE_EDITED] 命令监听忽略编辑的消息: ${cmdIgnoreEdited} (可使用环境变量 TB_CMD_IGNORE_EDITED 覆盖)`
 );
