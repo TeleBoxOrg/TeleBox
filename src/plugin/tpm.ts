@@ -262,7 +262,11 @@ async function getDatabase() {
 
 async function getMediaFileName(msg: any): Promise<string> {
   const metadata = msg.media as any;
-  return metadata.document.attributes[0].fileName;
+  const attributes = metadata?.document?.attributes;
+  if (!attributes || attributes.length === 0) {
+    throw new Error("Message media has no document attributes");
+  }
+  return attributes[0].fileName;
 }
 
 function normalizeGithubUrl(input: string): string {
