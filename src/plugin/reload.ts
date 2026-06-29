@@ -212,7 +212,7 @@ const editExitMsg = async () => {
 };
 
 if (fs.existsSync(exitFile)) {
-  editExitMsg();
+  editExitMsg().catch((e) => console.error("Failed to handle exit message on startup:", e));
 }
 
 export async function executeExit(
