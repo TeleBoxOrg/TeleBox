@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { logger } from "@utils/logger"; // 引入 logger 以便尽早初始化
-import { startRuntime } from "@utils/runtimeManager";
+import { startRuntime, shutdownRuntime } from "@utils/runtimeManager";
 import "./hook/patches/telegram.patch";
 
 // patchMsgEdit();
@@ -19,6 +19,26 @@ process.on("unhandledRejection", (reason: unknown) => {
 process.on("uncaughtException", (error: Error) => {
   console.error(`[ERROR] Uncaught exception: ${error.stack || error.message}`);
 });
+
+// Graceful shutdown: when PM2 sends SIGTERM (or systemd, docker stop, etc.),
+// trigger the runtime's dispose chain so plugins can clean up resources
+// (timers, listeners, child processes, temp files) before the process exits.
+let shutdownInProgress = false;
+async function gracefulShutdown(signal: string): Promise<void> {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+  console.log(`[SHUTDOWN] Received ${signal}, shutting down gracefully...`);
+  try {
+    await shutdownRuntime();
+    console.log("[SHUTDOWN] Runtime shutdown complete.");
+  } catch (error) {
+    console.error("[SHUTDOWN] Error during shutdown:", error);
+  }
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
 
 async function run() {
   try {
