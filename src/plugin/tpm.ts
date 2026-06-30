@@ -1183,7 +1183,9 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
         try {
           const stat = fs.statSync(filePath);
           mtime = stat.mtime.toLocaleString("zh-CN");
-        } catch {}
+        } catch (statErr) {
+          console.debug(`[tpm] stat 失败于 ${name}: ${String(statErr)}`);
+        }
         localLinesVerbose.push(`${nameTag} 🗄 ${mtime}`);
       } else {
         localLinesSimple.push(nameTag);
