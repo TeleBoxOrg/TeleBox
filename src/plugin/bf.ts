@@ -233,7 +233,9 @@ async function createBackup(
     // 清理临时目录
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
-    } catch {}
+    } catch (cleanupErr) {
+      console.warn(`[bf] 临时目录清理失败: ${String(cleanupErr)}`);
+    }
   }
 }
 
@@ -577,30 +579,41 @@ class BfPlugin extends Plugin {
             : savedTargets.length > 0
             ? savedTargets
             : ["me"];
-        const destDisplays = [];
+        // Resolve all display names first, then send in parallel
+        const destEntries = await Promise.all(
+          destinations.map(async (dest) => {
+            const { display } = await formatEntity(dest);
+            return { dest, display };
+          }),
+        );
+        const destDisplays = destEntries.map((e) => e.display);
 
-        for (const dest of destinations) {
-          const { display } = await formatEntity(dest);
-          destDisplays.push(display);
-          try {
-            await client.sendFile(dest, {
-              file: backupPath,
-              caption,
-              forceDocument: true,
-              parseMode: "html",
-            });
-          } catch (err) {
-            console.error(`发送到 ${dest} 失败:`, err);
-            if (dest !== "me") {
-              await client.sendFile("me", {
+        await Promise.all(
+          destEntries.map(async ({ dest }) => {
+            try {
+              await client.sendFile(dest, {
                 file: backupPath,
-                caption: `⚠️ 发送到 ${dest} 失败\n\n${caption}`,
+                caption,
                 forceDocument: true,
                 parseMode: "html",
               });
+            } catch (err) {
+              console.error(`发送到 ${dest} 失败:`, err);
+              if (dest !== "me") {
+                try {
+                  await client.sendFile("me", {
+                    file: backupPath,
+                    caption: `⚠️ 发送到 ${dest} 失败\n\n${caption}`,
+                    forceDocument: true,
+                    parseMode: "html",
+                  });
+                } catch (fallbackErr) {
+                  console.error(`备份回退发送到 me 也失败:`, fallbackErr);
+                }
+              }
             }
-          }
-        }
+          }),
+        );
 
         const backupTypeDisplay = cmd === "all" ? "全量备份" : "备份";
         const contentDisplay = cmd === "all" 
@@ -629,7 +642,9 @@ class BfPlugin extends Plugin {
           for (const f of tempFiles) {
             fs.unlinkSync(path.join(os.tmpdir(), f));
           }
-        } catch {}
+        } catch (cleanupErr) {
+          console.warn(`[bf] 临时备份文件清理失败: ${String(cleanupErr)}`);
+        }
       }
     },
 
@@ -701,7 +716,9 @@ class BfPlugin extends Plugin {
         try {
           fs.unlinkSync(tempPath);
           fs.rmSync(extractPath, { recursive: true, force: true });
-        } catch {}
+        } catch (cleanupErr) {
+          console.warn(`[bf] 恢复后: ${String(cleanupErr)}`);
+        }
 
         // 尝试重载插件
         try {
