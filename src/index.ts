@@ -37,8 +37,18 @@ async function gracefulShutdown(signal: string): Promise<void> {
   process.exit(0);
 }
 
-process.on("SIGTERM", () => void gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => void gracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => {
+  gracefulShutdown("SIGTERM").catch((err: unknown) => {
+    console.error("[SHUTDOWN] Unhandled error during SIGTERM handler:", err);
+    process.exit(1);
+  });
+});
+process.on("SIGINT", () => {
+  gracefulShutdown("SIGINT").catch((err: unknown) => {
+    console.error("[SHUTDOWN] Unhandled error during SIGINT handler:", err);
+    process.exit(1);
+  });
+});
 
 async function run() {
   try {
