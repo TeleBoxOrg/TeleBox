@@ -16,7 +16,7 @@
 | Project version / 项目版本 | `telebox@0.2.8` |
 | License | `LGPL-2.1-only` |
 | Node requirement / Node 要求 | `24.x` |
-| Telegram client lib / Telegram 客户端库 | `teleproto ^1.227.0` |
+| Telegram client lib / Telegram 客户端库 | `teleproto ^1.227.1` |
 
 ## 1. Architecture Summary / 一句话架构
 
