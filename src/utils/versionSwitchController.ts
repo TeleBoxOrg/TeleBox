@@ -171,6 +171,7 @@ async function main(): Promise<void> {
   const { install } = matchPlugins(sourceInstalled, sourceIndex, targetIndex);
 
   console.log(`[controller] Installing ${install.length} matched plugins to ${target}...`);
+  const txId = state.pendingTransaction ?? String(Date.now());
   const backupRoot = path.join(DEFAULT_SWITCH_HOME, "backups", txId);
   let pluginJournal: InstalledPluginJournal | null = null;
   let dataJournal: PluginDataJournal | null = null;
