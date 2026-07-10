@@ -72,7 +72,7 @@ export async function loginForSwitch(): Promise<void> {
   let me: { id?: unknown };
   try {
     me = await client.start({
-      phoneNumber: phone,
+      phoneNumber: async () => phone,
       phoneCode: async () => code,
       password: password
         ? async () => password
