@@ -100,7 +100,7 @@ export async function loginForSwitch(): Promise<void> {
 
   try {
     console.error("[switch:teleproto] Connecting and requesting auth code (auth.sendCode)...");
-    const me = await client.start({
+    await client.start({
       phoneNumber: async () => phone,
       phoneCode: async () => pollForSecret("code"),
       password: async () => {
@@ -118,6 +118,7 @@ export async function loginForSwitch(): Promise<void> {
     fs.writeFileSync(sessionFile, sessionStr, { mode: 0o600 });
     console.error(`[switch:teleproto] Session saved to ${sessionFile}`);
 
+    const me = await client.getMe();
     const userId = me && typeof me === "object" && "id" in me ? String((me as { id: unknown }).id) : undefined;
     if (!userId) throw new Error("Login succeeded but user ID is missing");
     if (userId !== pending.expectedUserId) {
