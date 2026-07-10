@@ -2340,10 +2340,10 @@ function helpText(scope, displayName = "") {
       ]
     ]),
     menuSection("\u914D\u7F6E AI \u6A21\u578B", [
-      [`${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B>]`, "\u6DFB\u52A0/\u66F4\u65B0\u4F9B\u5E94\u5546\uFF0C\u914D\u7F6E\u683C\u5F0F\u4E0E ai \u63D2\u4EF6\u5B8C\u5168\u4E00\u81F4\uFF1Aproviders[\u540D\u79F0]={base_url,api_key,model,type}\u3001\u5F53\u524D\u4F9B\u5E94\u5546=default_provider"],
-      [`${prefix} ai use <\u540D\u79F0>`, "\u5207\u6362\u5F53\u524D\u4F7F\u7528\u7684\u4F9B\u5E94\u5546"],
-      [`${prefix} ai del <\u540D\u79F0>`, "\u5220\u9664\u4F9B\u5E94\u5546"],
-      [`${prefix} ai list`, "\u5217\u51FA\u6240\u6709\u4F9B\u5E94\u5546\u5E76\u6807\u6CE8\u5F53\u524D"],
+      [`${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B>]`, "\u6DFB\u52A0/\u66F4\u65B0\u4F9B\u5E94\u5546\uFF08ai \u4EA6\u53EF\uFF09\uFF0C\u914D\u7F6E\u683C\u5F0F\u4E0E ai \u63D2\u4EF6\u5B8C\u5168\u4E00\u81F4\uFF1Aproviders[\u540D\u79F0]={base_url,api_key,model,type}\u3001\u5F53\u524D\u4F9B\u5E94\u5546=default_provider"],
+      [`${prefix} config use <\u540D\u79F0>`, "\u5207\u6362\u5F53\u524D\u4F7F\u7528\u7684\u4F9B\u5E94\u5546"],
+      [`${prefix} config del <\u540D\u79F0>`, "\u5220\u9664\u4F9B\u5E94\u5546"],
+      [`${prefix} config list`, "\u5217\u51FA\u6240\u6709\u4F9B\u5E94\u5546\u5E76\u6807\u6CE8\u5F53\u524D"],
       [`${prefix} config`, "\u67E5\u770B\u5F53\u524D\u6A21\u578B\u4E0E\u8FD0\u884C\u914D\u7F6E"]
     ]),
     tgBold("\u8DEF\u5F84"),
@@ -2430,7 +2430,7 @@ var AgentPlugin = class extends Plugin {
       const [modeRaw, ...rest] = body.split(/\s+/g);
       const mode = modeRaw.toLowerCase();
       const value = rest.join(" ").trim();
-      if (SUBCOMMANDS.config.has(mode)) return await this.showConfig(msg, scope);
+      if (SUBCOMMANDS.config.has(mode)) return await this.handleConfig(msg, scope, value);
       if (SUBCOMMANDS.commands.has(mode)) return await this.showCommands(msg);
       if (SUBCOMMANDS.name.has(mode)) return await this.setName(msg, value);
       if (SUBCOMMANDS.steps.has(mode)) return await this.setSteps(msg, scope, value);
@@ -2442,7 +2442,7 @@ var AgentPlugin = class extends Plugin {
       if (SUBCOMMANDS.workspace.has(mode)) return await this.workspaceCommand(msg, scope, value);
       if (SUBCOMMANDS.files.has(mode)) return await this.listWorkspace(msg, scope, value);
       if (SUBCOMMANDS.deleteFile.has(mode)) return await this.deleteWorkspaceFile(msg, scope, value);
-      if (SUBCOMMANDS.ai.has(mode)) return await this.handleAi(msg, scope, value);
+      if (SUBCOMMANDS.ai.has(mode)) return await this.handleConfig(msg, scope, value);
       if (scope === "telebox" && SUBCOMMANDS.runPlugin.has(mode)) {
         if (!value) throw new Error(`\u7528\u6CD5\uFF1A${mainPrefix}agent run <\u63D2\u4EF6\u547D\u4EE4>`);
         const output = await dispatchPluginCaptured(msg, value);
@@ -2488,7 +2488,7 @@ var AgentPlugin = class extends Plugin {
         [
           tgBold(displayName ? `${displayName} \u8FD8\u6CA1\u6709\u914D\u597D\u6A21\u578B` : "\u8FD8\u6CA1\u6709\u914D\u597D\u6A21\u578B"),
           tgHtmlBlockquote(
-            `\u8BF7\u5148\u7528 ${tgCode(`${scopeCommand(options.scope)} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B>`)} \u6DFB\u52A0\u4F9B\u5E94\u5546\uFF0C\u518D\u8BD5 ${tgCode(scopeCommand(options.scope) + " <\u9700\u6C42>")}\u3002\n\u67E5\u770B\u5DF2\u6709\u4F9B\u5E94\u5546\uFF1A${tgCode(`${scopeCommand(options.scope)} ai list`)}`
+            `\u8BF7\u5148\u7528 ${tgCode(`${scopeCommand(options.scope)} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B>`)} \u6DFB\u52A0\u4F9B\u5E94\u5546\uFF0C\u518D\u8BD5 ${tgCode(scopeCommand(options.scope) + " <\u9700\u6C42>")}\u3002\n\u67E5\u770B\u5DF2\u6709\u4F9B\u5E94\u5546\uFF1A${tgCode(`${scopeCommand(options.scope)} config list`)}`
           )
         ].join("\n")
       );
@@ -2591,7 +2591,14 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       )
     );
   }
-  async handleAi(msg, scope, value) {
+  async handleConfig(msg, scope, value) {
+    const body = String(value || "").trim();
+    const sub = body.split(/\s+/g).filter(Boolean)[0]?.toLowerCase();
+    const isAiAction = sub === "set" || sub === "add" || sub === "use" || sub === "switch" || sub === "del" || sub === "delete" || sub === "rm" || sub === "list";
+    if (isAiAction) return await this.handleConfigAi(msg, scope, value);
+    return await this.showConfig(msg, scope);
+  }
+  async handleConfigAi(msg, scope, value) {
     const parts = String(value || "").trim().split(/\s+/g).filter(Boolean);
     const sub = (parts.shift() || "list").toLowerCase();
     const prefix = scopeCommand(scope);
@@ -2599,7 +2606,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       if (sub === "set" || sub === "add") {
         const [name, baseUrl, apiKey, model, iface] = parts;
         if (!name || !baseUrl || !apiKey || !model) {
-          throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B]\u3002\u7C7B\u578B\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / gemini / anthropic`);
+          throw new Error(`\u7528\u6CD5\uFF1A${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B]\u3002\u7C7B\u578B\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / gemini / anthropic`);
         }
         await setProvider(name, {
           base_url: baseUrl.replace(/\/+$/, ""),
@@ -2611,22 +2618,22 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         const isActiveNow = name === (await readConfig()).default_provider;
         const activeNote = isActiveNow
           ? "已自动设为当前供应商"
-          : tgCode(prefix + " ai use " + name) + " 切换";
+          : tgCode(prefix + " config use " + name) + " 切换";
         const saved = `${name} · ${model}\n类型：${provider?.type || "openai"}\n地址：${baseUrl}\n\n${activeNote}`;
         return;
       }
       if (sub === "use" || sub === "switch") {
         const [name] = parts;
-        if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai use <\u540D\u79F0>`);
+        if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} config use <\u540D\u79F0>`);
         const config = await readConfig();
-        if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} ai list \u67E5\u770B\u5168\u90E8\uFF09`);
+        if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} config list \u67E5\u770B\u5168\u90E8\uFF09`);
         await updateConfig((c) => { c.default_provider = name; });
         await showHtmlMessage(msg, successCard("\u5DF2\u5207\u6362\u4F9B\u5E94\u5546", `${name} \u00B7 ${config.providers[name].model}`));
         return;
       }
       if (sub === "del" || sub === "delete" || sub === "rm") {
         const [name] = parts;
-        if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai del <\u540D\u79F0>`);
+        if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} config del <\u540D\u79F0>`);
         const config = await readConfig();
         if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}`);
         await removeProvider(name);
@@ -2640,8 +2647,8 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         await showHtmlMessage(
           msg,
           infoCard("\u6682\u65E0\u4F9B\u5E94\u5546", [
-            ["\u6DFB\u52A0\u65B9\u5F0F", `${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B>`],
-            ["\u793A\u4F8B", `${prefix} ai set openai https://api.openai.com sk-xxx gpt-4o`]
+            ["\u6DFB\u52A0\u65B9\u5F0F", `${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B>`],
+            ["\u793A\u4F8B", `${prefix} config set openai https://api.openai.com sk-xxx gpt-4o`]
           ])
         );
         return;
@@ -2657,7 +2664,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
           tgBold("\u5DF2\u4FDD\u5B58\u7684\u4F9B\u5E94\u5546"),
           tgHtmlBlockquote(rows.join("\n\n"), true),
           current ? `${tgBold("\u5F53\u524D\u4F7F\u7528")}\uFF1A${tgCode(current.name)} \u00B7 ${tgEscape(current.model)}` : tgBold("\u5F53\u524D\u672A\u9009\u62E9\u4F9B\u5E94\u5546"),
-          tgHtmlBlockquote(`${tgCode(prefix + " ai use <\u540D\u79F0>")} \u5207\u6362\u00B7 ${tgCode(prefix + " ai del <\u540D\u79F0>")} \u5220\u9664`, true)
+          tgHtmlBlockquote(`${tgCode(prefix + " config use <\u540D\u79F0>")} \u5207\u6362\u00B7 ${tgCode(prefix + " config del <\u540D\u79F0>")} \u5220\u9664`, true)
         ].join("\n")
       );
     } catch (error) {
