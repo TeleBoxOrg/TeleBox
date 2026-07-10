@@ -1133,6 +1133,20 @@ function migrateLegacyAgentData(config) {
     config.agent_migrated_at = (/* @__PURE__ */ new Date()).toISOString();
     changed = true;
   }
+  // 兼容：旧版 active_provider 是扁平配置对象（非名称），迁移进 ai_providers
+  if (config.active_provider && typeof config.active_provider === "object") {
+    const legacy = config.active_provider;
+    config.ai_providers = config.ai_providers || {};
+    if (!config.ai_providers.__default) {
+      config.ai_providers.__default = { ...legacy, name: "__default" };
+      config.ai_providers.__default.api_interface = config.ai_providers.__default.api_interface || detectProviderInterface(config.ai_providers.__default);
+      changed = true;
+    }
+    config.active_provider = "__default";
+  }
+  if (config.active_provider && !config.ai_providers?.[config.active_provider]) {
+    config.active_provider = null;
+  }
   return changed;
 }
 function normalizeDisplayName(value) {
@@ -1258,9 +1272,41 @@ function getContextLimit(config) {
   );
 }
 function getProvider(config) {
-  const provider = config.active_provider;
-  if (!provider?.base_url || !provider.api_key || !provider.model) return null;
-  return provider;
+  const name = config.active_provider;
+  if (!name) return null;
+  const provider = config.ai_providers?.[name];
+  if (!provider?.base_url || !provider?.api_key || !provider?.model) return null;
+  return { name, ...provider };
+}
+function getProviders(config) {
+  const map = config.ai_providers || {};
+  return Object.keys(map).map((name) => ({ name, ...map[name] }));
+}
+function detectProviderInterface(input) {
+  const hint = String(input?.base_url || input?.model || "").toLowerCase();
+  if (/anthropic\.com|claude/.test(hint)) return "anthropic";
+  if (/openai\.com|gpt-|chatgpt|o1|o3/.test(hint)) return "openai";
+  if (/googleapis\.com|gemini/.test(hint)) return "gemini";
+  return String(input?.api_interface || input?.type || "openai").toLowerCase();
+}
+async function setProvider(name, fields) {
+  name = String(name || "").trim();
+  if (!/^[\w.-]{1,32}$/.test(name)) throw new Error("供应商名称仅允许字母、数字、._-，长度 1-32");
+  await updateConfig((config) => {
+    config.ai_providers = config.ai_providers || {};
+    const prev = config.ai_providers[name] || {};
+    const next = { ...prev, ...fields, name };
+    next.api_interface = next.api_interface || detectProviderInterface(next);
+    config.ai_providers[name] = next;
+    if (!config.active_provider) config.active_provider = name;
+  });
+}
+async function removeProvider(name) {
+  await updateConfig((config) => {
+    config.ai_providers = config.ai_providers || {};
+    delete config.ai_providers[name];
+    if (config.active_provider === name) config.active_provider = Object.keys(config.ai_providers)[0] || null;
+  });
 }
 function getDisplayName(config) {
   return normalizeDisplayName(config.zn_name);
@@ -1676,7 +1722,7 @@ function redactText(text, provider) {
   );
 }
 async function safeEdit(msg, text, options = {}) {
-  const plainFallback = options.plainFallback || stripTelegramHtml(text);
+  const safePlain = stripTelegramHtml(String(options.plainFallback != null ? options.plainFallback : text));
   try {
     await msg.edit({
       text: options.html ? text : truncate2(text),
@@ -1688,7 +1734,7 @@ async function safeEdit(msg, text, options = {}) {
     if (/MESSAGE_NOT_MODIFIED|message (?:is )?not modified/i.test(String(error))) return msg;
     if (options.html) {
       try {
-        await msg.edit({ text: truncate2(plainFallback), linkPreview: false });
+        await msg.edit({ text: truncate2(safePlain), linkPreview: false });
         return msg;
       } catch {
       }
@@ -1703,7 +1749,7 @@ async function safeEdit(msg, text, options = {}) {
     } catch {
       if (options.html) {
         try {
-          const sent = await msg.reply({ message: truncate2(plainFallback), linkPreview: false });
+          const sent = await msg.reply({ message: truncate2(safePlain), linkPreview: false });
           return sent || msg;
         } catch {
         }
@@ -1713,7 +1759,7 @@ async function safeEdit(msg, text, options = {}) {
   }
 }
 async function safeReply(msg, text, options = {}) {
-  const plainFallback = options.plainFallback || stripTelegramHtml(text);
+  const safePlain = stripTelegramHtml(String(options.plainFallback != null ? options.plainFallback : text));
   try {
     const sent = await msg.reply({
       message: options.html ? text : truncate2(text),
@@ -1835,7 +1881,7 @@ var AgentStatus = class {
   constructor(input) {
     this.startedAt = Date.now();
     this.step = 1;
-    this.state = "\u6B63\u5728\u7406\u89E3\u4EFB\u52A1\u2026";
+    this.state = "\u6B63\u5728\u63A5\u6536\u4EFB\u52A1\uFF0C\u51C6\u5907\u52A8\u624B\u2026";
     this.latest = "";
     this.observations = [];
     this.toolCount = 0;
@@ -1857,11 +1903,11 @@ var AgentStatus = class {
   }
   async setPlan(plan) {
     this.plan = plan;
-    this.state = "\u8BA1\u5212\u5DF2\u66F4\u65B0\uFF0C\u7EE7\u7EED\u6267\u884C\u2026";
+    this.state = "\u8BA1\u5212\u5DF2\u66F4\u65B0\uff0c\u9a6c\u4e0d\u505c\u6b65\u5730\u63a8\u8fdb\u2026";
     await this.render(true);
   }
   async thinking() {
-    this.state = "\u6B63\u5728\u601D\u8003\u4E0B\u4E00\u6B65\u2026";
+    this.state = "\u6B63\u5728\u5206\u6790\u5F53\u524D\u60C5\u51B5\uFF0C\u51B3\u5B9A\u4E0B\u4E00\u6B65\u2026";
     await this.render();
   }
   async toolStart(name, args) {
@@ -1872,7 +1918,7 @@ var AgentStatus = class {
     const firstLine = result.content.split(/\r?\n/).find((line) => line.trim()) || "\u65E0\u8F93\u51FA";
     this.latest = `${result.ok ? "\u2713" : "\u2717"} ${toolLabel(name)}\uFF1A${summarizeArgs(args)}
 ${truncate2(firstLine, 220)}`;
-    this.state = result.ok ? "\u5DF2\u83B7\u5F97\u89C2\u5BDF\u7ED3\u679C\uFF0C\u6B63\u5728\u7EE7\u7EED\u2026" : "\u5DE5\u5177\u5931\u8D25\uFF0C\u6B63\u5728\u5206\u6790\u9519\u8BEF\u2026";
+    this.state = result.ok ? "\u5DF2\u62FF\u5230\u7ED3\u679C\uFF0C\u6B63\u5728\u63A8\u8FDB\u2026" : "\u8FD9\u6B65\u51FA\u4E86\u70B9\u72B6\u51B5\uFF0C\u6B63\u5728\u67E5\u539F\u56E0\u2026";
     await this.render(true);
   }
   markAborted() {
@@ -1953,7 +1999,7 @@ ${truncate2(firstLine, 220)}`;
       `\u8017\u65F6\uFF1A${elapsed(this.startedAt)}`,
       `\u5DE5\u4F5C\u533A\uFF1A${this.workspace.id}`
     ].join(" | ");
-    const answerText = redactText(answer.trim() || "\u4EFB\u52A1\u5DF2\u5B8C\u6210\u3002", this.provider);
+    const answerText = redactText(answer.trim() || "\u5DF2\u7ED3\u675F\u672C\u8F6E\u4EFB\u52A1\u3002", this.provider);
     const chunks = splitMarkdownText(answerText);
     const firstHtml = [
       headerHtml,
@@ -1988,7 +2034,7 @@ ${chunk}`
     }
   }
   async fail(message) {
-    const prefix = this.aborted ? "\u5DF2\u53D6\u6D88/\u505C\u6B62" : "\u6267\u884C\u5931\u8D25";
+    const prefix = this.aborted ? "\u4EFB\u52A1\u5DF2\u88AB\u4E2D\u65AD" : "\u672C\u8F6E\u6267\u884C\u51FA\u9519\u4E86";
     const detail = this.aborted ? `${message}\n\n\u5DF2\u5B8C\u6210 ${this.toolCount} \u6B21\u5DE5\u5177\u8C03\u7528\uFF0C\u7ED3\u679C\u4FDD\u7559\u5728\u5BF9\u8BDD\u8BB0\u5FC6\u4E2D\u3002` : message;
     await this.finish(`${prefix}\uFF1A${detail}`, this.usage);
   }
@@ -2125,7 +2171,7 @@ async function dispatchPluginCaptured(msg, commandLine) {
   return outputs.filter((value, index) => index === 0 || value !== outputs[index - 1]).join("\n\n").trim();
 }
 async function showHtmlMessage(msg, html, plainFallback) {
-  const plain = plainFallback || stripTelegramHtml(html);
+  const plain = stripTelegramHtml(String(plainFallback != null ? plainFallback : html));
   if (plain.length > SAFE_MESSAGE_LIMIT) {
     const chunks = splitLongText(plain);
     let anchor = await safeEdit(msg, chunks[0]);
@@ -2176,7 +2222,8 @@ var SUBCOMMANDS = {
   ask: /* @__PURE__ */ new Set(["ask", "tw", "\u8BE2\u95EE"]),
   runPlugin: /* @__PURE__ */ new Set(["run", "zx", "\u6267\u884C"]),
   runSystem: /* @__PURE__ */ new Set(["sys", "xt", "system", "\u7CFB\u7EDF"]),
-  withContext: /* @__PURE__ */ new Set(["ctx", "s", "\u5E26\u6587"])
+  withContext: /* @__PURE__ */ new Set(["ctx", "s", "\u5E26\u6587"]),
+  ai: /* @__PURE__ */ new Set(["ai", "llm", "\u6A21\u578B"])
 };
 function splitBody(message) {
   const text = String(message || "").trim();
@@ -2364,14 +2411,7 @@ var AgentPlugin = class extends Plugin {
       if (SUBCOMMANDS.workspace.has(mode)) return await this.workspaceCommand(msg, scope, value);
       if (SUBCOMMANDS.files.has(mode)) return await this.listWorkspace(msg, scope, value);
       if (SUBCOMMANDS.deleteFile.has(mode)) return await this.deleteWorkspaceFile(msg, scope, value);
-      if (scope === "telebox" && (mode === "sk" || mode === "tb")) {
-        const output = await dispatchPluginCaptured(msg, `ai ${mode}${value ? ` ${value}` : ""}`);
-        await showHtmlMessage(
-          msg,
-          output || successCard(`AI ${mode} \u547D\u4EE4\u5DF2\u6267\u884C`)
-        );
-        return;
-      }
+      if (SUBCOMMANDS.ai.has(mode)) return await this.handleAi(msg, scope, value);
       if (scope === "telebox" && SUBCOMMANDS.runPlugin.has(mode)) {
         if (!value) throw new Error(`\u7528\u6CD5\uFF1A${mainPrefix}agent run <\u63D2\u4EF6\u547D\u4EE4>`);
         const output = await dispatchPluginCaptured(msg, value);
@@ -2415,9 +2455,9 @@ var AgentPlugin = class extends Plugin {
       await showHtmlMessage(
         msg,
         [
-          tgBold(displayName ? `${displayName} \u5C1A\u672A\u914D\u7F6E\u6A21\u578B` : "\u5C1A\u672A\u914D\u7F6E\u6A21\u578B"),
+          tgBold(displayName ? `${displayName} \u8FD8\u6CA1\u6709\u914D\u597D\u6A21\u578B` : "\u8FD8\u6CA1\u6709\u914D\u597D\u6A21\u578B"),
           tgHtmlBlockquote(
-            `\u8BF7\u5148\u7528 ${tgCode(`${mainPrefix}ai config`)} \u914D\u7F6E\u6A21\u578B\uFF0C\u7136\u540E\u91CD\u8BD5\u3002`
+            `\u8BF7\u5148\u7528 ${tgCode(`${scopeCommand(options.scope)} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B>`)} \u6DFB\u52A0\u4F9B\u5E94\u5546\uFF0C\u518D\u8BD5 ${tgCode(scopeCommand(options.scope) + " <\u9700\u6C42>")}\u3002\n\u67E5\u770B\u5DF2\u6709\u4F9B\u5E94\u5546\uFF1A${tgCode(`${scopeCommand(options.scope)} ai list`)}`
           )
         ].join("\n")
       );
@@ -2500,25 +2540,100 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
   async showConfig(msg, scope) {
     const config = await readConfig();
     const provider = getProvider(config);
+    const providers = getProviders(config);
     await showHtmlMessage(
       msg,
       infoCard(
         getDisplayName(config) ? `${getDisplayName(config)} \u914D\u7F6E` : "\u667A\u80FD\u4F53\u914D\u7F6E",
         [
           ["\u8303\u56F4", scopeName(scope)],
-          ["\u4F9B\u5E94\u5546", provider?.name || "\u672A\u914D\u7F6E"],
-          ["\u6A21\u578B", provider?.model || "\u672A\u914D\u7F6E"],
-          ["\u63A5\u53E3", provider?.api_interface || provider?.type || "\u672A\u914D\u7F6E"],
-          ["\u5730\u5740", provider?.base_url || "\u672A\u914D\u7F6E"],
-          ["\u6700\u5927\u8F6E\u6570", String(getMaxSteps(config))],
+          ["\u5F53\u524D\u4F9B\u5E94\u5546", provider ? `${provider.name} \u00B7 ${provider.model}` : "\u672A\u914D\u7F6E"],
+          ["\u63A5\u53E3\u7C7B\u578B", provider?.api_interface || provider?.type || "\u672A\u914D\u7F6E"],
+          ["\u63A5\u53E3\u5730\u5740", provider?.base_url || "\u672A\u914D\u7F6E"],
+          ["\u5DF2\u4FDD\u5B58\u4F9B\u5E94\u5546", String(providers.length)],
+          ["\u6700\u5927\u667A\u80FD\u6B65\u6570", String(getMaxSteps(config))],
           ["\u6A21\u578B\u8D85\u65F6", formatDuration(getModelTimeout(config))],
           ["\u547D\u4EE4\u8D85\u65F6", formatDuration(getCommandTimeout(config))],
           ["\u5BF9\u8BDD\u8BB0\u5FC6", `${getContextLimit(config)} \u6761\uFF08\u81EA\u52A8\u52A0\u8F7D\uFF09`],
-          ["\u6570\u636E\u7248\u672C", `v${config.agent_schema_version || 2}`],
-          ["\u5DE5\u5177\u8C03\u7528", "OpenAI Chat / Responses / Anthropic / Gemini"]
+          ["\u6570\u636E\u7248\u672C", `v${config.agent_schema_version || 2}`]
         ]
       )
     );
+  }
+  async handleAi(msg, scope, value) {
+    const parts = String(value || "").trim().split(/\s+/g).filter(Boolean);
+    const sub = (parts.shift() || "list").toLowerCase();
+    const prefix = scopeCommand(scope);
+    try {
+      if (sub === "set" || sub === "add") {
+        const [name, baseUrl, apiKey, model, iface] = parts;
+        if (!name || !baseUrl || !apiKey || !model) {
+          throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u63A5\u53E3]\u3002\u63A5\u53E3\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / anthropic / gemini`);
+        }
+        await setProvider(name, {
+          base_url: baseUrl.replace(/\/+$/, ""),
+          api_key: apiKey,
+          model,
+          api_interface: iface ? iface.toLowerCase() : void 0
+        });
+        const provider = await getProvider(await readConfig());
+        await showHtmlMessage(
+          msg,
+          successCard(
+            "\u4F9B\u5E94\u5546\u5DF2\u4FDD\u5B58",
+            `${name} \u00B7 ${model}\n\u63A5\u53E3\uFF1A${provider?.api_interface || "openai"}\n\u5730\u5740\uFF1A${baseUrl}\n\n${name === (await readConfig()).active_provider ? "\u5DF2\u81EA\u52A8\u8BBE\u4E3A\u5F53\u524D\u4F9B\u5E94\u5546" : `\u5207\u6362\u8BF7\u7528 ${tgCode(prefix + " ai use " + name)}`}`
+          )
+        );
+        return;
+      }
+      if (sub === "use" || sub === "switch") {
+        const [name] = parts;
+        if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai use <\u540D\u79F0>`);
+        const config = await readConfig();
+        if (!config.ai_providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} ai list \u67E5\u770B\u5168\u90E8\uFF09`);
+        await updateConfig((c) => { c.active_provider = name; });
+        await showHtmlMessage(msg, successCard("\u5DF2\u5207\u6362\u4F9B\u5E94\u5546", `${name} \u00B7 ${config.ai_providers[name].model}`));
+        return;
+      }
+      if (sub === "del" || sub === "delete" || sub === "rm") {
+        const [name] = parts;
+        if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai del <\u540D\u79F0>`);
+        const config = await readConfig();
+        if (!config.ai_providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}`);
+        await removeProvider(name);
+        await showHtmlMessage(msg, successCard("\u5DF2\u5220\u9664\u4F9B\u5E94\u5546", name));
+        return;
+      }
+      // list (default)
+      const config = await readConfig();
+      const providers = getProviders(config);
+      if (!providers.length) {
+        await showHtmlMessage(
+          msg,
+          infoCard("\u6682\u65E0\u4F9B\u5E94\u5546", [
+            ["\u6DFB\u52A0\u65B9\u5F0F", `${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B>`],
+            ["\u793A\u4F8B", `${prefix} ai set openai https://api.openai.com sk-xxx gpt-4o`]
+          ])
+        );
+        return;
+      }
+      const rows = providers.map((p) => {
+        const active = p.name === config.active_provider ? " \u2705" : "";
+        return `${tgCode(p.name)}${active}\n  ${tgEscape(p.model)} \u00B7 ${tgEscape(p.api_interface || "openai")}\n  ${tgEscape(p.base_url || "")}`;
+      });
+      const current = getProvider(config);
+      await showHtmlMessage(
+        msg,
+        [
+          tgBold("\u5DF2\u4FDD\u5B58\u7684\u4F9B\u5E94\u5546"),
+          tgHtmlBlockquote(rows.join("\n\n"), true),
+          current ? `${tgBold("\u5F53\u524D\u4F7F\u7528")}\uFF1A${tgCode(current.name)} \u00B7 ${tgEscape(current.model)}` : tgBold("\u5F53\u524D\u672A\u9009\u62E9\u4F9B\u5E94\u5546"),
+          tgHtmlBlockquote(`${tgCode(prefix + " ai use <\u540D\u79F0>")} \u5207\u6362\u00B7 ${tgCode(prefix + " ai del <\u540D\u79F0>")} \u5220\u9664`, true)
+        ].join("\n")
+      );
+    } catch (error) {
+      await showHtmlMessage(msg, errorCard(formatProviderError(error)));
+    }
   }
   async showCommands(msg) {
     const blocked = /* @__PURE__ */ new Set(["agent", "plan", "sysagent", "sysplan", "ai", "exec"]);
