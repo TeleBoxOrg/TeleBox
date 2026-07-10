@@ -37,25 +37,6 @@ const VERSION_NAMES: Record<TeleBoxVersion, string> = {
   mtcute: "mtcute (native)",
 };
 
-const VERSION_ALIASES: Record<string, TeleBoxVersion> = {
-  tp: "teleproto",
-  teleproto: "teleproto",
-  gramjs: "teleproto",
-  mt: "mtcute",
-  mtcute: "mtcute",
-  native: "mtcute",
-};
-
-const PLATFORM_HINTS: Record<TeleBoxVersion, string> = {
-  teleproto: "teleproto 版不需要额外操作",
-  mtcute: "mtcute 版不需要额外操作",
-};
-
-function parseVersion(raw: string): TeleBoxVersion | null {
-  const key = raw.toLowerCase().trim();
-  return VERSION_ALIASES[key] || null;
-}
-
 function detectCurrentVersion(): TeleBoxVersion {
   // teleproto 版运行此插件 → 当前是 teleproto
   return "teleproto";
@@ -99,7 +80,7 @@ function formatStatus(state: ReturnType<typeof loadSwitchState>): string {
 function formatHelp(): string {
   return [
     "**🔄 版本切换**\n",
-    "`" + mainPrefix + "switch login <tp|mt> [phone]` — 开始登录到目标版本",
+    "`" + mainPrefix + "switch login [phone]` — 开始登录到另一个版本",
     "`" + mainPrefix + "switch code <验证码>` — 手动输入验证码",
     "`" + mainPrefix + "switch pwd <2FA密码>` — 手动输入 2FA 密码",
     "`" + mainPrefix + "switch status` — 查看当前状态",
@@ -111,7 +92,7 @@ function formatHelp(): string {
 }
 
 const plugin = new (class extends Plugin {
-  name = "versionSwitch";
+  name = "switch";
   description = "版本切换 (teleproto ↔ mtcute)";
 
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
@@ -204,18 +185,8 @@ const plugin = new (class extends Plugin {
   // ── Command handlers ─────────────────────────────────────────────────
 
   private async handleLogin(msg: Api.Message, args: string[]): Promise<void> {
-    const targetRaw = args[0];
-    const target = parseVersion(targetRaw || "");
-    if (!target) {
-      await msg.edit({ text: `用法: \`${mainPrefix}switch login <tp|mt> [phone]\`` });
-      return;
-    }
-
     const current = detectCurrentVersion();
-    if (target === current) {
-      await msg.edit({ text: `❌ 目标版本与当前版本相同 (${current})` });
-      return;
-    }
+    const target: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
 
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
 
@@ -250,7 +221,6 @@ const plugin = new (class extends Plugin {
         "",
         `准备就绪后使用 \`${mainPrefix}switch go\` 执行切换`,
         "",
-        PLATFORM_HINTS[target],
       ].join("\n"),
     });
   }
