@@ -10,10 +10,10 @@ import import_globalClient3 = require("@utils/globalClient");
 import import_axios = require("axios");
 var MAX_OUTPUT_TOKENS = 8192;
 var ANTHROPIC_VERSION = "2023-06-01";
-function trimBase(url) {
+function trimBase(url: any) {
   return String(url || "").trim().replace(/\/+$/g, "");
 }
-function stripKnownEndpoint(url) {
+function stripKnownEndpoint(url: any) {
   let base = trimBase(String(url || "").split(/[?#]/, 1)[0] || "");
   const patterns = [
     /\/models\/[^/]+:(?:generateContent|streamGenerateContent)$/i,
@@ -32,7 +32,7 @@ function stripKnownEndpoint(url) {
   }
   return base;
 }
-function hasVersionPath(url) {
+function hasVersionPath(url: any) {
   try {
     const parsed = new URL(url.includes("://") ? url : `https://${url}`);
     return /\/v\d+(?:beta|alpha)?(?:\/|$)/i.test(parsed.pathname);
@@ -40,7 +40,7 @@ function hasVersionPath(url) {
     return /\/v\d+(?:beta|alpha)?(?:\/|$)/i.test(url);
   }
 }
-function endpoint(provider, kind) {
+function endpoint(provider: any, kind: any) {
   const base = stripKnownEndpoint(provider.base_url);
   if (kind === "gemini") {
     const model = encodeURIComponent(provider.model.replace(/^models\//, ""));
@@ -55,16 +55,16 @@ function endpoint(provider, kind) {
   }
   return hasVersionPath(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
 }
-function providerInterface(provider) {
+function providerInterface(provider: any) {
   const explicit = String(provider.type || provider.api_interface || "").trim().toLowerCase();
   if (explicit) return explicit;
   const hint = `${provider.name} ${provider.base_url}`.toLowerCase();
   if (hint.includes("anthropic") || hint.includes("claude")) return "anthropic";
   return "openai";
 }
-function requestAuth(provider) {
-  const headers = { "Content-Type": "application/json" };
-  const params = {};
+function requestAuth(provider: any) {
+  const headers: any = { "Content-Type": "application/json" };
+  const params: any = {};
   if (provider.type === "gemini") {
     if (provider.auth_method === "api_key_header") headers["x-goog-api-key"] = provider.api_key;
     else params.key = provider.api_key;
@@ -75,10 +75,10 @@ function requestAuth(provider) {
   else headers.Authorization = `Bearer ${provider.api_key}`;
   return { headers, params };
 }
-function systemPrompt(messages) {
-  return messages.filter((message) => message.role === "system").map((message) => message.content).join("\n\n");
+function systemPrompt(messages: any) {
+  return messages.filter((message: any) => message.role === "system").map((message: any) => message.content).join("\n\n");
 }
-function parseArguments(value) {
+function parseArguments(value: any): any {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value;
   }
@@ -91,7 +91,7 @@ function parseArguments(value) {
     return { _raw: text };
   }
 }
-function usageFromOpenAI(data) {
+function usageFromOpenAI(data: any) {
   const usage = data?.usage;
   if (!usage) return void 0;
   return {
@@ -100,7 +100,7 @@ function usageFromOpenAI(data) {
     total: usage.total_tokens
   };
 }
-function usageFromGemini(data) {
+function usageFromGemini(data: any) {
   const usage = data?.usageMetadata;
   if (!usage) return void 0;
   return {
@@ -109,7 +109,7 @@ function usageFromGemini(data) {
     total: usage.totalTokenCount
   };
 }
-function usageFromAnthropic(data) {
+function usageFromAnthropic(data: any) {
   const usage = data?.usage;
   if (!usage) return void 0;
   const prompt = usage.input_tokens;
@@ -120,21 +120,21 @@ function usageFromAnthropic(data) {
     total: typeof prompt === "number" || typeof completion === "number" ? (prompt || 0) + (completion || 0) : void 0
   };
 }
-function apiError(data) {
+function apiError(data: any) {
   const error = data?.error;
   if (typeof error === "string") return error;
   if (error && typeof error.message === "string") return error.message;
   return "";
 }
-function openAIMessageText(content) {
+function openAIMessageText(content: any) {
   if (typeof content === "string") return content.trim();
   if (!Array.isArray(content)) return "";
   return content.map(
     (part) => part && typeof part === "object" && typeof part.text === "string" ? part.text : ""
   ).join("\n").trim();
 }
-function openAITools(tools) {
-  return tools.map((tool) => ({
+function openAITools(tools: any) {
+  return tools.map((tool: any) => ({
     type: "function",
     function: {
       name: tool.name,
@@ -143,8 +143,8 @@ function openAITools(tools) {
     }
   }));
 }
-function toOpenAIChatMessages(messages) {
-  return messages.map((message) => {
+function toOpenAIChatMessages(messages: any) {
+  return messages.map((message: any) => {
     if (message.role === "tool") {
       return {
         role: "tool",
@@ -153,11 +153,11 @@ function toOpenAIChatMessages(messages) {
         content: message.content
       };
     }
-    const base = { role: message.role };
+    const base: any = { role: message.role };
     if (message.images?.length && message.role === "user") {
       base.content = [
         { type: "text", text: message.content },
-        ...message.images.map((image) => ({
+        ...message.images.map((image: any) => ({
           type: "image_url",
           image_url: { url: `data:${image.mimeType};base64,${image.base64}` }
         }))
@@ -166,7 +166,7 @@ function toOpenAIChatMessages(messages) {
       base.content = message.content || null;
     }
     if (message.role === "assistant" && message.toolCalls?.length) {
-      base.tool_calls = message.toolCalls.map((call) => ({
+      base.tool_calls = message.toolCalls.map((call: any) => ({
         id: call.id,
         type: "function",
         function: { name: call.name, arguments: JSON.stringify(call.arguments) }
@@ -175,9 +175,9 @@ function toOpenAIChatMessages(messages) {
     return base;
   });
 }
-async function callOpenAIChat(provider, messages, tools, timeoutMs) {
+async function callOpenAIChat(provider: any, messages: any, tools: any, timeoutMs: any) {
   const auth = requestAuth(provider);
-  const response = await import_axios.post(
+  const response = await (import_axios as any).post(
     endpoint(provider, "chat"),
     {
       model: provider.model,
@@ -192,18 +192,18 @@ async function callOpenAIChat(provider, messages, tools, timeoutMs) {
   if (error) throw new Error(error);
   const message = response.data?.choices?.[0]?.message;
   if (!message) throw new Error("\u6A21\u578B\u6CA1\u6709\u8FD4\u56DE\u6D88\u606F");
-  const calls = (message.tool_calls || []).map((call, index) => ({
+  const calls = (message.tool_calls || []).map((call: any, index: any) => ({
     id: String(call.id || `call_${Date.now()}_${index}`),
     name: String(call.function?.name || call.name || ""),
     arguments: parseArguments(call.function?.arguments ?? call.arguments)
-  })).filter((call) => call.name);
+  })).filter((call: any) => call.name);
   return {
     text: openAIMessageText(message.content),
     toolCalls: calls,
     usage: usageFromOpenAI(response.data)
   };
 }
-function toResponsesInput(messages) {
+function toResponsesInput(messages: any) {
   const items = [];
   for (const message of messages) {
     if (message.role === "system") continue;
@@ -221,7 +221,7 @@ function toResponsesInput(messages) {
     ];
     if (message.role === "user") {
       content.push(
-        ...(message.images || []).map((image) => ({
+        ...(message.images || []).map((image: any) => ({
           type: "input_image",
           image_url: `data:${image.mimeType};base64,${image.base64}`
         }))
@@ -241,16 +241,16 @@ function toResponsesInput(messages) {
   }
   return items;
 }
-async function callResponses(provider, messages, tools, timeoutMs) {
+async function callResponses(provider: any, messages: any, tools: any, timeoutMs: any) {
   const auth = requestAuth(provider);
-  const response = await import_axios.post(
+  const response = await (import_axios as any).post(
     endpoint(provider, "responses"),
     {
       model: provider.model,
       instructions: systemPrompt(messages),
       input: toResponsesInput(messages),
       ...tools.length ? {
-        tools: tools.map((tool) => ({
+        tools: tools.map((tool: any) => ({
           type: "function",
           name: tool.name,
           description: tool.description,
@@ -294,7 +294,7 @@ async function callResponses(provider, messages, tools, timeoutMs) {
     usage: usageFromOpenAI(response.data)
   };
 }
-function anthropicContent(message) {
+function anthropicContent(message: any) {
   const blocks = [];
   if (message.role === "user") {
     for (const image of message.images || []) {
@@ -312,7 +312,7 @@ function anthropicContent(message) {
   }
   return blocks.length ? blocks : "";
 }
-function toAnthropicMessages(messages) {
+function toAnthropicMessages(messages: any) {
   const output = [];
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
@@ -340,15 +340,15 @@ function toAnthropicMessages(messages) {
   }
   return output;
 }
-async function callAnthropic(provider, messages, tools, timeoutMs) {
-  const response = await import_axios.post(
+async function callAnthropic(provider: any, messages: any, tools: any, timeoutMs: any) {
+  const response = await (import_axios as any).post(
     endpoint(provider, "anthropic"),
     {
       model: provider.model,
       system: systemPrompt(messages),
       messages: toAnthropicMessages(messages),
       ...tools.length ? {
-        tools: tools.map((tool) => ({
+        tools: tools.map((tool: any) => ({
           name: tool.name,
           description: tool.description,
           input_schema: tool.parameters
@@ -386,7 +386,7 @@ async function callAnthropic(provider, messages, tools, timeoutMs) {
     usage: usageFromAnthropic(response.data)
   };
 }
-function toGeminiContents(messages) {
+function toGeminiContents(messages: any) {
   const contents = [];
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
@@ -412,7 +412,7 @@ function toGeminiContents(messages) {
     if (message.content) parts.push({ text: message.content });
     if (message.role === "user") {
       parts.push(
-        ...(message.images || []).map((image) => ({
+        ...(message.images || []).map((image: any) => ({
           inlineData: { mimeType: image.mimeType, data: image.base64 }
         }))
       );
@@ -426,11 +426,11 @@ function toGeminiContents(messages) {
   }
   return contents;
 }
-function toGeminiSchema(value) {
+function toGeminiSchema(value: any): any {
   if (Array.isArray(value)) return value.map(toGeminiSchema);
   if (!value || typeof value !== "object") return value;
   const record = value;
-  const output = {};
+  const output: any = {};
   for (const [key, item] of Object.entries(record)) {
     if (key === "additionalProperties") continue;
     if (key === "type" && typeof item === "string") {
@@ -441,9 +441,9 @@ function toGeminiSchema(value) {
   }
   return output;
 }
-async function callGemini(provider, messages, tools, timeoutMs) {
+async function callGemini(provider: any, messages: any, tools: any, timeoutMs: any) {
   const auth = requestAuth(provider);
-  const response = await import_axios.post(
+  const response = await (import_axios as any).post(
     endpoint(provider, "gemini"),
     {
       systemInstruction: { parts: [{ text: systemPrompt(messages) }] },
@@ -451,7 +451,7 @@ async function callGemini(provider, messages, tools, timeoutMs) {
       ...tools.length ? {
         tools: [
           {
-            functionDeclarations: tools.map((tool) => ({
+            functionDeclarations: tools.map((tool: any) => ({
               name: tool.name,
               description: tool.description,
               parameters: toGeminiSchema(tool.parameters)
@@ -485,8 +485,8 @@ async function callGemini(provider, messages, tools, timeoutMs) {
     usage: usageFromGemini(response.data)
   };
 }
-async function callModel(provider, messages, tools, timeoutMs) {
-  const invoke = async (currentMessages, currentTools) => {
+async function callModel(provider: any, messages: any, tools: any, timeoutMs: any) {
+  const invoke = async (currentMessages: any, currentTools: any) => {
     if (provider.type === "gemini") {
       return await callGemini(provider, currentMessages, currentTools, timeoutMs);
     }
@@ -507,7 +507,7 @@ async function callModel(provider, messages, tools, timeoutMs) {
     const toolCompatibilityError = tools.length > 0 && [400, 404, 422].includes(status || 0) && /(tool|function|schema|unknown field|unsupported|not support)/i.test(detail);
     if (!toolCompatibilityError) throw error;
     const fallbackMessages = messages.map(
-      (message, index) => index === 0 && message.role === "system" ? {
+      (message: any, index: any) => index === 0 && message.role === "system" ? {
         ...message,
         content: [
           message.content,
@@ -520,7 +520,7 @@ async function callModel(provider, messages, tools, timeoutMs) {
     return await withTransientRetry(() => invoke(fallbackMessages, []));
   }
 }
-function isTransientError(error) {
+function isTransientError(error: any) {
   if (import_axios.isAxiosError(error)) {
     const status = error.response?.status;
     if (status && (status >= 500 || status === 429)) return true;
@@ -533,7 +533,7 @@ function isTransientError(error) {
   if (/timeout|network/i.test(error?.message || "")) return true;
   return false;
 }
-async function withTransientRetry(task, attempts = 3) {
+async function withTransientRetry(task: any, attempts = 3) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
@@ -547,7 +547,7 @@ async function withTransientRetry(task, attempts = 3) {
   }
   throw lastError;
 }
-function addUsage(total, next) {
+function addUsage(total: any, next: any) {
   if (!total && !next) return void 0;
   return {
     prompt: typeof total?.prompt === "number" || typeof next?.prompt === "number" ? (total?.prompt || 0) + (next?.prompt || 0) : void 0,
@@ -555,7 +555,7 @@ function addUsage(total, next) {
     total: typeof total?.total === "number" || typeof next?.total === "number" ? (total?.total || 0) + (next?.total || 0) : void 0
   };
 }
-function formatProviderError(error) {
+function formatProviderError(error: any) {
   if (import_axios.isAxiosError(error)) {
     const data = error.response?.data;
     const message = apiError(data) || data?.message || error.message;
@@ -579,7 +579,7 @@ var MAX_LIST_ENTRIES = 300;
 var MAX_TOOL_CALLS_PER_TURN = 8;
 var BLOCKED_PLUGIN_COMMANDS = /* @__PURE__ */ new Set(["agent", "plan", "sysagent", "sysplan", "ai", "exec"]);
 var OBJECT_SCHEMA = "object";
-function schema(properties, required = []) {
+function schema(properties: any, required: any[] = []) {
   return {
     type: OBJECT_SCHEMA,
     properties,
@@ -712,26 +712,26 @@ var TOOL_DEFINITIONS = [
     )
   }
 ];
-function truncate(text, max = MAX_TOOL_OUTPUT) {
+function truncate(text: any, max = MAX_TOOL_OUTPUT) {
   const value = String(text || "");
   return value.length <= max ? value : `${value.slice(0, max)}
 \u2026\uFF08\u5DE5\u5177\u8F93\u51FA\u5DF2\u622A\u65AD\uFF09`;
 }
-function asString(value, fallback = "") {
+function asString(value: any, fallback = "") {
   return typeof value === "string" ? value : value === void 0 ? fallback : String(value);
 }
-function asInt(value, fallback, min, max) {
+function asInt(value: any, fallback: any, min: any, max: any) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Math.min(max, Math.max(min, Number.isFinite(parsed) ? parsed : fallback));
 }
-function within(root, target) {
+function within(root: any, target: any) {
   const relative = import_path.relative(import_path.resolve(root), import_path.resolve(target));
   return relative === "" || !relative.startsWith("..") && !import_path.isAbsolute(relative);
 }
-function defaultRoot(context) {
+function defaultRoot(context: any) {
   return context.scope === "telebox" ? context.projectRoot : context.workspace.dir;
 }
-function resolveAgentPath(context, rawPath, fallback = ".") {
+function resolveAgentPath(context: any, rawPath: any, fallback = ".") {
   let requested = asString(rawPath, fallback).trim().replace(/^['"]|['"]$/g, "") || fallback;
   let base = defaultRoot(context);
   if (/^(?:\$workspace|workspace:)(?:[\\/]|$)/i.test(requested)) {
@@ -747,7 +747,7 @@ function resolveAgentPath(context, rawPath, fallback = ".") {
   }
   return resolved;
 }
-function relativeDisplay(context, target) {
+function relativeDisplay(context: any, target: any) {
   if (within(context.projectRoot, target)) {
     return import_path.relative(context.projectRoot, target) || ".";
   }
@@ -756,9 +756,9 @@ function relativeDisplay(context, target) {
   }
   return target;
 }
-async function collectFiles(context, root, recursive, limit) {
-  const output = [];
-  const visit = async (directory) => {
+async function collectFiles(context: any, root: any, recursive: any, limit: any) {
+  const output: any[] = [];
+  const visit = async (directory: any) => {
     if (output.length >= limit) return;
     const entries = await import_fs.promises.readdir(directory, { withFileTypes: true });
     entries.sort((left, right) => left.name.localeCompare(right.name));
@@ -777,7 +777,7 @@ async function collectFiles(context, root, recursive, limit) {
   await visit(root);
   return output;
 }
-function runProcess(command, cwd, timeoutMs) {
+function runProcess(command: any, cwd: any, timeoutMs: any) {
   return new Promise((resolve) => {
     const started = Date.now();
     (0, import_child_process.exec)(
@@ -807,7 +807,7 @@ function runProcess(command, cwd, timeoutMs) {
     );
   });
 }
-function runRg(args, cwd) {
+function runRg(args: any, cwd: any) {
   return new Promise((resolve, reject) => {
     (0, import_child_process.execFile)(
       "rg",
@@ -824,7 +824,7 @@ function runRg(args, cwd) {
     );
   });
 }
-function assertCommandAllowed(command, scope) {
+function assertCommandAllowed(command: any, scope: any) {
   if (scope === "system") return;
   const dangerous = [
     /\b(?:shutdown|reboot|restart-computer|format|diskpart|bcdedit)\b/i,
@@ -839,12 +839,12 @@ function assertCommandAllowed(command, scope) {
     throw new Error("\u8BE5\u547D\u4EE4\u8D85\u51FA TeleBox \u9879\u76EE\u6A21\u5F0F\u7684\u5B89\u5168\u8FB9\u754C\uFF1B\u8BF7\u6539\u7528 .sysagent \u660E\u786E\u6267\u884C\u7CFB\u7EDF\u7EA7\u4EFB\u52A1");
   }
 }
-function stripPluginPrefix(commandLine) {
+function stripPluginPrefix(commandLine: any) {
   const trimmed = commandLine.trim();
   const matched = [...(0, import_pluginManager.getPrefixes)()].sort((left, right) => right.length - left.length).find((prefix) => trimmed.startsWith(prefix));
   return matched ? trimmed.slice(matched.length).trim() : trimmed;
 }
-function formatCommandResult(command, cwd, result) {
+function formatCommandResult(command: any, cwd: any, result: any) {
   return truncate(
     [
       `command: ${command}`,
@@ -858,11 +858,11 @@ ${result.stderr.trim() || "(empty)"}`
     ].join("\n")
   );
 }
-function validatePlan(args) {
+function validatePlan(args: any) {
   if (!Array.isArray(args.items) || !args.items.length) {
     throw new Error("\u8BA1\u5212 items \u4E0D\u80FD\u4E3A\u7A7A");
   }
-  const items = args.items.slice(0, 12).map((item) => {
+  const items = args.items.slice(0, 12).map((item: any) => {
     if (!item || typeof item !== "object") throw new Error("\u8BA1\u5212\u6B65\u9AA4\u683C\u5F0F\u65E0\u6548");
     const record = item;
     const step = asString(record.step).trim();
@@ -872,12 +872,12 @@ function validatePlan(args) {
     }
     return { step, status };
   });
-  if (items.filter((item) => item.status === "in_progress").length > 1) {
+  if (items.filter((item: any) => item.status === "in_progress").length > 1) {
     throw new Error("\u8BA1\u5212\u4E2D\u6700\u591A\u53EA\u80FD\u6709\u4E00\u4E2A in_progress \u6B65\u9AA4");
   }
   return { explanation: asString(args.explanation).trim() || void 0, items };
 }
-async function executeTool(context, name, args) {
+async function executeTool(context: any, name: any, args: any) {
   if (name === "update_plan") {
     const plan = validatePlan(args);
     await context.onPlanChange(plan);
@@ -886,7 +886,7 @@ async function executeTool(context, name, args) {
       title: "\u8BA1\u5212\u5DF2\u66F4\u65B0",
       content: [
         plan.explanation || "\u8BA1\u5212\u5DF2\u66F4\u65B0",
-        ...plan.items.map((item, index) => `${index + 1}. [${item.status}] ${item.step}`)
+        ...plan.items.map((item: any, index: any) => `${index + 1}. [${item.status}] ${item.step}`)
       ].join("\n")
     };
   }
@@ -937,7 +937,7 @@ ${body}`
     const glob = asString(args.glob).trim();
     if (glob) rgArgs.push("-g", glob);
     rgArgs.push(asString(args.query), target);
-    const result = await runRg(rgArgs, context.projectRoot);
+    const result: any = await runRg(rgArgs, context.projectRoot);
     return {
       ok: true,
       title: "\u641C\u7D22\u5B8C\u6210",
@@ -1004,7 +1004,7 @@ size: ${stat.size} bytes`
     const stat = await import_fs.promises.stat(cwd);
     if (!stat.isDirectory()) throw new Error("cwd \u4E0D\u662F\u76EE\u5F55");
     const timeoutMs = asInt(args.timeout_ms, context.commandTimeoutMs, 1e3, 864e5);
-    const result = await runProcess(command, cwd, timeoutMs);
+    const result: any = await runProcess(command, cwd, timeoutMs);
     return {
       ok: result.exitCode === 0,
       title: result.exitCode === 0 ? "\u547D\u4EE4\u6267\u884C\u5B8C\u6210" : "\u547D\u4EE4\u6267\u884C\u5931\u8D25",
@@ -1052,11 +1052,11 @@ size: ${stat.size} bytes`
   }
   throw new Error(`\u672A\u77E5\u5DE5\u5177\uFF1A${name}`);
 }
-function createToolRuntime(context) {
+function createToolRuntime(context: any) {
   return {
     definitions: context.answerOnly ? [] : TOOL_DEFINITIONS,
     maxCallsPerTurn: MAX_TOOL_CALLS_PER_TURN,
-    execute: async (name, args) => {
+    execute: async (name: any, args: any) => {
       await context.onToolStart(name, args);
       let result;
       try {
@@ -1104,7 +1104,7 @@ var DEFAULT_CONFIG = {
   zn_workspaces: {}
 };
 var writeQueue = Promise.resolve();
-function migrateLegacyAgentData(config) {
+function migrateLegacyAgentData(config: any) {
   const version = Number.parseInt(String(config.agent_schema_version || 0), 10) || 0;
   let changed = false;
   if (version < 2) {
@@ -1173,19 +1173,19 @@ function migrateLegacyAgentData(config) {
   }
   return changed;
 }
-function normalizeDisplayName(value) {
+function normalizeDisplayName(value: any) {
   const name = String(value || "").trim().slice(0, 32);
   if (!name || LEGACY_NAME_PATTERNS.some((pattern) => pattern.test(name))) return "";
   return name;
 }
-function clamp(value, min, max) {
+function clamp(value: any, min: any, max: any) {
   return Math.min(max, Math.max(min, value));
 }
-function positiveInt(value, fallback) {
+function positiveInt(value: any, fallback: any) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
-function stableHash(text) {
+function stableHash(text: any) {
   let hash = 2166136261;
   for (let index = 0; index < text.length; index += 1) {
     hash ^= text.charCodeAt(index);
@@ -1193,22 +1193,22 @@ function stableHash(text) {
   }
   return (hash >>> 0).toString(36);
 }
-function sanitizePart(text) {
+function sanitizePart(text: any) {
   return (text.replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "") || "workspace").slice(0, 80);
 }
 function createConversationId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-function compactContent(content) {
+function compactContent(content: any) {
   const text = String(content || "").trim();
   return text.length <= 6e3 ? text : `${text.slice(0, 5970)}
 \u2026\uFF08\u8BB0\u5FC6\u5DF2\u622A\u65AD\uFF09`;
 }
-function normalizeConversation(value, limit) {
+function normalizeConversation(value: any, limit: any) {
   const raw = value && typeof value === "object" ? value : {};
   const messages = Array.isArray(raw.messages) ? raw.messages.filter(
-    (item) => Boolean(item) && typeof item === "object" && (item.role === "user" || item.role === "assistant") && typeof item.content === "string"
-  ).map((item) => ({
+    (item: any) => Boolean(item) && typeof item === "object" && (item.role === "user" || item.role === "assistant") && typeof item.content === "string"
+  ).map((item: any) => ({
     role: item.role,
     content: compactContent(item.content),
     at: String(item.at || raw.updatedAt || (/* @__PURE__ */ new Date()).toISOString())
@@ -1219,7 +1219,7 @@ function normalizeConversation(value, limit) {
     messages
   };
 }
-function valueToKey(value) {
+function valueToKey(value: any): any {
   if (value === null || value === void 0) return "";
   if (["string", "number", "boolean", "bigint"].includes(typeof value)) {
     return String(value);
@@ -1228,7 +1228,7 @@ function valueToKey(value) {
   if (typeof value === "object") {
     const record = value;
     for (const key of ["userId", "chatId", "channelId", "peerId", "id", "value"]) {
-      const part = valueToKey(record[key]);
+      const part: any = valueToKey(record[key]);
       if (part) return `${key}:${part}`;
     }
     try {
@@ -1242,9 +1242,9 @@ function valueToKey(value) {
   }
   return String(value);
 }
-async function readConfig() {
+async function readConfig(): Promise<any> {
   const db = await (0, import_node.JSONFilePreset)(ZN_CONFIG_PATH, DEFAULT_CONFIG);
-  const data = db.data;
+  const data: any = db.data;
   const migrated = migrateLegacyAgentData(data);
   data.prompts = data.prompts || {};
   data.skill_raws = data.skill_raws || {};
@@ -1263,7 +1263,7 @@ async function readConfig() {
   }
   return data;
 }
-async function updateConfig(mutator) {
+async function updateConfig(mutator: any) {
   let result;
   const operation = writeQueue.then(async () => {
     const db = await (0, import_node.JSONFilePreset)(ZN_CONFIG_PATH, DEFAULT_CONFIG);
@@ -1275,48 +1275,48 @@ async function updateConfig(mutator) {
   await operation;
   return result;
 }
-function getModelTimeout(config) {
+function getModelTimeout(config: any) {
   return clamp(positiveInt(config.timeout, DEFAULT_TIMEOUT_MS), 1e4, 24 * 60 * 6e4);
 }
-function getCommandTimeout(config) {
+function getCommandTimeout(config: any) {
   return clamp(
     positiveInt(config.system_timeout, DEFAULT_COMMAND_TIMEOUT_MS),
     1e4,
     24 * 60 * 6e4
   );
 }
-function getMaxSteps(config) {
+function getMaxSteps(config: any) {
   return clamp(positiveInt(config.max_agent_steps, DEFAULT_MAX_STEPS), 1, MAX_AGENT_STEPS);
 }
-function getContextLimit(config) {
+function getContextLimit(config: any) {
   return clamp(
     positiveInt(config.conversation_context_limit, DEFAULT_CONTEXT_LIMIT),
     1,
     MAX_CONTEXT_LIMIT
   );
 }
-function getProvider(config) {
+function getProvider(config: any) {
   const name = config.default_provider;
   if (!name) return null;
   const provider = config.providers?.[name];
   if (!provider?.base_url || !provider?.api_key || !provider?.model) return null;
   return { name, ...provider };
 }
-function getProviders(config) {
+function getProviders(config: any) {
   const map = config.providers || {};
   return Object.keys(map).map((name) => ({ name, ...map[name] }));
 }
-function detectProviderInterface(input) {
+function detectProviderInterface(input: any) {
   const hint = String(input?.base_url || input?.model || "").toLowerCase();
   if (/anthropic\.com|claude/.test(hint)) return "anthropic";
   if (/googleapis\.com|gemini/.test(hint)) return "gemini";
   if (/openai\.com|gpt-|chatgpt|o1|o3/.test(hint)) return "openai";
   return String(input?.type || input?.api_interface || "openai").toLowerCase();
 }
-async function setProvider(name, fields) {
+async function setProvider(name: any, fields: any) {
   name = String(name || "").trim();
   if (!/^[\w.-]{1,32}$/.test(name)) throw new Error("供应商名称仅允许字母、数字、._-，长度 1-32");
-  await updateConfig((config) => {
+  await updateConfig((config: any) => {
     config.providers = config.providers || {};
     const prev = config.providers[name] || {};
     const next = { ...prev, ...fields, name };
@@ -1325,28 +1325,28 @@ async function setProvider(name, fields) {
     if (!config.default_provider) config.default_provider = name;
   });
 }
-async function removeProvider(name) {
-  await updateConfig((config) => {
+async function removeProvider(name: any) {
+  await updateConfig((config: any) => {
     config.providers = config.providers || {};
     delete config.providers[name];
     if (config.default_provider === name) config.default_provider = Object.keys(config.providers)[0] || null;
   });
 }
-function getDisplayName(config) {
+function getDisplayName(config: any) {
   return normalizeDisplayName(config.zn_name);
 }
-function getConversationBaseKey(msg, scope) {
+function getConversationBaseKey(msg: any, scope: any) {
   const source = msg.peerId || msg.chatId || msg.savedPeerId || msg.senderId || "global";
   const peer = valueToKey(source).replace(/\s+/g, "_").slice(0, 180) || "global";
   return `${scope}:${peer}`;
 }
-function normalizeWorkspaceId(value) {
+function normalizeWorkspaceId(value: any) {
   const text = String(value || "").trim();
   if (!/^[1-9]\d{0,2}$/.test(text)) return null;
   const parsed = Number.parseInt(text, 10);
   return parsed >= 1 && parsed <= 999 ? String(parsed) : null;
 }
-function getWorkspaceInfo(config, baseKey) {
+function getWorkspaceInfo(config: any, baseKey: any) {
   const id = normalizeWorkspaceId(config.zn_workspaces?.[baseKey]) || DEFAULT_WORKSPACE_ID;
   const parent = `${sanitizePart(baseKey)}_${stableHash(baseKey)}`;
   const dir = import_path2.join(WORKSPACE_ROOT, parent, id);
@@ -1358,7 +1358,7 @@ function getWorkspaceInfo(config, baseKey) {
     dir
   };
 }
-async function getSession(msg, scope) {
+async function getSession(msg: any, scope: any) {
   const config = await readConfig();
   const baseKey = getConversationBaseKey(msg, scope);
   const workspace = getWorkspaceInfo(config, baseKey);
@@ -1368,14 +1368,14 @@ async function getSession(msg, scope) {
   );
   return { config, workspace, conversation };
 }
-function conversationToMessages(conversation) {
-  return conversation.messages.map((item) => ({
+function conversationToMessages(conversation: any) {
+  return conversation.messages.map((item: any) => ({
     role: item.role,
     content: item.content
   }));
 }
-async function appendConversation(msg, scope, entries) {
-  await updateConfig((config) => {
+async function appendConversation(msg: any, scope: any, entries: any) {
+  await updateConfig((config: any) => {
     config.zn_conversations = config.zn_conversations || {};
     const baseKey = getConversationBaseKey(msg, scope);
     const workspace = getWorkspaceInfo(config, baseKey);
@@ -1388,21 +1388,21 @@ async function appendConversation(msg, scope, entries) {
     current.updatedAt = now;
     current.messages = [
       ...current.messages,
-      ...entries.map((entry) => ({
+      ...entries.map((entry: any) => ({
         role: entry.role,
         content: compactContent(entry.content),
         at: now
-      })).filter((entry) => entry.content)
+      })).filter((entry: any) => entry.content)
     ].slice(-limit);
     config.zn_conversations[workspace.conversationKey] = current;
     const ordered = Object.entries(config.zn_conversations).sort(
-      ([, left], [, right]) => String(right.updatedAt).localeCompare(String(left.updatedAt))
+      ([, left]: any, [, right]: any) => String(right.updatedAt).localeCompare(String(left.updatedAt))
     ).slice(0, 120);
     config.zn_conversations = Object.fromEntries(ordered);
   });
 }
-async function resetConversation(msg, scope) {
-  return await updateConfig((config) => {
+async function resetConversation(msg: any, scope: any) {
+  return await updateConfig((config: any) => {
     config.zn_conversations = config.zn_conversations || {};
     const baseKey = getConversationBaseKey(msg, scope);
     const workspace = getWorkspaceInfo(config, baseKey);
@@ -1415,8 +1415,8 @@ async function resetConversation(msg, scope) {
     return id;
   });
 }
-async function setWorkspace(msg, scope, id) {
-  return await updateConfig((config) => {
+async function setWorkspace(msg: any, scope: any, id: any) {
+  return await updateConfig((config: any) => {
     const normalized = normalizeWorkspaceId(id);
     if (!normalized) throw new Error("\u5DE5\u4F5C\u533A\u7F16\u53F7\u5FC5\u987B\u662F 1-999 \u7684\u6B63\u6574\u6570");
     const baseKey = getConversationBaseKey(msg, scope);
@@ -1425,7 +1425,7 @@ async function setWorkspace(msg, scope, id) {
     return getWorkspaceInfo(config, baseKey);
   });
 }
-function resolveWorkspacePath(workspace, target) {
+function resolveWorkspacePath(workspace: any, target: any) {
   const resolved = import_path2.resolve(workspace.dir, String(target || ".").trim());
   const relative = import_path2.relative(workspace.dir, resolved);
   if (relative.startsWith("..") || import_path2.isAbsolute(relative)) {
@@ -1433,7 +1433,7 @@ function resolveWorkspacePath(workspace, target) {
   }
   return resolved;
 }
-function getSkillText(config) {
+function getSkillText(config: any) {
   const prompts = Object.entries(config.prompts || {}).map(([name, content]) => ({ name, content: String(content || "").trim() })).filter((item) => item.content);
   if (!prompts.length) return "";
   return [
@@ -1445,7 +1445,7 @@ ${item.content}`)
 }
 
 // plugins/agent/agent.ts
-function buildSystemPrompt(input) {
+function buildSystemPrompt(input: any) {
   const { runtime, displayName, config } = input;
   const scopeText = runtime.scope === "system" ? "\u7CFB\u7EDF\u7EA7" : "TeleBox \u9879\u76EE\u7EA7";
   const pathRules = runtime.scope === "system" ? [
@@ -1514,7 +1514,7 @@ function buildSystemPrompt(input) {
     getSkillText(config)
   ].filter(Boolean).join("\n\n");
 }
-function extractJson(text) {
+function extractJson(text: any) {
   let value = String(text || "").trim();
   const fenced = value.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
   if (fenced?.[1]) value = fenced[1].trim();
@@ -1548,7 +1548,7 @@ function extractJson(text) {
   }
   return null;
 }
-function safeParseJson(value) {
+function safeParseJson(value: any) {
   try {
     const parsed = JSON.parse(value);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
@@ -1556,7 +1556,7 @@ function safeParseJson(value) {
     return null;
   }
 }
-function legacyToolCall(text) {
+function legacyToolCall(text: any) {
   const parsed = extractJson(text);
   if (!parsed) return null;
   if (typeof parsed.tool === "string") {
@@ -1571,7 +1571,7 @@ function legacyToolCall(text) {
   if (parsed.action === "answer" && typeof parsed.content === "string") {
     return { answer: parsed.content };
   }
-  const actionMap = {
+  const actionMap: any = {
     run_system: "run_command",
     execute_command: "run_command",
     exec: "run_command",
@@ -1584,7 +1584,7 @@ function legacyToolCall(text) {
   };
   const tool = typeof parsed.action === "string" ? actionMap[parsed.action] : "";
   if (!tool) return null;
-  const args = {};
+  const args: any = {};
   if (typeof parsed.command === "string") args.command = parsed.command;
   if (typeof parsed.path === "string") args.path = parsed.path;
   if (typeof parsed.content === "string") args.content = parsed.content;
@@ -1594,7 +1594,7 @@ function legacyToolCall(text) {
   if (typeof parsed.new_text === "string") args.new_text = parsed.new_text;
   return { call: { id: `legacy_${Date.now()}`, name: tool, arguments: args } };
 }
-function toolResultMessage(call, ok, content) {
+function toolResultMessage(call: any, ok: any, content: any) {
   return {
     role: "tool",
     toolCallId: call.id,
@@ -1602,10 +1602,10 @@ function toolResultMessage(call, ok, content) {
     content: JSON.stringify({ ok, content })
   };
 }
-function fingerprint(call) {
+function fingerprint(call: any) {
   return `${call.name}:${JSON.stringify(call.arguments)}`;
 }
-async function runAgent(input) {
+async function runAgent(input: any) {
   const { runtime } = input;
   const tools = createToolRuntime(runtime);
   const messages = [
@@ -1661,7 +1661,7 @@ async function runAgent(input) {
         lastObservation = content;
         continue;
       }
-      const result = await tools.execute(call.name, call.arguments);
+      const result: any = await tools.execute(call.name, call.arguments);
       lastObservation = result.content;
       messages.push(toolResultMessage(call, result.ok, result.content));
     }
@@ -1697,33 +1697,33 @@ var MAX_INLINE_TEXT = 6e4;
 var IMAGE_MIMES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 var TEXT_EXTENSIONS = /\.(txt|md|csv|json|jsonl|yaml|yml|toml|ini|cfg|conf|log|py|ts|js|jsx|tsx|sh|bat|ps1|html|htm|xml|sql|go|rs|java|c|cpp|h|cs|php|rb|swift|kt|env|properties)$/i;
 var TEXT_MIMES = /^(text\/|application\/(json|javascript|xml|x-yaml|x-sh|x-python|toml|csv|sql|typescript))/i;
-function tgEscape(text) {
+function tgEscape(text: any) {
   return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
-function tgCode(text) {
+function tgCode(text: any) {
   return `<code>${tgEscape(text)}</code>`;
 }
-function tgBold(text) {
+function tgBold(text: any) {
   return `<b>${tgEscape(text)}</b>`;
 }
-function tgBlockquote(text, expandable = false) {
+function tgBlockquote(text: any, expandable = false) {
   return `<blockquote${expandable ? " expandable" : ""}>${tgEscape(text || " ")}</blockquote>`;
 }
-function tgHtmlBlockquote(html, expandable = false) {
+function tgHtmlBlockquote(html: any, expandable = false) {
   return `<blockquote${expandable ? " expandable" : ""}>${html || " "}</blockquote>`;
 }
-function renderSharedAiIcon(icon) {
+function renderSharedAiIcon(icon: any) {
   return tgEscape(icon?.value || "\u{1F916}");
 }
-function stripTelegramHtml(text) {
+function stripTelegramHtml(text: any) {
   return String(text || "").replace(/<br\s*\/?>/gi, "\n").replace(/<\/(?:p|div|blockquote|pre)>/gi, "\n").replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/\n{3,}/g, "\n\n").trim();
 }
-function truncate2(text, max = SAFE_MESSAGE_LIMIT) {
+function truncate2(text: any, max = SAFE_MESSAGE_LIMIT) {
   const value = String(text || "");
   return value.length <= max ? value : `${value.slice(0, max - 18)}
 \u2026\uFF08\u5DF2\u622A\u65AD\uFF09`;
 }
-function payloadText(payload) {
+function payloadText(payload: any) {
   if (typeof payload === "string") return payload;
   if (!payload || typeof payload !== "object") return "";
   const record = payload;
@@ -1733,7 +1733,7 @@ function payloadText(payload) {
   if (record.file || record.files || record.media) return "\uFF08\u53D1\u9001\u4E86\u6587\u4EF6\u6216\u5A92\u4F53\uFF09";
   return "";
 }
-function redactText(text, provider) {
+function redactText(text: any, provider: any) {
   let result = String(text || "");
   const secrets = [provider?.api_key, ...Object.entries(process.env).filter(([key, value]) => value && /(key|token|secret|password|cookie|authorization)/i.test(key)).map(([, value]) => value)].filter((value) => Boolean(value && value.length >= 8)).sort((left, right) => right.length - left.length);
   for (const secret of secrets) {
@@ -1745,7 +1745,7 @@ function redactText(text, provider) {
     (_match, prefix, value) => `${prefix}${String(value).slice(0, 4)}\u2026${String(value).slice(-4)}`
   );
 }
-async function safeEdit(msg, text, options = {}) {
+async function safeEdit(msg: any, text: any, options: any = {}) {
   const safePlain = stripTelegramHtml(String(options.plainFallback != null ? options.plainFallback : text));
   try {
     await msg.edit({
@@ -1782,7 +1782,7 @@ async function safeEdit(msg, text, options = {}) {
     }
   }
 }
-async function safeReply(msg, text, options = {}) {
+async function safeReply(msg: any, text: any, options: any = {}) {
   const safePlain = stripTelegramHtml(String(options.plainFallback != null ? options.plainFallback : text));
   try {
     const sent = await msg.reply({
@@ -1802,7 +1802,7 @@ async function safeReply(msg, text, options = {}) {
     return null;
   }
 }
-function splitLongText(text, max = SAFE_MESSAGE_LIMIT) {
+function splitLongText(text: any, max = SAFE_MESSAGE_LIMIT) {
   const value = String(text || "");
   if (value.length <= max) return [value];
   const chunks = [];
@@ -1816,10 +1816,10 @@ function splitLongText(text, max = SAFE_MESSAGE_LIMIT) {
   if (remaining) chunks.push(remaining);
   return chunks;
 }
-function splitMarkdownText(text, max = 3e3) {
+function splitMarkdownText(text: any, max = 3e3) {
   const lines = String(text || "").split(/\r?\n/);
   const chunks = [];
-  let current = [];
+  let current: any[] = [];
   let currentLength = 0;
   let openFence = "";
   const flush = () => {
@@ -1849,10 +1849,10 @@ function splitMarkdownText(text, max = 3e3) {
   flush();
   return chunks.length ? chunks : [""];
 }
-function markdownToTelegramHtml(markdown) {
+function markdownToTelegramHtml(markdown: any) {
   let source = String(markdown || "");
-  const blocks = [];
-  const inlineCodes = [];
+  const blocks: any[] = [];
+  const inlineCodes: any[] = [];
   source = source.replace(/```([a-z0-9_+.-]+)?\n([\s\S]*?)```/gi, (_match, language, code) => {
     const className = language ? ` class="language-${tgEscape(String(language).toLowerCase())}"` : "";
     const index = blocks.push(`<pre><code${className}>${tgEscape(String(code).replace(/\n$/, ""))}</code></pre>`) - 1;
@@ -1866,19 +1866,19 @@ function markdownToTelegramHtml(markdown) {
   html = html.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>").replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>").replace(/__([^_\n]+)__/g, "<b>$1</b>").replace(/~~([^~\n]+)~~/g, "<s>$1</s>").replace(/\[([^\]\n]+)]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>').replace(/\u0000INLINE(\d+)\u0000/g, (_match, index) => inlineCodes[Number(index)] || "").replace(/\u0000BLOCK(\d+)\u0000/g, (_match, index) => blocks[Number(index)] || "");
   return html.trim();
 }
-function usageTotal(usage) {
+function usageTotal(usage: any) {
   if (typeof usage?.total === "number") return String(usage.total);
   const total = (usage?.prompt || 0) + (usage?.completion || 0);
   return total ? String(total) : "\u672A\u77E5";
 }
-function elapsed(startedAt) {
+function elapsed(startedAt: any) {
   const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1e3));
   if (seconds < 60) return `${seconds}\u79D2`;
   const minutes = Math.floor(seconds / 60);
   return `${minutes}\u5206${seconds % 60}\u79D2`;
 }
-function toolLabel(name) {
-  return {
+function toolLabel(name: any) {
+  return ({
     update_plan: "\u66F4\u65B0\u8BA1\u5212",
     list_files: "\u5217\u51FA\u6587\u4EF6",
     read_file: "\u8BFB\u53D6\u6587\u4EF6",
@@ -1890,9 +1890,9 @@ function toolLabel(name) {
     list_plugins: "\u5217\u51FA\u63D2\u4EF6",
     run_plugin: "\u8C03\u7528\u63D2\u4EF6",
     send_file: "\u53D1\u9001\u6587\u4EF6"
-  }[name] || name;
+  } as any)[name] || name;
 }
-function summarizeArgs(args) {
+function summarizeArgs(args: any) {
   for (const key of ["command", "path", "file", "target", "query", "url", "caption"]) {
     if (args[key] !== void 0) return truncate2(String(args[key]).replace(/\s+/g, " "), 180);
   }
@@ -1902,7 +1902,24 @@ function summarizeArgs(args) {
   return keys.join(", ") || "\u65E0\u53C2\u6570";
 }
 var AgentStatus = class {
-  constructor(input) {
+  startedAt: any;
+  step: any;
+  state: any;
+  latest: any;
+  observations: any;
+  toolCount: any;
+  aborted: any;
+  lastEditAt: any;
+  anchor: any;
+  displayName: any;
+  provider: any;
+  workspace: any;
+  maxSteps: any;
+  icon: any;
+  request: any;
+  usage: any;
+  plan: any;
+  constructor(input: any) {
     this.startedAt = Date.now();
     this.step = 1;
     this.state = "\u6B63\u5728\u63A5\u6536\u4EFB\u52A1\uFF0C\u51C6\u5907\u52A8\u624B\u2026";
@@ -1919,13 +1936,13 @@ var AgentStatus = class {
     this.icon = input.icon;
     this.request = String(input.request || "").trim();
   }
-  setStep(step) {
+  setStep(step: any) {
     this.step = step;
   }
-  setUsage(usage) {
+  setUsage(usage: any) {
     this.usage = usage;
   }
-  async setPlan(plan) {
+  async setPlan(plan: any) {
     this.plan = plan;
     this.state = "\u8BA1\u5212\u5DF2\u66F4\u65B0\uff0c\u9a6c\u4e0d\u505c\u6b65\u5730\u63a8\u8fdb\u2026";
     await this.render(true);
@@ -1934,12 +1951,12 @@ var AgentStatus = class {
     this.state = "\u6B63\u5728\u5206\u6790\u5F53\u524D\u60C5\u51B5\uFF0C\u51B3\u5B9A\u4E0B\u4E00\u6B65\u2026";
     await this.render();
   }
-  async toolStart(name, args) {
+  async toolStart(name: any, args: any) {
     this.state = `${toolLabel(name)}\uFF1A${summarizeArgs(args)}`;
     await this.render(true);
   }
-  async toolFinish(name, args, result) {
-    const firstLine = result.content.split(/\r?\n/).find((line) => line.trim()) || "\u65E0\u8F93\u51FA";
+  async toolFinish(name: any, args: any, result: any) {
+    const firstLine = result.content.split(/\r?\n/).find((line: any) => line.trim()) || "\u65E0\u8F93\u51FA";
     this.latest = `${result.ok ? "\u2713" : "\u2717"} ${toolLabel(name)}\uFF1A${summarizeArgs(args)}
 ${truncate2(firstLine, 220)}`;
     this.state = result.ok ? "\u5DF2\u62FF\u5230\u7ED3\u679C\uFF0C\u6B63\u5728\u63A8\u8FDB\u2026" : "\u8FD9\u6B65\u51FA\u4E86\u70B9\u72B6\u51B5\uFF0C\u6B63\u5728\u67E5\u539F\u56E0\u2026";
@@ -1991,7 +2008,7 @@ ${truncate2(firstLine, 220)}`;
       );
     }
     if (this.plan?.items.length) {
-      const planText = this.plan.items.map((item) => {
+      const planText = this.plan.items.map((item: any) => {
         const mark = item.status === "completed" ? "\u2713" : item.status === "in_progress" ? "\u2192" : "\xB7";
         return `${mark} ${item.step}`;
       }).join("\n");
@@ -2008,7 +2025,7 @@ ${truncate2(firstLine, 220)}`;
     this.lastEditAt = now;
     this.anchor = await safeEdit(this.anchor, this.build(), { html: true });
   }
-  async finish(answer, usage) {
+  async finish(answer: any, usage: any) {
     this.usage = usage || this.usage;
     const model = tgEscape(redactText(this.provider.model, this.provider));
     const headerHtml = [
@@ -2057,19 +2074,19 @@ ${chunk}`
       });
     }
   }
-  async fail(message) {
+  async fail(message: any) {
     const prefix = this.aborted ? "\u4EFB\u52A1\u5DF2\u88AB\u4E2D\u65AD" : "\u672C\u8F6E\u6267\u884C\u51FA\u9519\u4E86";
     const detail = this.aborted ? `${message}\n\n\u5DF2\u5B8C\u6210 ${this.toolCount} \u6B21\u5DE5\u5177\u8C03\u7528\uFF0C\u7ED3\u679C\u4FDD\u7559\u5728\u5BF9\u8BDD\u8BB0\u5FC6\u4E2D\u3002` : message;
     await this.finish(`${prefix}\uFF1A${detail}`, this.usage);
   }
 };
-function toBuffer(value) {
+function toBuffer(value: any) {
   if (Buffer.isBuffer(value)) return value;
   if (value instanceof Uint8Array) return Buffer.from(value);
   if (typeof value === "string") return Buffer.from(value, "binary");
   return null;
 }
-function detectImageMime(buffer) {
+function detectImageMime(buffer: any) {
   if (buffer.length < 12) return null;
   if (buffer[0] === 255 && buffer[1] === 216 && buffer[2] === 255) return "image/jpeg";
   if (buffer[0] === 137 && buffer[1] === 80 && buffer[2] === 78 && buffer[3] === 71) return "image/png";
@@ -2079,19 +2096,19 @@ function detectImageMime(buffer) {
   }
   return null;
 }
-function documentName(message) {
+function documentName(message: any) {
   const attributes = message?.media?.document?.attributes || [];
-  return String(attributes.map((item) => item?.fileName).find(Boolean) || "");
+  return String(attributes.map((item: any) => item?.fileName).find(Boolean) || "");
 }
-function safeFileName(name) {
+function safeFileName(name: any) {
   return (import_path3.basename(name || "attachment").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") || "attachment").slice(0, 120);
 }
-async function buildReplyContext(msg, workspace) {
+async function buildReplyContext(msg: any, workspace: any) {
   const reply = msg.replyTo?.replyToMsgId ? await msg.getReplyMessage().catch(() => null) : null;
   if (!reply) return { text: "", images: [], savedFiles: [] };
   const text = [];
-  const images = [];
-  const savedFiles = [];
+  const images: any[] = [];
+  const savedFiles: any[] = [];
   const replyText = String(reply.message || reply.text || "").trim();
   if (replyText) text.push(`\u5F15\u7528\u6D88\u606F\uFF1A
 ${replyText}`);
@@ -2140,22 +2157,22 @@ ${buffer.toString("utf-8")}
   }
   return { text: text.join("\n\n"), images, savedFiles };
 }
-function findCommand(commandLine) {
+function findCommand(commandLine: any) {
   const normalized = commandLine.trim();
   return (0, import_pluginManager2.listCommands)().sort((left, right) => right.length - left.length).find((command) => normalized === command || normalized.startsWith(`${command} `)) || null;
 }
-function stripCommandPrefix(commandLine) {
+function stripCommandPrefix(commandLine: any) {
   const trimmed = commandLine.trim();
   const matched = [...(0, import_pluginManager2.getPrefixes)()].sort((left, right) => right.length - left.length).find((prefix) => trimmed.startsWith(prefix));
   return matched ? trimmed.slice(matched.length).trim() : trimmed;
 }
-function cloneForCapture(msg, commandLine, outputs) {
+function cloneForCapture(msg: any, commandLine: any, outputs: any) {
   const clone = Object.create(Object.getPrototypeOf(msg));
   Object.assign(clone, msg);
   const prefix = (0, import_pluginManager2.getPrefixes)()[0] || ".";
   Object.defineProperty(clone, "message", { value: `${prefix}${commandLine}`, writable: true });
   Object.defineProperty(clone, "text", { value: `${prefix}${commandLine}`, writable: true });
-  const capture = async (payload) => {
+  const capture = async (payload: any) => {
     const value = payloadText(payload).trim();
     if (value) outputs.push(value);
     return clone;
@@ -2167,7 +2184,7 @@ function cloneForCapture(msg, commandLine, outputs) {
     const proxy = new Proxy(originalClient, {
       get(target, prop, receiver) {
         if (prop === "sendMessage" || prop === "editMessage" || prop === "sendFile") {
-          return async (_peer, payload) => await capture(payload);
+          return async (_peer: any, payload: any) => await capture(payload);
         }
         const value = Reflect.get(target, prop, receiver);
         return typeof value === "function" ? value.bind(target) : value;
@@ -2177,24 +2194,24 @@ function cloneForCapture(msg, commandLine, outputs) {
   }
   return clone;
 }
-function looksPending(text) {
+function looksPending(text: any) {
   return /正在|处理中|运行中|稍后|后台|已启动|请等待|please wait|running|pending/i.test(text);
 }
-async function wait(ms) {
+async function wait(ms: any) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
-async function dispatchPluginCaptured(msg, commandLine) {
+async function dispatchPluginCaptured(msg: any, commandLine: any) {
   const normalized = stripCommandPrefix(commandLine);
   const command = findCommand(normalized);
   if (!command) throw new Error(`\u672A\u77E5 TeleBox \u63D2\u4EF6\u547D\u4EE4\uFF1A${normalized}`);
-  const outputs = [];
+  const outputs: any[] = [];
   const captured = cloneForCapture(msg, normalized, outputs);
   await (0, import_pluginManager2.dealCommandPluginWithMessage)({ cmd: command, msg: captured, trigger: msg });
   await wait(800);
   if (looksPending(outputs.join("\n"))) await wait(5e3);
   return outputs.filter((value, index) => index === 0 || value !== outputs[index - 1]).join("\n\n").trim();
 }
-async function showHtmlMessage(msg, html, plainFallback) {
+async function showHtmlMessage(msg: any, html: any, plainFallback: any = void 0) {
   const plain = stripTelegramHtml(String(plainFallback != null ? plainFallback : html));
   if (plain.length > SAFE_MESSAGE_LIMIT) {
     const chunks = splitLongText(plain);
@@ -2206,7 +2223,7 @@ async function showHtmlMessage(msg, html, plainFallback) {
   }
   await safeEdit(msg, html, { html: true, plainFallback: plain });
 }
-async function showPreformattedMessage(msg, title, content) {
+async function showPreformattedMessage(msg: any, title: any, content: any) {
   const chunks = splitLongText(content || "\uFF08\u7A7A\uFF09", 3e3);
   let anchor = await safeEdit(
     msg,
@@ -2248,16 +2265,16 @@ var SUBCOMMANDS = {
   runSystem: /* @__PURE__ */ new Set(["sys", "xt", "system", "\u7CFB\u7EDF"]),
   withContext: /* @__PURE__ */ new Set(["ctx", "s", "\u5E26\u6587"])
 };
-function splitBody(message) {
+function splitBody(message: any) {
   const text = String(message || "").trim();
   const firstSpace = text.search(/\s/);
   return firstSpace < 0 ? "" : text.slice(firstSpace + 1).trim();
 }
-function compact(text, max = 180) {
+function compact(text: any, max = 180) {
   const value = String(text || "").replace(/\s+/g, " ").trim();
   return value.length <= max ? value : `${value.slice(0, max - 1)}\u2026`;
 }
-function parseTimeout(value) {
+function parseTimeout(value: any) {
   const match = value.trim().toLowerCase().match(
     /^(\d+(?:\.\d+)?)\s*(ms|毫秒|s|sec|秒|m|min|分钟|h|hr|小时)?$/
   );
@@ -2268,42 +2285,42 @@ function parseTimeout(value) {
   const factor = unit === "ms" || unit === "\u6BEB\u79D2" ? 1 : ["s", "sec", "\u79D2"].includes(unit) ? 1e3 : ["h", "hr", "\u5C0F\u65F6"].includes(unit) ? 36e5 : 6e4;
   return Math.min(864e5, Math.max(1e4, Math.round(amount * factor)));
 }
-function formatDuration(ms) {
+function formatDuration(ms: any) {
   const minutes = ms / 6e4;
   return Number.isInteger(minutes) ? `${minutes} \u5206\u949F` : `${minutes.toFixed(1)} \u5206\u949F`;
 }
-function scopeName(scope) {
+function scopeName(scope: any) {
   return scope === "system" ? "\u7CFB\u7EDF\u7EA7" : "TeleBox";
 }
-function scopeCommand(scope) {
+function scopeCommand(scope: any) {
   return `${mainPrefix}${scope === "system" ? "sysagent" : "agent"}`;
 }
-function menuSection(title, rows) {
+function menuSection(title: any, rows: any) {
   return [
     tgBold(title),
     ...rows.map(
-      ([command, description]) => `${tgCode(command)} ${tgEscape(description)}`
+      ([command, description]: any) => `${tgCode(command)} ${tgEscape(description)}`
     )
   ].join("\n");
 }
-function infoCard(title, rows) {
+function infoCard(title: any, rows: any) {
   return [
     tgBold(title),
     tgHtmlBlockquote(
-      rows.map(([label, value]) => `${tgEscape(label)}\uFF1A${tgCode(value)}`).join("\n")
+      rows.map(([label, value]: any) => `${tgEscape(label)}\uFF1A${tgCode(value)}`).join("\n")
     )
   ].join("\n");
 }
-function successCard(title, detail = "") {
+function successCard(title: any, detail = "") {
   return [tgBold(`\u2705 ${title}`), detail ? tgBlockquote(detail) : ""].filter(Boolean).join("\n");
 }
-function errorCard(message) {
+function errorCard(message: any) {
   return [tgBold("\u274C \u6267\u884C\u5931\u8D25"), tgBlockquote(message, true)].join("\n");
 }
-function helpText(scope, displayName = "") {
+function helpText(scope: any, displayName = "") {
   const prefix = scopeCommand(scope);
   const other = scope === "system" ? `${mainPrefix}agent` : `${mainPrefix}sysagent`;
-  const alias = (en, cn) => `${en} / ${tgEscape(cn)}`;
+  const alias = (en: any, cn: any) => `${en} / ${tgEscape(cn)}`;
   return [
     displayName ? `<b>${tgEscape(displayName)}</b> \u00B7 ${tgEscape(scopeName(scope))}\u667A\u80FD\u4F53` : `<b>${tgEscape(scopeName(scope))}\u667A\u80FD\u4F53</b>`,
     tgBlockquote("\u8BF7\u6C42\u4E00\u822C\u8BDD\u3001\u53EF\u6307\u4EE4\u3002\u547D\u4EE4\u4E3A\u82F1\u6587\u5173\u952E\u8BCD\uFF0C\u539F\u62FC\u97F3/\u4E2D\u6587\u522B\u540D\u4ECD\u517C\u5BB9\u3002"),
@@ -2351,7 +2368,7 @@ function helpText(scope, displayName = "") {
     )
   ].join("\n\n");
 }
-function formatWorkspaceList(root, current, entries) {
+function formatWorkspaceList(root: any, current: any, entries: any) {
   return [
     infoCard("\u5DE5\u4F5C\u533A\u6587\u4EF6", [
       ["\u76EE\u5F55", root],
@@ -2362,7 +2379,7 @@ function formatWorkspaceList(root, current, entries) {
     tgBlockquote(entries.join("\n") || "\u6682\u65E0\u6587\u4EF6\u3002", true)
   ].join("\n\n");
 }
-async function collectWorkspaceEntries(root, current, output = []) {
+async function collectWorkspaceEntries(root: any, current: any, output: any[] = []) {
   if (output.length >= MAX_WORKSPACE_LIST) return output;
   const items = await import_fs4.promises.readdir(current, { withFileTypes: true });
   items.sort((left, right) => left.name.localeCompare(right.name));
@@ -2380,7 +2397,7 @@ async function collectWorkspaceEntries(root, current, output = []) {
   }
   return output;
 }
-function directExec(command, cwd, timeoutMs) {
+function directExec(command: any, cwd: any, timeoutMs: any) {
   return new Promise((resolve) => {
     const startedAt = Date.now();
     (0, import_child_process2.exec)(
@@ -2398,25 +2415,27 @@ function directExec(command, cwd, timeoutMs) {
   });
 }
 var AgentPlugin = class extends Plugin {
-  description = "TeleBox 编程智能体：.agent/.plan 项目级、.sysagent/.sysplan 系统级。可读写文件、运行命令、调用插件。";
+  description: any;
+  abortSignal: any;
+  cmdHandlers: any;
   constructor() {
-    super(...arguments);
+    super();
     this.description = async () => helpText("telebox", getDisplayName(await readConfig()));
     this.ignoreEdited = true;
     this.cmdHandlers = {
-      agent: async (msg) => await this.handle(msg, "telebox", false),
-      plan: async (msg) => await this.handle(msg, "telebox", true),
-      sysagent: async (msg) => await this.handle(msg, "system", false),
-      sysplan: async (msg) => await this.handle(msg, "system", true)
+      agent: async (msg: any) => await this.handle(msg, "telebox", false),
+      plan: async (msg: any) => await this.handle(msg, "telebox", true),
+      sysagent: async (msg: any) => await this.handle(msg, "system", false),
+      sysplan: async (msg: any) => await this.handle(msg, "system", true)
     };
   }
-  setup(context) {
+  setup(context: any) {
     this.abortSignal = context.signal;
   }
   cleanup() {
     this.abortSignal = void 0;
   }
-  async handle(msg, scope, planFirst) {
+  async handle(msg: any, scope: any, planFirst: any) {
     try {
       const body = splitBody(msg.message || msg.text || "");
       const config = await readConfig();
@@ -2476,7 +2495,7 @@ var AgentPlugin = class extends Plugin {
       await showHtmlMessage(msg, errorCard(formatProviderError(error)));
     }
   }
-  async run(msg, prompt, options) {
+  async run(msg: any, prompt: any, options: any) {
     const session = await getSession(msg, options.scope);
     const provider = getProvider(session.config);
     const displayName = getDisplayName(session.config);
@@ -2529,19 +2548,19 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       maxSteps: getMaxSteps(session.config),
       answerOnly: Boolean(options.answerOnly),
       planFirst: Boolean(options.planFirst),
-      dispatchPlugin: async (command) => await dispatchPluginCaptured(msg, command),
-      onPlanChange: async (plan) => await status.setPlan(plan),
-      onToolStart: async (name, args) => await status.toolStart(name, args),
-      onToolFinish: async (name, args, result) => await status.toolFinish(name, args, result)
+      dispatchPlugin: async (command: any) => await dispatchPluginCaptured(msg, command),
+      onPlanChange: async (plan: any) => await status.setPlan(plan),
+      onToolStart: async (name: any, args: any) => await status.toolStart(name, args),
+      onToolFinish: async (name: any, args: any, result: any) => await status.toolFinish(name, args, result)
     };
     try {
-      const result = await runAgent({
+      const result: any = await runAgent({
         runtime,
         config: session.config,
         history: conversationToMessages(session.conversation),
         userMessage: { role: "user", content: userContent, images: reply.images },
         displayName,
-        onStep: async (step) => {
+        onStep: async (step: any) => {
           if (this.abortSignal?.aborted) {
             status.markAborted();
             throw new Error("\u63D2\u4EF6\u5DF2\u91CD\u8F7D\uFF0C\u672C\u8F6E\u4EFB\u52A1\u5DF2\u505C\u6B62");
@@ -2549,7 +2568,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
           status.setStep(step);
           await status.thinking();
         },
-        onUsage: async (usage) => status.setUsage(usage)
+        onUsage: async (usage: any) => status.setUsage(usage)
       });
       await status.finish(result.answer, result.usage);
       await appendConversation(msg, options.scope, [
@@ -2566,7 +2585,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       ]).catch(() => void 0);
     }
   }
-  async showConfig(msg, scope) {
+  async showConfig(msg: any, scope: any) {
     const config = await readConfig();
     const provider = getProvider(config);
     const providers = getProviders(config);
@@ -2589,14 +2608,14 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       )
     );
   }
-  async handleConfig(msg, scope, value) {
+  async handleConfig(msg: any, scope: any, value: any) {
     const body = String(value || "").trim();
     const sub = body.split(/\s+/g).filter(Boolean)[0]?.toLowerCase();
     const isAiAction = sub === "set" || sub === "add" || sub === "use" || sub === "switch" || sub === "del" || sub === "delete" || sub === "rm" || sub === "list";
     if (isAiAction) return await this.handleConfigAi(msg, scope, value);
     return await this.showConfig(msg, scope);
   }
-  async handleConfigAi(msg, scope, value) {
+  async handleConfigAi(msg: any, scope: any, value: any) {
     const parts = String(value || "").trim().split(/\s+/g).filter(Boolean);
     const sub = (parts.shift() || "list").toLowerCase();
     const prefix = scopeCommand(scope);
@@ -2625,7 +2644,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} config use <\u540D\u79F0>`);
         const config = await readConfig();
         if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} config list \u67E5\u770B\u5168\u90E8\uFF09`);
-        await updateConfig((c) => { c.default_provider = name; });
+        await updateConfig((c: any) => { c.default_provider = name; });
         await showHtmlMessage(msg, successCard("\u5DF2\u5207\u6362\u4F9B\u5E94\u5546", `${name} \u00B7 ${config.providers[name].model}`));
         return;
       }
@@ -2669,7 +2688,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       await showHtmlMessage(msg, errorCard(formatProviderError(error)));
     }
   }
-  async showCommands(msg) {
+  async showCommands(msg: any) {
     const blocked = /* @__PURE__ */ new Set(["agent", "plan", "sysagent", "sysplan", "ai", "exec"]);
     const rows = (0, import_pluginManager3.listCommands)().filter((command) => !blocked.has(command.toLowerCase())).map((command) => {
       const entry = (0, import_pluginManager3.getPluginEntry)(command);
@@ -2683,7 +2702,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       ].join("\n")
     );
   }
-  async setName(msg, value) {
+  async setName(msg: any, value: any) {
     if (!value) {
       const config = await readConfig();
       await showHtmlMessage(
@@ -2698,7 +2717,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
     }
     // 清空别名：reset / clear / qc / \u6E05\u9664 / \u91CD\u7F6E
     if (["reset", "clear", "qc", "\u6E05\u9664", "\u91CD\u7F6E", "\u91CD\u7F6E\u540D\u79F0"].includes(value.toLowerCase())) {
-      await updateConfig((config) => {
+      await updateConfig((config: any) => {
         delete config.zn_name;
       });
       this.name = void 0;
@@ -2718,13 +2737,13 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
     if (reserved.has(name.toLowerCase())) {
       throw new Error("\u540D\u79F0\u4E0D\u80FD\u4E0E\u547D\u4EE4\u5173\u952E\u5B57\u51B2\u7A77\uFF0C\u8BF7\u6362\u4E00\u4E2A");
     }
-    await updateConfig((config) => {
+    await updateConfig((config: any) => {
       config.zn_name = name;
     });
     this.name = name;
     await showHtmlMessage(msg, successCard("\u667A\u80FD\u540D\u79F0\u5DF2\u8BBE\u7F6E", name));
   }
-  async setSteps(msg, scope, value) {
+  async setSteps(msg: any, scope: any, value: any) {
     if (!value) {
       const config = await readConfig();
       await showHtmlMessage(
@@ -2738,12 +2757,12 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
     }
     const steps = Math.min(MAX_AGENT_STEPS, Math.max(1, Number.parseInt(value, 10) || 0));
     if (!steps) throw new Error("\u8F6E\u6570\u5FC5\u987B\u662F\u6B63\u6574\u6570");
-    await updateConfig((config) => {
+    await updateConfig((config: any) => {
       config.max_agent_steps = steps;
     });
     await showHtmlMessage(msg, successCard("\u6700\u5927\u667A\u80FD\u4F53\u8F6E\u6570\u5DF2\u66F4\u65B0", `${steps} \u8F6E`));
   }
-  async setTimeout(msg, scope, value) {
+  async setTimeout(msg: any, scope: any, value: any) {
     if (!value) {
       const config = await readConfig();
       await showHtmlMessage(
@@ -2758,7 +2777,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
     }
     const timeout = parseTimeout(value);
     if (!timeout) throw new Error("\u8D85\u65F6\u683C\u5F0F\u65E0\u6548\uFF0C\u4F8B\u5982 30s\u30012m\u30011h");
-    await updateConfig((config) => {
+    await updateConfig((config: any) => {
       config.timeout = timeout;
       config.system_timeout = timeout;
     });
@@ -2767,7 +2786,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       successCard("\u6A21\u578B\u548C\u547D\u4EE4\u8D85\u65F6\u5DF2\u66F4\u65B0", formatDuration(timeout))
     );
   }
-  async setContextLimit(msg, scope, value) {
+  async setContextLimit(msg: any, scope: any, value: any) {
     if (!value) {
       const config = await readConfig();
       await showHtmlMessage(
@@ -2782,7 +2801,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
     const parsed = Number.parseInt(value, 10);
     if (!Number.isFinite(parsed) || parsed <= 0) throw new Error("\u8BB0\u5FC6\u6761\u6570\u5FC5\u987B\u662F\u6B63\u6574\u6570");
     const limit = Math.min(MAX_CONTEXT_LIMIT, Math.max(1, parsed));
-    await updateConfig((config) => {
+    await updateConfig((config: any) => {
       config.conversation_context_limit = limit;
     });
     await showHtmlMessage(
@@ -2790,7 +2809,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       successCard("\u5BF9\u8BDD\u8BB0\u5FC6\u5DF2\u66F4\u65B0", `${limit} \u6761\uFF1B\u666E\u901A .agent/.sysagent \u4F1A\u81EA\u52A8\u52A0\u8F7D`)
     );
   }
-  async showPermission(msg, scope) {
+  async showPermission(msg: any, scope: any) {
     await showHtmlMessage(
       msg,
       scope === "telebox" ? [
@@ -2817,9 +2836,9 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       ].join("\n")
     );
   }
-  async showConversation(msg, scope) {
+  async showConversation(msg: any, scope: any) {
     const session = await getSession(msg, scope);
-    const preview = session.conversation.messages.slice(-6).map((item, index) => `${index + 1}. ${item.role === "user" ? "\u7528\u6237" : "\u52A9\u624B"}\uFF1A${compact(item.content, 180)}`);
+    const preview = session.conversation.messages.slice(-6).map((item: any, index: any) => `${index + 1}. ${item.role === "user" ? "\u7528\u6237" : "\u52A9\u624B"}\uFF1A${compact(item.content, 180)}`);
     await showHtmlMessage(
       msg,
       [
@@ -2838,14 +2857,14 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       ].join("\n\n")
     );
   }
-  async newConversation(msg, scope) {
+  async newConversation(msg: any, scope: any) {
     const id = await resetConversation(msg, scope);
     await showHtmlMessage(
       msg,
       successCard(`\u5DF2\u5F00\u542F\u65B0\u7684${scopeName(scope)}\u5BF9\u8BDD`, `\u4F1A\u8BDD ID\uFF1A${id}`)
     );
   }
-  async workspaceCommand(msg, scope, value) {
+  async workspaceCommand(msg: any, scope: any, value: any) {
     const session = await getSession(msg, scope);
     if (!value) {
       await showHtmlMessage(
@@ -2896,7 +2915,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
     }
     const id = normalizeWorkspaceId(value);
     if (!id) throw new Error("\u5DE5\u4F5C\u533A\u7F16\u53F7\u5FC5\u987B 1-999\uFF0C\u8BF7\u7528 workspace ls/files/cat/send/rm");
-    const workspace = await setWorkspace(msg, scope, id);
+    const workspace: any = await setWorkspace(msg, scope, id);
     await showHtmlMessage(
       msg,
       successCard(
@@ -2905,7 +2924,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       )
     );
   }
-  async listWorkspace(msg, scope, value) {
+  async listWorkspace(msg: any, scope: any, value: any) {
     const session = await getSession(msg, scope);
     const target = resolveWorkspacePath(session.workspace, value || ".");
     const stat = await import_fs4.promises.stat(target);
@@ -2930,7 +2949,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       )
     );
   }
-  async deleteWorkspaceFile(msg, scope, value) {
+  async deleteWorkspaceFile(msg: any, scope: any, value: any) {
     if (!value) throw new Error(`\u7528\u6CD5\uFF1A${scopeCommand(scope)} rm <\u5DE5\u4F5C\u533A\u6587\u4EF6>`);
     const session = await getSession(msg, scope);
     const target = resolveWorkspacePath(session.workspace, value);
@@ -2946,7 +2965,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       )
     );
   }
-  async sendWorkspaceFile(msg, workspace, value) {
+  async sendWorkspaceFile(msg: any, workspace: any, value: any) {
     const target = resolveWorkspacePath(workspace, value);
     const stat = await import_fs4.promises.stat(target);
     if (!stat.isFile()) throw new Error("\u53D1\u9001\u76EE\u6807\u4E0D\u662F\u6587\u4EF6");
@@ -2961,7 +2980,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       successCard("\u6587\u4EF6\u5DF2\u53D1\u9001", import_path4.relative(workspace.dir, target))
     );
   }
-  async runDirectSystemCommand(msg, command) {
+  async runDirectSystemCommand(msg: any, command: any) {
     const session = await getSession(msg, "system");
     const timeout = getCommandTimeout(session.config);
     await showHtmlMessage(
@@ -2971,7 +2990,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         tgBlockquote(compact(command, 240), true)
       ].join("\n")
     );
-    const result = await directExec(command, session.workspace.dir, timeout);
+    const result: any = await directExec(command, session.workspace.dir, timeout);
     await showPreformattedMessage(
       msg,
       `\u7CFB\u7EDF\u547D\u4EE4\u7ED3\u679C \xB7 \u9000\u51FA\u7801 ${result.code}`,
