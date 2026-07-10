@@ -274,7 +274,8 @@ const plugin = new (class extends Plugin {
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
     const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
 
-    if (state.sessions[target].kind !== "external") {
+    // 两种 session 都有效：native（一直在自己目录里）或 external（switch login 登录的）
+    if (state.sessions[target].kind !== "external" && state.sessions[target].kind !== "native") {
       await msg.edit({ text: T.goNotReady(target) });
       return;
     }
