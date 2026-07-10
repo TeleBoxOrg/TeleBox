@@ -56,7 +56,7 @@ function endpoint(provider, kind) {
   return hasVersionPath(base) ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
 }
 function providerInterface(provider) {
-  const explicit = String(provider.api_interface || "").trim().toLowerCase();
+  const explicit = String(provider.type || provider.api_interface || "").trim().toLowerCase();
   if (explicit) return explicit;
   const hint = `${provider.name} ${provider.base_url}`.toLowerCase();
   if (hint.includes("anthropic") || hint.includes("claude")) return "anthropic";
@@ -1133,19 +1133,43 @@ function migrateLegacyAgentData(config) {
     config.agent_migrated_at = (/* @__PURE__ */ new Date()).toISOString();
     changed = true;
   }
-  // 兼容：旧版 active_provider 是扁平配置对象（非名称），迁移进 ai_providers
-  if (config.active_provider && typeof config.active_provider === "object") {
-    const legacy = config.active_provider;
-    config.ai_providers = config.ai_providers || {};
-    if (!config.ai_providers.__default) {
-      config.ai_providers.__default = { ...legacy, name: "__default" };
-      config.ai_providers.__default.api_interface = config.ai_providers.__default.api_interface || detectProviderInterface(config.ai_providers.__default);
+  // 兼容：旧字段名 ai_providers/active_provider/api_interface -> providers/default_provider/type
+  if (config.ai_providers && !config.providers) {
+    config.providers = config.ai_providers;
+    delete config.ai_providers;
+    changed = true;
+  }
+  if (config.active_provider !== void 0 && config.default_provider === void 0) {
+    config.default_provider = config.active_provider;
+    delete config.active_provider;
+    changed = true;
+  }
+  // 兼容：旧版 active_provider 是扁平配置对象（非名称），迁移进 providers
+  if (config.default_provider && typeof config.default_provider === "object") {
+    const legacy = config.default_provider;
+    config.providers = config.providers || {};
+    if (!config.providers.__default) {
+      config.providers.__default = { ...legacy, name: "__default", type: legacy.type || legacy.api_interface || detectProviderInterface(legacy) };
       changed = true;
     }
-    config.active_provider = "__default";
+    config.default_provider = "__default";
   }
-  if (config.active_provider && !config.ai_providers?.[config.active_provider]) {
-    config.active_provider = null;
+  if (config.default_provider && !config.providers?.[config.default_provider]) {
+    config.default_provider = null;
+  }
+  // 兼容：provider 旧字段 api_interface -> type
+  if (config.providers) {
+    for (const key of Object.keys(config.providers)) {
+      const pr = config.providers[key];
+      if (pr && pr.api_interface !== void 0 && pr.type === void 0) {
+        pr.type = pr.api_interface;
+        delete pr.api_interface;
+        changed = true;
+      } else if (pr && pr.type === void 0) {
+        pr.type = detectProviderInterface(pr);
+        changed = true;
+      }
+    }
   }
   return changed;
 }
@@ -1272,40 +1296,40 @@ function getContextLimit(config) {
   );
 }
 function getProvider(config) {
-  const name = config.active_provider;
+  const name = config.default_provider;
   if (!name) return null;
-  const provider = config.ai_providers?.[name];
+  const provider = config.providers?.[name];
   if (!provider?.base_url || !provider?.api_key || !provider?.model) return null;
   return { name, ...provider };
 }
 function getProviders(config) {
-  const map = config.ai_providers || {};
+  const map = config.providers || {};
   return Object.keys(map).map((name) => ({ name, ...map[name] }));
 }
 function detectProviderInterface(input) {
   const hint = String(input?.base_url || input?.model || "").toLowerCase();
   if (/anthropic\.com|claude/.test(hint)) return "anthropic";
-  if (/openai\.com|gpt-|chatgpt|o1|o3/.test(hint)) return "openai";
   if (/googleapis\.com|gemini/.test(hint)) return "gemini";
-  return String(input?.api_interface || input?.type || "openai").toLowerCase();
+  if (/openai\.com|gpt-|chatgpt|o1|o3/.test(hint)) return "openai";
+  return String(input?.type || input?.api_interface || "openai").toLowerCase();
 }
 async function setProvider(name, fields) {
   name = String(name || "").trim();
   if (!/^[\w.-]{1,32}$/.test(name)) throw new Error("供应商名称仅允许字母、数字、._-，长度 1-32");
   await updateConfig((config) => {
-    config.ai_providers = config.ai_providers || {};
-    const prev = config.ai_providers[name] || {};
+    config.providers = config.providers || {};
+    const prev = config.providers[name] || {};
     const next = { ...prev, ...fields, name };
-    next.api_interface = next.api_interface || detectProviderInterface(next);
-    config.ai_providers[name] = next;
-    if (!config.active_provider) config.active_provider = name;
+    next.type = next.type || detectProviderInterface(next);
+    config.providers[name] = next;
+    if (!config.default_provider) config.default_provider = name;
   });
 }
 async function removeProvider(name) {
   await updateConfig((config) => {
-    config.ai_providers = config.ai_providers || {};
-    delete config.ai_providers[name];
-    if (config.active_provider === name) config.active_provider = Object.keys(config.ai_providers)[0] || null;
+    config.providers = config.providers || {};
+    delete config.providers[name];
+    if (config.default_provider === name) config.default_provider = Object.keys(config.providers)[0] || null;
   });
 }
 function getDisplayName(config) {
@@ -2315,6 +2339,13 @@ function helpText(scope, displayName = "") {
         `\u5207\u6362\u5230${scope === "system" ? "TeleBox \u667A\u80FD\u4F53" : "\u7CFB\u7EDF\u667A\u80FD\u4F53"}\u667A\u80FD\u4F53`
       ]
     ]),
+    menuSection("\u914D\u7F6E AI \u6A21\u578B", [
+      [`${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B>]`, "\u6DFB\u52A0/\u66F4\u65B0\u4F9B\u5E94\u5546\uFF0C\u914D\u7F6E\u683C\u5F0F\u4E0E ai \u63D2\u4EF6\u5B8C\u5168\u4E00\u81F4\uFF1Aproviders[\u540D\u79F0]={base_url,api_key,model,type}\u3001\u5F53\u524D\u4F9B\u5E94\u5546=default_provider"],
+      [`${prefix} ai use <\u540D\u79F0>`, "\u5207\u6362\u5F53\u524D\u4F7F\u7528\u7684\u4F9B\u5E94\u5546"],
+      [`${prefix} ai del <\u540D\u79F0>`, "\u5220\u9664\u4F9B\u5E94\u5546"],
+      [`${prefix} ai list`, "\u5217\u51FA\u6240\u6709\u4F9B\u5E94\u5546\u5E76\u6807\u6CE8\u5F53\u524D"],
+      [`${prefix} config`, "\u67E5\u770B\u5F53\u524D\u6A21\u578B\u4E0E\u8FD0\u884C\u914D\u7F6E"]
+    ]),
     tgBold("\u8DEF\u5F84"),
     tgHtmlBlockquote(
       `\u9879\u76EE\u8DEF\u5F84\uFF1A${tgCode("$project/...")}\n\u5DE5\u4F5C\u533A\u8DEF\u5F84\uFF1A${tgCode("$workspace/...")}`
@@ -2548,7 +2579,7 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         [
           ["\u8303\u56F4", scopeName(scope)],
           ["\u5F53\u524D\u4F9B\u5E94\u5546", provider ? `${provider.name} \u00B7 ${provider.model}` : "\u672A\u914D\u7F6E"],
-          ["\u63A5\u53E3\u7C7B\u578B", provider?.api_interface || provider?.type || "\u672A\u914D\u7F6E"],
+          ["\u63A5\u53E3\u7C7B\u578B", provider?.type || provider?.api_interface || "\u672A\u914D\u7F6E"],
           ["\u63A5\u53E3\u5730\u5740", provider?.base_url || "\u672A\u914D\u7F6E"],
           ["\u5DF2\u4FDD\u5B58\u4F9B\u5E94\u5546", String(providers.length)],
           ["\u6700\u5927\u667A\u80FD\u6B65\u6570", String(getMaxSteps(config))],
@@ -2568,38 +2599,36 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
       if (sub === "set" || sub === "add") {
         const [name, baseUrl, apiKey, model, iface] = parts;
         if (!name || !baseUrl || !apiKey || !model) {
-          throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u63A5\u53E3]\u3002\u63A5\u53E3\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / anthropic / gemini`);
+          throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B]\u3002\u7C7B\u578B\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / gemini / anthropic`);
         }
         await setProvider(name, {
           base_url: baseUrl.replace(/\/+$/, ""),
           api_key: apiKey,
           model,
-          api_interface: iface ? iface.toLowerCase() : void 0
+          type: iface ? iface.toLowerCase() : void 0
         });
         const provider = await getProvider(await readConfig());
-        await showHtmlMessage(
-          msg,
-          successCard(
-            "\u4F9B\u5E94\u5546\u5DF2\u4FDD\u5B58",
-            `${name} \u00B7 ${model}\n\u63A5\u53E3\uFF1A${provider?.api_interface || "openai"}\n\u5730\u5740\uFF1A${baseUrl}\n\n${name === (await readConfig()).active_provider ? "\u5DF2\u81EA\u52A8\u8BBE\u4E3A\u5F53\u524D\u4F9B\u5E94\u5546" : `\u5207\u6362\u8BF7\u7528 ${tgCode(prefix + " ai use " + name)}`}`
-          )
-        );
+        const isActiveNow = name === (await readConfig()).default_provider;
+        const activeNote = isActiveNow
+          ? "已自动设为当前供应商"
+          : tgCode(prefix + " ai use " + name) + " 切换";
+        const saved = `${name} · ${model}\n类型：${provider?.type || "openai"}\n地址：${baseUrl}\n\n${activeNote}`;
         return;
       }
       if (sub === "use" || sub === "switch") {
         const [name] = parts;
         if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai use <\u540D\u79F0>`);
         const config = await readConfig();
-        if (!config.ai_providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} ai list \u67E5\u770B\u5168\u90E8\uFF09`);
-        await updateConfig((c) => { c.active_provider = name; });
-        await showHtmlMessage(msg, successCard("\u5DF2\u5207\u6362\u4F9B\u5E94\u5546", `${name} \u00B7 ${config.ai_providers[name].model}`));
+        if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} ai list \u67E5\u770B\u5168\u90E8\uFF09`);
+        await updateConfig((c) => { c.default_provider = name; });
+        await showHtmlMessage(msg, successCard("\u5DF2\u5207\u6362\u4F9B\u5E94\u5546", `${name} \u00B7 ${config.providers[name].model}`));
         return;
       }
       if (sub === "del" || sub === "delete" || sub === "rm") {
         const [name] = parts;
         if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} ai del <\u540D\u79F0>`);
         const config = await readConfig();
-        if (!config.ai_providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}`);
+        if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}`);
         await removeProvider(name);
         await showHtmlMessage(msg, successCard("\u5DF2\u5220\u9664\u4F9B\u5E94\u5546", name));
         return;
@@ -2618,8 +2647,8 @@ ${tgBlockquote(`${scopeCommand(options.scope)} <\u9700\u6C42>`)}`
         return;
       }
       const rows = providers.map((p) => {
-        const active = p.name === config.active_provider ? " \u2705" : "";
-        return `${tgCode(p.name)}${active}\n  ${tgEscape(p.model)} \u00B7 ${tgEscape(p.api_interface || "openai")}\n  ${tgEscape(p.base_url || "")}`;
+        const active = p.name === config.default_provider ? " \u2705" : "";
+        return `${tgCode(p.name)}${active}\n  ${tgEscape(p.model)} \u00B7 ${tgEscape(p.type || "openai")}\n  ${tgEscape(p.base_url || "")}`;
       });
       const current = getProvider(config);
       await showHtmlMessage(

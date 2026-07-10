@@ -122,3 +122,24 @@
   - 对核心插件文件（agent.ts 等）考虑加 pre-commit 钩子或 CI 跑 `tsc --noEmit` / 语法校验，
     任何未提交的孤立改动在进入提交前就被拦下；
   - 若工作树频繁出现非自发的外部修改，应排查运行环境（cron/编辑器/同步工具）的写入来源。
+
+---
+
+## 7. agent.ts 一次未提交的大型重构因模板字符串缺少结束反引号而整体无法编译（风险）
+
+- 问题描述：
+  工作树中 `src/plugin/agent.ts` 存在一次未提交的大规模重构（将配置字段
+  `ai_providers`→`providers`、`active_provider`→`default_provider`、`api_interface`→`type`，
+  并新增向后兼容迁移逻辑，约 60 行 diff 跨数十处）。其中 `ai set` 子命令的错误提示
+  `throw new Error(\`...\uFF1Aopenai / gemini / anthropic\`)` 在第 2600 行**漏写了结束反引号**，
+  写成 `anthropic);`——反引号缺失使该模板字符串一路延伸到文件末尾，导致
+  `tsc` 报出 `TS1005` / `TS1127` 等一连串语法错误，且 `tsx`/esbuild 在运行时也会
+  直接解析失败，bot 将**完全无法启动**。该问题只在做全仓 `tsc --noEmit` 时才暴露；
+  仅靠肉眼 review 这段中文转义字符串极易漏看。
+- 影响范围：风险（高 —— 漏反引号会让整文件语法非法、启动即崩溃）；
+  可维护性（大跨度重命名字段 + 中文 `\u` 转义字符串，diff 难以逐字核对）。
+- 建议改进方向：
+  - 任何对 `agent.ts` 的重构提交前，必须跑一次 `node_modules/.bin/tsc --noEmit`
+    （或 `esbuild --bundle=false` 语法校验）作为门禁，确保无 `TS1005`/`TS1127` 类语法错误；
+  - 配置字段重命名这类破坏性改动建议拆成更小、可独立编译提交的 PR，并在 CI 加语法门禁；
+  - 错误文案等面向用户的字符串尽量用真正的 UTF-8 文本而非 `\u` 转义，便于 review 与定位。
