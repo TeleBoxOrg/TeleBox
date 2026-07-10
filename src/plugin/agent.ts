@@ -2246,8 +2246,7 @@ var SUBCOMMANDS = {
   ask: /* @__PURE__ */ new Set(["ask", "tw", "\u8BE2\u95EE"]),
   runPlugin: /* @__PURE__ */ new Set(["run", "zx", "\u6267\u884C"]),
   runSystem: /* @__PURE__ */ new Set(["sys", "xt", "system", "\u7CFB\u7EDF"]),
-  withContext: /* @__PURE__ */ new Set(["ctx", "s", "\u5E26\u6587"]),
-  ai: /* @__PURE__ */ new Set(["ai", "llm", "\u6A21\u578B"])
+  withContext: /* @__PURE__ */ new Set(["ctx", "s", "\u5E26\u6587"])
 };
 function splitBody(message) {
   const text = String(message || "").trim();
@@ -2340,7 +2339,7 @@ function helpText(scope, displayName = "") {
       ]
     ]),
     menuSection("\u914D\u7F6E AI \u6A21\u578B", [
-      [`${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B>]`, "\u6DFB\u52A0/\u66F4\u65B0\u4F9B\u5E94\u5546\uFF08ai \u4EA6\u53EF\uFF09\uFF0C\u914D\u7F6E\u683C\u5F0F\u4E0E ai \u63D2\u4EF6\u5B8C\u5168\u4E00\u81F4\uFF1Aproviders[\u540D\u79F0]={base_url,api_key,model,type}\u3001\u5F53\u524D\u4F9B\u5E94\u5546=default_provider"],
+      [`${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B>]`, "\u6DFB\u52A0/\u66F4\u65B0\u4F9B\u5E94\u5546\uFF0C\u914D\u7F6E\u683C\u5F0F\u4E0E ai \u63D2\u4EF6\u5B8C\u5168\u4E00\u81F4\uFF1Aproviders[\u540D\u79F0]={base_url,api_key,model,type}\u3001\u5F53\u524D\u4F9B\u5E94\u5546=default_provider"],
       [`${prefix} config use <\u540D\u79F0>`, "\u5207\u6362\u5F53\u524D\u4F7F\u7528\u7684\u4F9B\u5E94\u5546"],
       [`${prefix} config del <\u540D\u79F0>`, "\u5220\u9664\u4F9B\u5E94\u5546"],
       [`${prefix} config list`, "\u5217\u51FA\u6240\u6709\u4F9B\u5E94\u5546\u5E76\u6807\u6CE8\u5F53\u524D"],
@@ -2442,7 +2441,6 @@ var AgentPlugin = class extends Plugin {
       if (SUBCOMMANDS.workspace.has(mode)) return await this.workspaceCommand(msg, scope, value);
       if (SUBCOMMANDS.files.has(mode)) return await this.listWorkspace(msg, scope, value);
       if (SUBCOMMANDS.deleteFile.has(mode)) return await this.deleteWorkspaceFile(msg, scope, value);
-      if (SUBCOMMANDS.ai.has(mode)) return await this.handleConfig(msg, scope, value);
       if (scope === "telebox" && SUBCOMMANDS.runPlugin.has(mode)) {
         if (!value) throw new Error(`\u7528\u6CD5\uFF1A${mainPrefix}agent run <\u63D2\u4EF6\u547D\u4EE4>`);
         const output = await dispatchPluginCaptured(msg, value);
