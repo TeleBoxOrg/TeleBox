@@ -2,7 +2,7 @@ import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { getGlobalClient } from "@utils/globalClient";
 import { Api } from "teleproto";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { promisify } from "util";
 import { createConnection } from "net";
 import { PromisedNetSockets } from "teleproto/extensions";
@@ -162,9 +162,21 @@ async function systemPing(
   target: string,
   count: number = 3
 ): Promise<{ avg: number; loss: number; output: string }> {
+  // Validate before handing to the OS: target must be an IP, a plain
+  // hostname, or a dc alias (parseTarget guarantees one of these), and the
+  // count must be a small positive integer. We then exec without a shell so
+  // an attacker-supplied target like `x; rm -rf /` cannot inject commands.
+  if (!/^[A-Za-z0-9.\-_:]+$/.test(target)) {
+    throw new Error("无效的 ping 目标");
+  }
+  const safeCount = Math.min(Math.max(Math.trunc(count) || 3, 1), 10);
+  const execFileAsync = promisify(execFile);
   try {
-    const pingCmd = `ping -c ${count} -W 5 ${target}`;
-    const { stdout, stderr } = await execAsync(pingCmd, { timeout: 10000 });
+    const { stdout, stderr } = await execFileAsync(
+      "ping",
+      ["-c", String(safeCount), "-W", "5", target],
+      { timeout: 10000, shell: false }
+    );
 
     console.log(stdout);
 
