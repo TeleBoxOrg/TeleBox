@@ -143,3 +143,29 @@
     （或 `esbuild --bundle=false` 语法校验）作为门禁，确保无 `TS1005`/`TS1127` 类语法错误；
   - 配置字段重命名这类破坏性改动建议拆成更小、可独立编译提交的 PR，并在 CI 加语法门禁；
   - 错误文案等面向用户的字符串尽量用真正的 UTF-8 文本而非 `\u` 转义，便于 review 与定位。
+
+---
+
+## 8. 插件仓库可静默引入 mtcute 版（`telegram` 包）导入，构建期无门禁（风险 / 可维护性）
+
+- 问题描述：
+  插件仓库 `TeleBox_Plugins` 为 teleproto 版生态，所有插件应通过
+  `import { Api, TelegramClient } from "teleproto"` 取用类型与客户端类。但 `nodeseek.ts`
+  误写成 `import { Api } from "telegram"; import { TelegramClient } from "telegram";`——
+  即引入了 mtcute/teleproto 的旧版 `telegram` 包。`teleproto` 版运行时**并未安装**
+  `telegram` 这个 npm 包（两仓库 API 不兼容），因此该文件在 tsx 加载阶段即
+  `Cannot find module "telegram"`，插件静默加载失败、整插件不可用。`outdated/` 下的
+  `gpt.ts`、`gemini.ts` 同样用了 `from "telegram"`，但那是归档目录、不参与构建，故未爆。
+  根本原因是：仓库对“teleproto 版禁用 `telegram` 包导入”这一红线**没有任何**
+  tsconfig 路径别名、构建脚本或 CI 门禁来强制拦截，只能靠人工 review 发现。
+- 影响范围：风险（高 —— 一旦某插件误引入 `telegram` 包，该插件在 teleproto 运行时
+  100% 加载失败，且失败是静默的，不会阻塞其他插件）；可维护性（无自动防线，
+  串仓隐患完全依赖人力排查）。
+- 建议改进方向：
+  - 在插件仓库 `tsconfig.json` 增加 `paths` 或 `compilerOptions` 约束，把 `telegram`
+    映射到一个会触发编译错误的桩模块（或在 build 脚本里 `grep -rn 'from "telegram"'`
+    并非零退出），把串仓问题提前到编译/CI 阶段暴露；
+  - 健康检查 agent 已对 `from "telegram" | from "mtcute" | from "gramjs"` 做全仓扫描，
+    并跳过 `outdated/`、`scripts/`；建议把同样的正则固化进仓库自身的 lint/CI；
+  - 在 `README.md` / `CONTRIBUTING` 中明确“teleproto 版插件一律从 `teleproto` 导入，
+  禁止 `telegram`/`mtcute`/`gramjs`”。
