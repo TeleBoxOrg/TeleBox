@@ -2280,7 +2280,7 @@ function errorCard(message) {
 function helpText(scope, displayName = "") {
   const prefix = scopeCommand(scope);
   const other = scope === "system" ? `${mainPrefix}agent` : `${mainPrefix}sysagent`;
-  const alias = (en, cn) => `${tgCode(en)} / ${tgEscape(cn)}`;
+  const alias = (en, cn) => `${en} / ${tgEscape(cn)}`;
   return [
     displayName ? `<b>${tgEscape(displayName)}</b> \u00B7 ${tgEscape(scopeName(scope))}\u667A\u80FD\u4F53` : `<b>${tgEscape(scopeName(scope))}\u667A\u80FD\u4F53</b>`,
     tgBlockquote("\u8BF7\u6C42\u4E00\u822C\u8BDD\u3001\u53EF\u6307\u4EE4\u3002\u547D\u4EE4\u4E3A\u82F1\u6587\u5173\u952E\u8BCD\uFF0C\u539F\u62FC\u97F3/\u4E2D\u6587\u522B\u540D\u4ECD\u517C\u5BB9\u3002"),
