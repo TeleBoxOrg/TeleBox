@@ -1794,7 +1794,7 @@ async function safeReply(msg, text, options = {}) {
   } catch {
     if (options.html) {
       try {
-        const sent = await msg.reply({ message: truncate2(plainFallback), linkPreview: false });
+        const sent = await msg.reply({ message: truncate2(safePlain), linkPreview: false });
         return sent || null;
       } catch {
       }

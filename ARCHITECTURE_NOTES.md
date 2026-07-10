@@ -169,3 +169,46 @@
     并跳过 `outdated/`、`scripts/`；建议把同样的正则固化进仓库自身的 lint/CI；
   - 在 `README.md` / `CONTRIBUTING` 中明确“teleproto 版插件一律从 `teleproto` 导入，
   禁止 `telegram`/`mtcute`/`gramjs`”。
+
+---
+
+## 9. src/plugin/agent.ts 是提交进仓库的转译产物，导致 `tsc --noEmit` 噪声淹没真实错误
+
+- 问题描述：
+  `src/plugin/agent.ts` 是一个约 3000 行、131KB 的**已被打包/转译**文件（特征：
+  全文件 `import_axios = require("axios")`、`import_fs4 = require("fs")` 这类 esbuild 风格的
+  `require` 别名、`var` 声明、函数无类型标注）。因为不是手写 TS 源码，整文件会产生约 545 条
+  `TS7006`（隐式 any）等类型错误，使 `tsc --noEmit` 对该文件**必然无法通过**。
+  这带来两个实际问题：
+    1. 全仓 `tsc` 门禁形同虚设——真正的错误（如本次发现的 `safeReply` 引用未声明变量
+       `plainFallback`，见下方影响）被 545 条 `implicit any` 噪声淹没，人工 review 根本扫不到；
+    2. 该文件是核心 `.agent/.plan` 智能体，**运行直接由 `tsx` 执行未编译源码**，转译产物与源码
+       不一致，且任何对它的修改都要在“打包产物”上 diff，极易漏改、难维护。
+- 影响范围：可维护性（高 —— 改动需在巨型转译产物上做，diff 不可读）；风险（高 ——
+  `tsc` 无法作为提交门禁，真实类型/逻辑错误（如未声明变量 `ReferenceError`）会被静默放过）。
+- 建议改进方向：
+  - 把 `agent` 智能体拆回**可维护的手写 TS 源文件**（或保留在独立的源码目录、由构建步骤产出
+    单一 bundle，而不是把 bundle 直接提交进 `src/`）；让 `src/` 下全部为可 `tsc --noEmit` 通过的源；
+  - 在 CI / 提交前门禁跑 `node_modules/.bin/tsc --noEmit`，将本体 `src/` 中除 agent.ts bundle
+    外的错误数维持为 0；
+  - 本次健康检查已在 `safeReply`（`src/plugin/agent.ts` 约第 1797 行）修复一处真实 bug：
+    HTML 发送失败时回退纯文本本应使用已计算的 `safePlain`，却误引用了从未声明的
+    `plainFallback`，导致回退分支抛 `ReferenceError` 被外层空 catch 吞掉、纯文本兜底完全失效。
+
+---
+
+## 10. 全仓 `tsc --noEmit` 当前不可通过，掩盖真实回归
+
+- 问题描述：
+  当前 `npx tsc --noEmit -p tsconfig.json` 报出 **560 条**错误：其中 545 条集中在
+  `src/plugin/agent.ts`（转译产物，见第 9 条），其余 15 条分布在 `plugins/`（本地插件，
+  已在 `.gitignore` 中、不计入本体构建），以及 `src` 下已修复的 `agent.ts` 逻辑错误。
+  由于 `plugins/*` 被 `tsconfig.json` 的 `include` 纳入编译（`"include": ["src/**/*", "plugins/**/*"]`），
+  而 `plugins/` 下大量本地插件未随本体提交、缺乏完整上下文，tsc 也会在此报错——这些错误与
+  本体代码质量无关，却让 `tsc` 退出码恒为非 0，无法作为本体 CI 门禁。
+- 影响范围：风险（中 —— 没有有效的编译门禁，本体回归无自动防线）；可维护性（中）。
+- 建议改进方向：
+  - 将 `tsconfig.json` 的 `include` 收窄为 `["src/**/*"]`，把本地 `plugins/` 的编译交给插件
+    仓库自己的配置，避免本体 `tsc` 被插件噪声干扰；
+  - 配合第 9 条把 `agent.ts` 还原为可编译源码后，本体 `tsc --noEmit` 应可稳定通过，从而成为
+    有效的提交/CI 门禁。
