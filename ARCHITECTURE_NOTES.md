@@ -53,3 +53,26 @@
 - 建议改进方向：
   - 删除未使用的 `arg` 声明；若某些子命令（如 `restore <名称>`）未来需要参数，
     应在使用处显式解析并做白名单/路径校验后再传入任何 shell 命令。
+
+---
+
+## 4. status.ts 使用字符串 `execSync` 而非 `execFile` 数组，与全仓安全约定不一致
+
+- 问题描述：
+  `src/plugin/status.ts` 的 `safeExec(command: string)`（第 856 行）内部调用
+  `execSync(command, options)`（字符串命令）。虽然当前所有调用点（第 640~770 行）
+  都只拼接**硬编码或 fs.existsSync 计算出的路径**（如 `/System/Volumes/Data`、`/usr/sbin/sysctl`），
+  暂无注入风险，但全仓其余命令执行点（`src/plugin/ping.ts` 用 `execFile` 参数数组、
+  `src/utils/npm_install.ts` 用 `execFileSync` 参数数组、`exec.ts` 的 `trackChildProcess(exec(...))`
+  是授权的 exec 命令本身）都遵循“参数数组、无 shell 插值”的约定。status.ts 单独使用
+  字符串 `execSync` 是例外，构成潜在注入面——一旦未来有人在 `safeExec` 调用中拼入
+  任何用户输入（哪怕只是目标路径/网卡名），就会立即变成命令注入。
+  另：`status.ts` 单文件已达 972 行，私用方法数量众多（getMac*/getCpu*/getDisk*/safeExec 等），
+  属于巨型文件，职责可拆分。
+- 影响范围：风险（当前安全，但是潜在注入面，违反最小意外原则）；可维护性（巨型文件、约定不一致使审查时更易误判）。
+- 建议改进方向：
+  - 将 `safeExec` 改为 `execFileSync(bin, args, options)` 数组式签名（如
+    `safeExec(bin, args[])`），调用点改为 `this.safeExec("df", ["-k", targetPath])` 等，
+    从根本上杜绝 shell 插值；
+  - 或将 `status.ts` 按子系统（disk / cpu / memory / network / mac / win）拆分为
+    `src/plugin/status/*` 子模块，主文件只负责聚合与权限校验，降低单文件复杂度。
