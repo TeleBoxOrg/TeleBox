@@ -97,3 +97,28 @@
     `index.ts` 第 46 行的注释，消除死代码与原型污染风险；
   - 若未来确实需要，应改为在消息分发层（pluginManager）基于 `isSudoUser` 做一次性判定，
     而非 monkey-patch 公共原型，且 sudo 列表应走内存缓存（同第 1 条），避免热路径开库。
+
+---
+
+## 6. 工作树完整性：src/plugin/agent.ts 曾出现未提交的损坏注入（安全 / 风险）
+
+- 问题描述：
+  本仓库 `src/plugin/agent.ts` 的工作树（未提交状态）曾被注入大量与上下文不符的垃圾代码，
+  例如：在 `buildSystemPrompt` 的数组字面量中插入独立表达式语句
+  `displayName ? \`[身份]...\` : \`[身份]...\``（成为语法错误的悬空语句）；
+  在 `markdownToTelegramHtml` 函数体中部插入一个**外来的**
+  `return { update_plan: "记一下计划", ... }[name] || name;`，使该函数提前 return、后面的
+  HTML 转义逻辑（含已删除的 `usageTotal` / `elapsed` 辅助函数）全部不可达；并在
+  `toolLabel` 的对象字面量、`AgentStatus` 构造函数与 `finish` 方法内部注入
+  `this.state = "..."`，属于放在对象/函数体内会直接报 SyntaxError 的非法赋值。
+  这些改动不是任何已提交版本的内容——`git show HEAD:src/plugin/agent.ts` 与 HEAD 完全一致，
+  说明是本地未提交、从外部混入的损坏内容。已通过 `git checkout -- src/plugin/agent.ts`
+  回退到已提交的干净版本（即远程 main 的实际内容）。
+- 影响范围：风险（高 —— 若不慎 `git add .` 提交，会破坏 .agent 渲染并引入语法错误，
+  CI/启动即失败）；可维护性（无正式提交历史可回溯这些注入来源）。
+- 建议改进方向：
+  - 提交前**永远**先 `git status` 确认待提交清单，绝不使用 `git add .` / `git add -A`
+    整树添加，避免把这类未授权/损坏内容夹带进本体仓库；
+  - 对核心插件文件（agent.ts 等）考虑加 pre-commit 钩子或 CI 跑 `tsc --noEmit` / 语法校验，
+    任何未提交的孤立改动在进入提交前就被拦下；
+  - 若工作树频繁出现非自发的外部修改，应排查运行环境（cron/编辑器/同步工具）的写入来源。
