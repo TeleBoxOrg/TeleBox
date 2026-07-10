@@ -1,13 +1,13 @@
 /**
- * Version switching plugin (teleproto/gramjs).
+ * 版本切换插件 (teleproto/gramjs)
  *
- * Commands:
- *   .switch login [phone]    — 发起登录（spawn 轮询 helper → auth.sendCode → 等码）
- *   .switch code <code>      — 手动输入验证码（helper 轮询消耗）
- *   .switch pwd <password>   — 手动输入 2FA 密码（helper 轮询消耗）
- *   .switch status           — 查看切换状态
- *   .switch go               — 执行 PM2 切换（session 必须已就绪）
- *   .switch revert           — 回滚到原版本
+ * 命令：
+ *   .switch login [手机号]   — 登录到另一个版本
+ *   .switch code <验证码>    — 手动输入验证码
+ *   .switch pwd <2FA密码>    — 手动输入两步验证密码
+ *   .switch status           — 查看状态
+ *   .switch go               — 开始切换
+ *   .switch revert           — 回到上一个版本
  */
 import { Plugin } from "@utils/pluginBase";
 import { Api } from "teleproto";
@@ -27,51 +27,127 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const TELEGRAM_SERVICE_USER = "777000";
 
-const VERSION_NAMES: Record<TeleBoxVersion, string> = {
-  teleproto: "teleproto (gramjs)",
-  mtcute: "mtcute (native)",
+const EMOJI: Record<string, string> = {
+  teleproto: "🟦",
+  mtcute: "🟧",
 };
+
+// ── 文案（小白友好）────────────────────────────────────────────────
+
+const T = {
+  help: () =>
+    [
+      `**🔄 版本切换**\n`,
+      `这个功能让你在**两个版本**之间自由切换，不用重新登录哦～\n`,
+      `**常用命令：**`,
+      `\`${mainPrefix}switch login\` — 🔑 登录到另一个版本（首次需要）`,
+      `\`${mainPrefix}switch go\` — 🚀 开始切换`,
+      `\`${mainPrefix}switch status\` — 📊 看看当前状态`,
+      `\`${mainPrefix}switch revert\` — ⏪ 撤回，回到上一个版本`,
+      `\n**备用命令（验证码收不到时手动输入）：**`,
+      `\`${mainPrefix}switch code <6位数字>\` — 📱 手动输入验证码`,
+      `\`${mainPrefix}switch pwd <密码>\` — 🔐 手动输入两步验证密码`,
+    ].join("\n"),
+
+  status: (state: ReturnType<typeof loadSwitchState>) => {
+    const lines: string[] = [];
+    const active = state.activeVersion;
+    if (active) {
+      lines.push(`**🟢 当前运行：${EMOJI[active]} ${label(active)}**`);
+    } else {
+      lines.push("**⚪ 尚未切换过**");
+    }
+
+    lines.push("");
+    for (const v of ["teleproto", "mtcute"] as TeleBoxVersion[]) {
+      const sess = state.sessions[v];
+      const icon = active === v ? "🟢" : "⚪";
+      const badge = sess.kind === "external" ? "🔑 已登录" : "❓ 未登录";
+      const detail = sess.kind === "external" ? `\\(uid ${sess.userId}\\)` : "需要先登录";
+      lines.push(`${icon} ${EMOJI[v]} **${label(v)}** — ${badge} ${detail}`);
+    }
+
+    if (state.pendingLogin) {
+      const pl = state.pendingLogin;
+      const sec = Math.max(0, Math.ceil((pl.expiresAt - Date.now()) / 1000));
+      lines.push(`\n⏳ **正在登录** ${EMOJI[pl.target]} ${label(pl.target)}`);
+      lines.push(`　手机号 \`${pl.phone}\` · 还剩 ${sec} 秒`);
+    }
+
+    return lines.join("\n");
+  },
+
+  loginStarted: (target: TeleBoxVersion, phone: string) =>
+    [
+      `**🔑 正在登录到 ${EMOJI[target]} ${label(target)}**\n`,
+      `📱 已向 Telegram 请求验证码 → 请留意手机 / 已登录设备`,
+      `　手机号：\`${phone}\``,
+      ``,
+      `收到验证码后，机器人会自动抓取并完成登录 ✨`,
+      ``,
+      `如果过了好久都没收到：`,
+      `• 手动输入：\`${mainPrefix}switch code <验证码>\``,
+      `• 有开启两步验证的话，还要：\`${mainPrefix}switch pwd <密码>\``,
+      ``,
+      `登录完成后，发 \`${mainPrefix}switch go\` 就能切过去啦！`,
+    ].join("\n"),
+
+  loginAlready: (target: TeleBoxVersion) =>
+    `✅ ${EMOJI[target]} ${label(target)} 已经登录过了！\n直接 \`${mainPrefix}switch go\` 就能切过去～`,
+
+  loginRunning: (target: TeleBoxVersion) =>
+    `⏳ 已经在登录 ${EMOJI[target]} ${label(target)} 了…\n等验证码中，手动输入的话：\`${mainPrefix}switch code <码>\``,
+
+  codeCaptured: () => "✅ 验证码已捕获！机器人会自动帮你完成登录～",
+
+  codeWritten: () => "✅ 收到了！验证码已存入，机器人会自动完成登录 ✨",
+
+  pwdWritten: () => "✅ 收到了！密码已存入，机器人会自动完成登录 ✨",
+
+  noPendingLogin: () =>
+    `❌ 当前没有正在进行的登录哦\n先发 \`${mainPrefix}switch login\` 开始登录吧～`,
+
+  codeBadFormat: () => "❌ 验证码一般是 **5～6 位数字**，检查一下？",
+
+  pwdEmpty: () => "❌ 密码不能为空哦",
+
+  goNotReady: (target: TeleBoxVersion) =>
+    [
+      `❌ ${EMOJI[target]} ${label(target)} **还没登录**`,
+      ``,
+      `先发 \`${mainPrefix}switch login\` 登录，等收到验证码完成登录后，`,
+      `再用 \`${mainPrefix}switch go\` 切过去～`,
+    ].join("\n"),
+
+  goSwitching: (target: TeleBoxVersion) =>
+    `🚀 **开始切换！** → ${EMOJI[target]} ${label(target)}\n\n正在后台处理中，bot 会短暂离线几秒…`,
+
+  goDone: (target: TeleBoxVersion) =>
+    [
+      `🎉 **切换完成！** 现在运行的是 ${EMOJI[target]} ${label(target)}`,
+      ``,
+      `想切回去？发 \`${mainPrefix}switch revert\` 就行。`,
+    ].join("\n"),
+
+  revertNoNeed: () => "ℹ️ 已经在上一个版本了，不需要撤回～",
+
+  revertStarted: () => "⏪ 正在撤回… 稍等一下哦",
+
+  revertDone: () => "✅ 已回到上一个版本！",
+
+  unknownSub: (sub: string) =>
+    `🤔 \`${sub}\` 是啥？没这个命令…\n\n` + T.help(),
+};
+
+function label(v: TeleBoxVersion): string {
+  return v === "teleproto" ? "teleproto (gramjs)" : "mtcute (native)";
+}
 
 function detectCurrentVersion(): TeleBoxVersion {
   return "teleproto";
 }
 
-function formatStatus(state: ReturnType<typeof loadSwitchState>): string {
-  const lines: string[] = ["**📊 版本切换状态**\n"];
-  const active = state.activeVersion || "none";
-  lines.push(`**活跃版本**：${active}`);
-  for (const ver of ["teleproto", "mtcute"] as TeleBoxVersion[]) {
-    const session = state.sessions[ver];
-    const marker = active === ver ? " ✅ (当前)" : "";
-    lines.push(
-      session.kind === "native"
-        ? `- ${VERSION_NAMES[ver]}：原生 session${marker}`
-        : `- ${VERSION_NAMES[ver]}：外部 session (user ${session.userId})${marker}`,
-    );
-  }
-  if (state.pendingLogin) {
-    const pl = state.pendingLogin;
-    const remaining = Math.max(0, Math.ceil((pl.expiresAt - Date.now()) / 1000));
-    lines.push(`\n**⏳ 登录进行中**：${VERSION_NAMES[pl.target]}`);
-    lines.push(`- 手机号：\`${pl.phone}\``);
-    lines.push(`- 剩余时间：${remaining}s`);
-  }
-  return lines.join("\n");
-}
-
-function formatHelp(): string {
-  return [
-    "**🔄 版本切换**\n",
-    "`" + mainPrefix + "switch login [phone]` — 开始登录（自动请求验证码并等待）",
-    "`" + mainPrefix + "switch code <验证码>` — 手动输入验证码",
-    "`" + mainPrefix + "switch pwd <2FA密码>` — 手动输入 2FA 密码",
-    "`" + mainPrefix + "switch status` — 查看当前状态",
-    "`" + mainPrefix + "switch go` — 执行切换（需登录已完成）",
-    "`" + mainPrefix + "switch revert` — 回滚到原版本",
-    "",
-    "*验证码会自动从 Telegram 官方消息 (777000) 中提取*",
-  ].join("\n");
-}
+// ── 插件 ─────────────────────────────────────────────────────────────
 
 const plugin = new (class extends Plugin {
   name = "switch";
@@ -83,18 +159,17 @@ const plugin = new (class extends Plugin {
       const parts = text.split(/\s+/);
       const sub = (parts[1] || "").toLowerCase();
 
-      if (!sub || sub === "help") { await msg.edit({ text: formatHelp() }); return; }
-      if (sub === "status") { await msg.edit({ text: formatStatus(loadSwitchState(DEFAULT_SWITCH_HOME)) }); return; }
+      if (!sub || sub === "help") { await msg.edit({ text: T.help() }); return; }
+      if (sub === "status") { await msg.edit({ text: T.status(loadSwitchState(DEFAULT_SWITCH_HOME)) }); return; }
       if (sub === "login") { await this.handleLogin(msg, parts.slice(2)); return; }
       if (sub === "code") { await this.handleCode(msg, parts.slice(2)); return; }
       if (sub === "pwd" || sub === "password") { await this.handlePassword(msg, parts.slice(2)); return; }
       if (sub === "go") { await this.handleGo(msg); return; }
       if (sub === "revert") { await this.handleRevert(msg); return; }
-      await msg.edit({ text: `未知子命令: \`${sub}\`\n\n` + formatHelp() });
+      await msg.edit({ text: T.unknownSub(sub) });
     },
   };
 
-  // ── listenMessageHandler: auto-capture Telegram login codes ──────────
   listenMessageHandler = async (msg: Api.Message): Promise<void> => {
     const senderId = String(msg.senderId ?? msg.sender?.id ?? "");
     const text = msg.message || "";
@@ -107,12 +182,11 @@ const plugin = new (class extends Plugin {
       const code = extractTelegramLoginCode(text);
       if (code) {
         writeSecret(code, 5 * 60_000, DEFAULT_SWITCH_HOME);
-        await msg.reply({ message: `✅ 验证码已捕获，登录 helper 将自动消耗` });
+        await msg.reply({ message: T.codeCaptured() });
       }
       return;
     }
 
-    // From bot owner — check for manual code in short messages
     if (senderId === "7041948142") {
       const codeMatch = text.match(/\b(\d{5,6})\b/);
       if (codeMatch && text.length < 15) {
@@ -121,33 +195,27 @@ const plugin = new (class extends Plugin {
     }
   };
 
-  // ── Command handlers ─────────────────────────────────────────────────
+  // ── 命令处理 ──────────────────────────────────────────────────────
 
   private async handleLogin(msg: Api.Message, args: string[]): Promise<void> {
     const current = detectCurrentVersion();
     const target: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
 
-    // If target already has an external session, no need to re-login
     if (state.sessions[target].kind === "external") {
-      await msg.edit({ text: `✅ ${VERSION_NAMES[target]} 已有 session，直接 \`${mainPrefix}switch go\` 即可` });
+      await msg.edit({ text: T.loginAlready(target) });
       return;
     }
 
-    // If already logging in, report status
     if (state.pendingLogin && state.pendingLogin.expiresAt > Date.now()) {
-      await msg.edit({
-        text: `⏳ 登录已在运行中 (${VERSION_NAMES[state.pendingLogin.target]})\n等待验证码... 或手动输入 \`${mainPrefix}switch code <码>\``,
-      });
+      await msg.edit({ text: T.loginRunning(state.pendingLogin.target) });
       return;
     }
 
-    const expectedUserId = String(msg.senderId ?? msg.sender?.id ?? "");
     const phone = args[0] || "+86";
-
     const pending: PendingLogin = {
       target,
-      expectedUserId,
+      expectedUserId: String(msg.senderId ?? msg.sender?.id ?? ""),
       phone: phone.startsWith("+") ? phone : `+${phone}`,
       expiresAt: Date.now() + 5 * 60_000,
     };
@@ -156,8 +224,6 @@ const plugin = new (class extends Plugin {
     state.stagedSecrets = {};
     saveSwitchState(state, DEFAULT_SWITCH_HOME);
 
-    // Spawn the login helper IMMEDIATELY — it will connect, call auth.sendCode,
-    // and poll secrets/ until the code/password arrive.
     const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
     const child = spawn(
       "npx", ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchLogin.ts")],
@@ -165,50 +231,41 @@ const plugin = new (class extends Plugin {
     );
     child.unref();
 
-    await msg.edit({
-      text: [
-        `**⏳ 开始登录到 ${VERSION_NAMES[target]}**`,
-        "",
-        `手机号：\`${pending.phone}\``,
-        "",
-        "📱 登录 helper 已启动 → 正在请求 Telegram 发送验证码...",
-        "验证码到达后自动捕获并完成登录。",
-        `手动输入：\`${mainPrefix}switch code <验证码>\``,
-        `如有 2FA：\`${mainPrefix}switch pwd <密码>\``,
-        "",
-        `登录完成后使用 \`${mainPrefix}switch go\` 执行切换`,
-      ].join("\n"),
-    });
+    await msg.edit({ text: T.loginStarted(target, pending.phone) });
   }
 
   private async handleCode(msg: Api.Message, args: string[]): Promise<void> {
     const code = args[0]?.trim();
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
+
     if (!state.pendingLogin || state.pendingLogin.expiresAt < Date.now()) {
-      await msg.edit({ text: "❌ 没有正在进行的登录（可能已过期），请先 `.switch login`" });
+      await msg.edit({ text: T.noPendingLogin() });
       return;
     }
     if (!code || !/^\d{5,6}$/.test(code)) {
-      await msg.edit({ text: "❌ 验证码格式错误（应为 5-6 位数字）" });
+      await msg.edit({ text: T.codeBadFormat() });
       return;
     }
+
     writeSecret(code, 5 * 60_000, DEFAULT_SWITCH_HOME);
-    await msg.edit({ text: "✅ 验证码已写入，helper 将自动消耗" });
+    await msg.edit({ text: T.codeWritten() });
   }
 
   private async handlePassword(msg: Api.Message, args: string[]): Promise<void> {
     const password = args.join(" ").trim();
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
+
     if (!state.pendingLogin || state.pendingLogin.expiresAt < Date.now()) {
-      await msg.edit({ text: "❌ 没有正在进行的登录（可能已过期）" });
+      await msg.edit({ text: T.noPendingLogin() });
       return;
     }
     if (!password) {
-      await msg.edit({ text: "❌ 密码不能为空" });
+      await msg.edit({ text: T.pwdEmpty() });
       return;
     }
+
     writeSecret(password, 5 * 60_000, DEFAULT_SWITCH_HOME);
-    await msg.edit({ text: "✅ 2FA 密码已写入，helper 将自动消耗" });
+    await msg.edit({ text: T.pwdWritten() });
   }
 
   private async handleGo(msg: Api.Message): Promise<void> {
@@ -217,20 +274,12 @@ const plugin = new (class extends Plugin {
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
     const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
 
-    // Must have an external session ready
     if (state.sessions[target].kind !== "external") {
-      await msg.edit({
-        text: [
-          `❌ ${VERSION_NAMES[target]} 还没有 session`,
-          "",
-          `请先执行 \`${mainPrefix}switch login\` 完成登录`,
-          `（登录完成后 helper 会自动注册 session，然后才能 go）`,
-        ].join("\n"),
-      });
+      await msg.edit({ text: T.goNotReady(target) });
       return;
     }
 
-    await msg.edit({ text: "🔄 目标版本 session 已就绪，正在切换..." });
+    await msg.edit({ text: T.goSwitching(target) });
 
     const child = spawn(
       "npx", ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchController.ts")],
@@ -239,37 +288,33 @@ const plugin = new (class extends Plugin {
     );
     child.unref();
 
-    await msg.reply({
-      message: [
-        "✅ 切换控制器已启动（后台运行）",
-        `目标版本：${VERSION_NAMES[target]}`,
-        "",
-        "1. 安装匹配插件",
-        "2. 迁移插件配置/数据",
-        "3. 停止当前版本 PM2",
-        "4. 启动目标版本 PM2",
-        "",
-        "⚠️ 切换期间 bot 将短暂不可用",
-      ].join("\n"),
-    });
+    // 切过去之后平台变了，这条回复可能发不出去，但在当前 bot 被停止之前能发出
+    setTimeout(() => {
+      msg.reply({ message: T.goDone(target) }).catch(() => {});
+    }, 8_000);
   }
 
   private async handleRevert(msg: Api.Message): Promise<void> {
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
     const current = detectCurrentVersion();
+
     if (!state.activeVersion || state.activeVersion === current) {
-      await msg.edit({ text: "ℹ️ 当前已在原版本运行，无需回滚" });
+      await msg.edit({ text: T.revertNoNeed() });
       return;
     }
-    await msg.edit({ text: "🔄 正在回滚..." });
-    const target: TeleBoxVersion = state.activeVersion;
+
+    await msg.edit({ text: T.revertStarted() });
+
     const child = spawn(
       "npx", ["tsx", "/root/telebox/src/utils/versionSwitchController.ts"],
       { cwd: "/root/telebox", detached: true, stdio: "ignore",
-        env: { ...process.env, SWITCH_REVERT: "1", SWITCH_REVERT_TARGET: target, SWITCH_REVERT_SOURCE: current } },
+        env: { ...process.env, SWITCH_REVERT: "1", SWITCH_REVERT_TARGET: state.activeVersion, SWITCH_REVERT_SOURCE: current } },
     );
     child.unref();
-    await msg.reply({ message: "✅ 回滚已启动，原版本将恢复运行" });
+
+    setTimeout(() => {
+      msg.reply({ message: T.revertDone() }).catch(() => {});
+    }, 8_000);
   }
 })();
 
