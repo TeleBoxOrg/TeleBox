@@ -71,8 +71,29 @@
   属于巨型文件，职责可拆分。
 - 影响范围：风险（当前安全，但是潜在注入面，违反最小意外原则）；可维护性（巨型文件、约定不一致使审查时更易误判）。
 - 建议改进方向：
-  - 将 `safeExec` 改为 `execFileSync(bin, args, options)` 数组式签名（如
+  - 将 `safeExec` 改为 `execFileSync(bin, args[])` 数组式签名（如
     `safeExec(bin, args[])`），调用点改为 `this.safeExec("df", ["-k", targetPath])` 等，
     从根本上杜绝 shell 插值；
   - 或将 `status.ts` 按子系统（disk / cpu / memory / network / mac / win）拆分为
     `src/plugin/status/*` 子模块，主文件只负责聚合与权限校验，降低单文件复杂度。
+
+---
+
+## 5. hook/listen.ts 的 patchMsgEdit 为死代码，且一旦启用会在每条消息 edit 时新建 SQLite 连接（性能 / 风险）
+
+- 问题描述：
+  `src/hook/listen.ts` 中的 `patchMsgEdit()` 通过改写 `Api.Message.prototype.edit`
+  （原型链 monkey-patch）实现：当发送者是 sudo 用户时，把 `edit` 改为重新 `sendMessage`
+  一条新消息。但 `index.ts` 第 46 行 `// patchMsgEdit();` 明确注释未启用，因此该函数
+  当前**完全未被调用**（死代码）。
+  更危险的是，其内部 `checkIfSenderIdFromSudoUser` 在**每一次** `edit` 调用时都会
+  `new SudoDB()` → 打开 better-sqlite3 连接 → 查询 → `close()`。这与第 1 条发现是同一类
+  问题：一旦误启用（哪怕只是去掉那行注释），所有命令的 `msg.edit(...)` 都会变成
+  “打开 DB 连接 → 查询 → 关闭” 的热路径开销，且原型链 patch 会影响进程内所有
+  `Api.Message` 实例，行为难以追踪、难以测试。
+- 影响范围：风险（当前安全，但属于“误启用即出错”的隐患面）；可维护性（死代码 + 原型链污染的强耦合）。
+- 建议改进方向：
+  - 如果该 sudo 重定向功能确实不再需要，直接删除 `src/hook/listen.ts` 整个文件及
+    `index.ts` 第 46 行的注释，消除死代码与原型污染风险；
+  - 若未来确实需要，应改为在消息分发层（pluginManager）基于 `isSudoUser` 做一次性判定，
+    而非 monkey-patch 公共原型，且 sudo 列表应走内存缓存（同第 1 条），避免热路径开库。
