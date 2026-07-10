@@ -268,15 +268,50 @@ const plugin = new (class extends Plugin {
   }
 
   private async handleGo(msg: Api.Message): Promise<void> {
+    const current = detectCurrentVersion();
+    const target: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
+    const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
 
+    // Fast path: target already has a prepared external session → skip login
+    const extSession = state.sessions[target];
+    if (extSession.kind === "external") {
+      state.pendingTransaction = `skip-login-${Date.now()}`;
+      saveSwitchState(state, DEFAULT_SWITCH_HOME);
+
+      await msg.edit({ text: "🔄 目标版本已有 session，直接切换..." });
+
+      const child = spawn(
+        "npx", ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchController.ts")],
+        { cwd: repoRoot, detached: true, stdio: "ignore",
+          env: { ...process.env, SWITCH_SKIP_LOGIN: "1", SWITCH_SOURCE: current, SWITCH_TARGET: target } },
+      );
+      child.unref();
+      await msg.reply({
+        message: [
+          "✅ 切换控制器已启动（后台运行）",
+          `目标版本：${VERSION_NAMES[target]}（已有 session，跳过登录）`,
+          "",
+          "切换过程：",
+          "1. 安装匹配插件",
+          "2. 迁移插件配置/数据",
+          "3. 停止当前版本 PM2",
+          "4. 启动目标版本 PM2",
+          "",
+          "⚠️ 切换期间 bot 将短暂不可用",
+        ].join("\n"),
+      });
+      return;
+    }
+
+    // Slow path: no external session yet → need pendingLogin
     if (!state.pendingLogin) {
-      await msg.edit({ text: "❌ 没有待处理的登录，请先执行 `.switch login`" });
+      await msg.edit({ text: `❌ 目标版本未有 session，请先执行 \`${mainPrefix}switch login\`` });
       return;
     }
 
     if (state.pendingLogin.expiresAt < Date.now()) {
-      await msg.edit({ text: "❌ 登录已过期，请重新执行 `.switch login`" });
+      await msg.edit({ text: `❌ 登录已过期，请重新执行 \`${mainPrefix}switch login\`` });
       return;
     }
 
@@ -292,37 +327,17 @@ const plugin = new (class extends Plugin {
 
     await msg.edit({ text: "🔄 正在启动切换控制器（后台独立进程）..." });
 
-    // Spawn the controller as a detached child process
-    const controllerPath = path.resolve(
-      __dirname,
-      "..",
-      "src",
-      "utils",
-      "versionSwitchController.ts",
-    );
-    // Determine which repo's controller to use based on target
-    const target = state.pendingLogin.target;
-    const repoRoot = target === "mtcute"
-      ? "/root/telebox_mtcute"
-      : "/root/telebox";
-
     const child = spawn(
-      "npx",
-      ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchController.ts")],
-      {
-        cwd: repoRoot,
-        detached: true,
-        stdio: "ignore",
-        env: { ...process.env, SWITCH_TRIGGER_MSG_ID: String(msg.id) },
-      },
+      "npx", ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchController.ts")],
+      { cwd: repoRoot, detached: true, stdio: "ignore",
+        env: { ...process.env, SWITCH_SOURCE: current, SWITCH_TARGET: target } },
     );
-
     child.unref();
 
     await msg.reply({
       message: [
         "✅ 切换控制器已启动（后台运行）",
-        `目标版本：${VERSION_NAMES[target]}`,
+        `目标版本：${VERSION_NAMES[target]}（首次登录）`,
         "",
         "切换过程：",
         "1. 登录到目标版本",
@@ -332,7 +347,6 @@ const plugin = new (class extends Plugin {
         "5. 启动目标版本 PM2",
         "",
         "⚠️ 切换期间 bot 将短暂不可用",
-        "使用 `.switch status` 查看进度",
       ].join("\n"),
     });
   }

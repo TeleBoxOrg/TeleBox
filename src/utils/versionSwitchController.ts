@@ -113,43 +113,55 @@ function runLoginHelper(version: "teleproto" | "mtcute"): void {
 
 async function main(): Promise<void> {
   const state = loadSwitchState(DEFAULT_SWITCH_HOME);
-  const txId = state.pendingTransaction;
-  if (!txId) {
-    console.log("[controller] No pending transaction — nothing to do.");
-    return;
-  }
+  const skipLogin = process.env.SWITCH_SKIP_LOGIN === "1";
+  const envSource = process.env.SWITCH_SOURCE as "teleproto" | "mtcute" | undefined;
+  const envTarget = process.env.SWITCH_TARGET as "teleproto" | "mtcute" | undefined;
 
-  // Determine direction from pendingLogin target (set by .switch login / .switch go)
-  const pendingLogin = state.pendingLogin;
-  if (!pendingLogin) {
-    throw new Error("Pending transaction without pending login");
-  }
+  let source: "teleproto" | "mtcute";
+  let target: "teleproto" | "mtcute";
+  let extPath: string;
 
-  const source: "teleproto" | "mtcute" =
-    pendingLogin.target === "teleproto" ? "mtcute" : "teleproto";
-  const target = pendingLogin.target;
-  console.log(`[controller] Switching ${source} → ${target} (tx=${txId})`);
+  if (skipLogin && envSource && envTarget) {
+    // Fast path: external session already exists
+    source = envSource;
+    target = envTarget;
+    console.log(`[controller] Fast-path switching ${source} → ${target}`);
 
-  // ── Step 1: Login to target version ──────────────────────────────────
-  console.log("[controller] Step 1: Logging in to target version...");
-  try {
-    runLoginHelper(target);
-  } catch (err) {
-    console.error("[controller] Login failed:", err);
-    state.pendingTransaction = null;
-    state.pendingLogin = null;
-    state.stagedSecrets = {};
-    saveSwitchState(state, DEFAULT_SWITCH_HOME);
-    process.exit(1);
-  }
+    extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME) ?? "";
+    if (!extPath) {
+      throw new Error("SWITCH_SKIP_LOGIN set but no external session registered for " + target);
+    }
+    console.log(`[controller] Using existing external session: ${extPath}`);
+  } else {
+    // Slow path: login required
+    const pendingLogin = state.pendingLogin;
+    if (!pendingLogin) {
+      throw new Error("Pending transaction without pending login");
+    }
+    source = pendingLogin.target === "teleproto" ? "mtcute" : "teleproto";
+    target = pendingLogin.target;
+    console.log(`[controller] Switching ${source} → ${target} (login required)`);
 
-  // Verify external session is now ready
-  const reloaded = loadSwitchState(DEFAULT_SWITCH_HOME);
-  const extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME);
-  if (!extPath) {
-    throw new Error("Login succeeded but external session path is missing");
+    // Step 1: Login
+    console.log("[controller] Step 1: Logging in to target version...");
+    try {
+      runLoginHelper(target);
+    } catch (err) {
+      console.error("[controller] Login failed:", err);
+      state.pendingTransaction = null;
+      state.pendingLogin = null;
+      state.stagedSecrets = {};
+      saveSwitchState(state, DEFAULT_SWITCH_HOME);
+      process.exit(1);
+    }
+
+    const reloaded = loadSwitchState(DEFAULT_SWITCH_HOME);
+    extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME) ?? "";
+    if (!extPath) {
+      throw new Error("Login succeeded but external session path is missing");
+    }
+    console.log(`[controller] External session ready: ${extPath}`);
   }
-  console.log(`[controller] External session ready: ${extPath}`);
 
   // ── Step 2: Match and install plugins ────────────────────────────────
   console.log("[controller] Step 2: Matching plugins...");
