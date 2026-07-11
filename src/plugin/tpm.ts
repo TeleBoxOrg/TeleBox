@@ -1240,7 +1240,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
   }
 }
 
-async function updateAllPlugins(msg: Api.Message) {
+export async function updateAllPlugins(msg: Api.Message): Promise<{ failedCount: number }> {
   const statusMsg = await sendOrEditMessage(msg, "🔍 正在检查待更新的插件...");
   let canEdit = true;
   
@@ -1250,7 +1250,7 @@ async function updateAllPlugins(msg: Api.Message) {
 
     if (dbPlugins.length === 0) {
       await sendOrEditMessage(statusMsg, "📦 数据库中没有已安装的插件记录");
-      return;
+      return { failedCount: 0 };
     }
 
     const totalPlugins = dbPlugins.length;
@@ -1338,6 +1338,7 @@ async function updateAllPlugins(msg: Api.Message) {
     const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
     await reloadAndFinalize(statusMsg, finalText, { parseMode: "html" });
     console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
+    return { failedCount };
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
     try {
@@ -1345,6 +1346,7 @@ async function updateAllPlugins(msg: Api.Message) {
     } catch (editError) {
       console.log(`[TPM] 错误消息编辑失败: ${editError}`);
     }
+    return { failedCount: 1 };
   }
 }
 
