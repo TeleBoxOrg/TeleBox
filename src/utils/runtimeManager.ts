@@ -18,6 +18,8 @@ import {
   type GenerationContext,
 } from "./generationContext";
 
+export type { GenerationContext };
+
 export type RuntimeState =
   | "starting"
   | "running"
