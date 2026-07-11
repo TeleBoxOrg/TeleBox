@@ -1,10 +1,57 @@
 import { TelegramClient, events } from "teleproto";
 import { UpdateConnectionState } from "teleproto/network";
 import { StringSession } from "teleproto/sessions";
+import { MediaScheduler } from "teleproto/network/MediaScheduler";
 import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
 import { logger } from "./logger";
 import { initializeClientSession } from "./loginManager";
+
+// ── Mitigate teleproto "Media request deadline exceeded" ──────────────────
+// teleproto's MediaScheduler hardcodes REQUEST_DEADLINE_MS = 15_000 (15 s).
+// When a DC connection is slow or the network is congested, both
+// ensureConnected() and the actual RPC can exhaust that budget, causing every
+// getFile / savePart retry to fail with "Media request deadline exceeded".
+//
+// This monkey-patch wraps the private _run() method to add **internal**
+// retries (with backoff) when a timeout fires inside a single _run() call,
+// so each getFile-level attempt gets up to 4 × 15 s = 60 s of effective time.
+// ───────────────────────────────────────────────────────────────────────────
+(function patchMediaDeadline() {
+  const RETRIES = 3;
+  const BACKOFF_MS = 2000;
+
+  const originalRun = (MediaScheduler.prototype as any)._run as (
+    ...args: any[]
+  ) => Promise<any>;
+
+  (MediaScheduler.prototype as any)._run = async function (
+    this: any,
+    ...args: any[]
+  ) {
+    let lastErr: any;
+    for (let attempt = 0; attempt <= RETRIES; attempt++) {
+      try {
+        return await originalRun.apply(this, args);
+      } catch (err: any) {
+        lastErr = err;
+        const isTimeout =
+          err?.errorMessage === "TIMEOUT" ||
+          err?.message === "Media request deadline exceeded";
+        if (!isTimeout) throw err;
+        // Bail early if the caller already cancelled
+        const signal: AbortSignal | undefined = args[4];
+        if (signal?.aborted) throw err;
+        if (attempt < RETRIES) {
+          await new Promise<void>((r) =>
+            setTimeout(r, BACKOFF_MS * (attempt + 1))
+          );
+        }
+      }
+    }
+    throw lastErr;
+  };
+})();
 import {
   loadPluginsForRuntime,
   unloadPluginsForRuntime,
