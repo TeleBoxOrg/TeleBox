@@ -1,6 +1,6 @@
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
-import { exec, execFile } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
@@ -14,7 +14,6 @@ import * as os from "os";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 // ── Auto-update state ──────────────────────────────────────────────────
@@ -119,11 +118,11 @@ async function update(force = false, msg: Api.Message) {
 
     if (force) {
       console.log(`⚠️ 强制回滚到 ${fullBranch}...`);
-      await execAsync(`git reset --hard ${fullBranch}`);
+      await execFileAsync("git", ["reset", "--hard", fullBranch]);
       await msg.edit({ text: "🔄 强制更新中..." });
     }
 
-    await execAsync(`git pull ${remote} ${branch} --no-rebase`);
+    await execFileAsync("git", ["pull", remote, branch, "--no-rebase"]);
     await msg.edit({ text: "🔄 正在合并最新代码..." });
 
     console.log("\n📦 安装依赖...");
@@ -178,7 +177,7 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
     const { remote, branch } = branchInfo;
 
     await execFileAsync("git", ["fetch", "--all"]);
-    await execAsync(`git pull ${remote} ${branch} --no-rebase`);
+    await execFileAsync("git", ["pull", remote, branch, "--no-rebase"]);
     await npm_install_project_dependencies();
 
     // Success — delete status message, then restart silently
