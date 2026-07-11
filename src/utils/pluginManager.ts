@@ -1,7 +1,6 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { getGlobalClient, getCurrentGeneration } from "@utils/runtimeManager";
 import { NewMessageEvent, NewMessage } from "teleproto/events";
 import { AliasDB } from "./aliasDB";
 import { Api } from "teleproto";
@@ -385,6 +384,7 @@ function trackClientEventHandler<TEvent>(
     (trackedHandler) => client.addEventHandler(trackedHandler, eventBuilder),
     (trackedHandler) => client.removeEventHandler(trackedHandler, eventBuilder),
     (event) => {
+      const { getCurrentGeneration } = require("./runtimeManager") as typeof import("./runtimeManager");
       if (runtime.generation !== getCurrentGeneration()) return;
       return handler(event);
     },
@@ -456,6 +456,7 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
       for (const key of keys) {
         const cronTask = cronTasks[key];
         cronManager.set(key, cronTask.cron, async () => {
+          const { getCurrentGeneration, getGlobalClient } = require("./runtimeManager") as typeof import("./runtimeManager");
           if (runtime.signal.aborted || runtime.generation !== getCurrentGeneration()) return;
           const client = await getGlobalClient();
           await cronTask.handler(client);
