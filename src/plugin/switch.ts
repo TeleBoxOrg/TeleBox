@@ -147,47 +147,6 @@ function detectCurrentVersion(): TeleBoxVersion {
   return "teleproto";
 }
 
-
-function findProjectRoot(startDir: string): string {
-  let dir = path.resolve(startDir);
-  while (true) {
-    if (require("fs").existsSync(path.join(dir, "package.json")) && require("fs").existsSync(path.join(dir, "src", "index.ts"))) {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) return path.resolve(startDir);
-    dir = parent;
-  }
-}
-
-function existingRepo(candidates: string[]): string | undefined {
-  const fs = require("fs");
-  return candidates.map((p) => path.resolve(p)).find((p) => fs.existsSync(path.join(p, "package.json")) && fs.existsSync(path.join(p, "src", "index.ts")));
-}
-
-function resolveRepoRoot(version: TeleBoxVersion): string {
-  const envRoot = version === "teleproto" ? process.env.TELEBOX_TELEPROTO_ROOT : process.env.TELEBOX_MTCUTE_ROOT;
-  if (envRoot) return path.resolve(envRoot);
-
-  const currentRoot = findProjectRoot(process.cwd());
-  if (version === detectCurrentVersion()) return currentRoot;
-
-  const siblingBase = path.dirname(currentRoot);
-  const candidates = version === "teleproto"
-    ? [path.join(siblingBase, "telebox"), path.join(siblingBase, "TeleBox")]
-    : [path.join(siblingBase, "telebox_mtcute"), path.join(siblingBase, "TeleBox_M"), path.join(siblingBase, "TeleBox_mtcute")];
-
-  return existingRepo(candidates) || candidates[0];
-}
-
-function spawnSwitchScript(repoRoot: string, script: string, env: NodeJS.ProcessEnv = process.env) {
-  return spawn(
-    process.execPath,
-    ["scripts/run-tsx.cjs", script],
-    { cwd: repoRoot, detached: true, stdio: "ignore", env },
-  );
-}
-
 // ── 插件 ─────────────────────────────────────────────────────────────
 
 const plugin = new (class extends Plugin {
@@ -265,8 +224,11 @@ const plugin = new (class extends Plugin {
     state.stagedSecrets = {};
     saveSwitchState(state, DEFAULT_SWITCH_HOME);
 
-    const repoRoot = resolveRepoRoot(target);
-    const child = spawnSwitchScript(repoRoot, "./src/utils/versionSwitchLogin.ts");
+    const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
+    const child = spawn(
+      "npx", ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchLogin.ts")],
+      { cwd: repoRoot, detached: true, stdio: "ignore" },
+    );
     child.unref();
 
     await msg.edit({ text: T.loginStarted(target, pending.phone) });
@@ -310,7 +272,7 @@ const plugin = new (class extends Plugin {
     const current = detectCurrentVersion();
     const target: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
-    const repoRoot = resolveRepoRoot(target);
+    const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
 
     // 两种 session 都有效：native（一直在自己目录里）或 external（switch login 登录的）
     if (state.sessions[target].kind !== "external" && state.sessions[target].kind !== "native") {
@@ -320,10 +282,10 @@ const plugin = new (class extends Plugin {
 
     await msg.edit({ text: T.goSwitching(target) });
 
-    const child = spawnSwitchScript(
-      repoRoot,
-      "./src/utils/versionSwitchController.ts",
-      { ...process.env, SWITCH_SKIP_LOGIN: "1", SWITCH_SOURCE: current, SWITCH_TARGET: target },
+    const child = spawn(
+      "npx", ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchController.ts")],
+      { cwd: repoRoot, detached: true, stdio: "ignore",
+        env: { ...process.env, SWITCH_SKIP_LOGIN: "1", SWITCH_SOURCE: current, SWITCH_TARGET: target } },
     );
     child.unref();
 
@@ -344,11 +306,10 @@ const plugin = new (class extends Plugin {
 
     await msg.edit({ text: T.revertStarted() });
 
-    const repoRoot = resolveRepoRoot("teleproto");
-    const child = spawnSwitchScript(
-      repoRoot,
-      "./src/utils/versionSwitchController.ts",
-      { ...process.env, SWITCH_REVERT: "1", SWITCH_REVERT_TARGET: state.activeVersion, SWITCH_REVERT_SOURCE: current },
+    const child = spawn(
+      "npx", ["tsx", "/root/telebox/src/utils/versionSwitchController.ts"],
+      { cwd: "/root/telebox", detached: true, stdio: "ignore",
+        env: { ...process.env, SWITCH_REVERT: "1", SWITCH_REVERT_TARGET: state.activeVersion, SWITCH_REVERT_SOURCE: current } },
     );
     child.unref();
 

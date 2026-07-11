@@ -113,55 +113,6 @@ sudo 权限分配和用户管理
 
 </details>
 
-## 🚦 PM2 启动（无预配置文件）
-
-项目不再依赖 `ecosystem.config.*` 这类 PM2 预配置文件，也不追踪这类本地配置。推荐直接使用仓库内的便携启动脚本：
-
-```bash
-npm install
-npm run pm2:start     # 启动当前版本
-npm run pm2:restart   # 重启当前版本
-npm run pm2:stop      # 停止当前版本
-```
-
-底层启动命令会调用 `scripts/pm2-launcher.sh`，它会：
-
-- 自动定位当前仓库根目录，不硬编码 `/root` 或某个用户名路径；
-- 优先使用当前 `PATH` 里的 `node`；如果 PM2 的非交互环境找不到 Node，会尝试加载 `$NVM_DIR/nvm.sh` 或 `~/.nvm/nvm.sh`；
-- 通过 `node scripts/run-tsx.cjs ./src/index.ts` 启动入口，避免 `npx` 与 PM2 参数转发差异；
-- 所有 PM2 参数都写在命令行里，而不是写进 ecosystem 文件。
-
-如果你的 Node 安装位置比较特殊，请先在启动 PM2 的 shell 里确保 `node` 可用，或设置 `NVM_DIR`：
-
-```bash
-export NVM_DIR="$HOME/.nvm"
-npm run pm2:start
-```
-
-### 版本切换相关路径
-
-`.switch go` 会优先自动探测同级目录里的两个仓库。默认约定：
-
-| 类型 | 默认候选目录 |
-|---|---|
-| teleproto 主仓库 | `../telebox`、`../TeleBox` |
-| mtcute 主仓库 | `../telebox_mtcute`、`../TeleBox_M`、`../TeleBox_mtcute` |
-| teleproto 插件仓库 | `../TeleBox_Plugins`、`../telebox_plugins` |
-| mtcute 插件仓库 | `../TeleBox_M_Plugins`、`../telebox_m_plugins` |
-
-如果部署目录不同，可以显式设置环境变量：
-
-```bash
-export TELEBOX_TELEPROTO_ROOT="/path/to/TeleBox"
-export TELEBOX_MTCUTE_ROOT="/path/to/TeleBox_M"
-export TELEBOX_PLUGINS_ROOT="/path/to/TeleBox_Plugins"
-export TELEBOX_M_PLUGINS_ROOT="/path/to/TeleBox_M_Plugins"
-
-# 可选：自定义 PM2 进程名
-export TELEBOX_PM2_NAME="telebox"
-export TELEBOX_MTCUTE_PM2_NAME="telebox-mtcute"
-```
-
 ## 🧩 核心组件
 
 <div align="center">
