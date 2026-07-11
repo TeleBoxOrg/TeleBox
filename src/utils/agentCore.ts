@@ -13,7 +13,7 @@ export interface AgentPlatform {
   buildReplyContext(msg: any, workspace: any): Promise<{ text: string; images: ChatImage[]; savedFiles: string[] }>;
   sendFile(client: any, msg: any, filePath: string, caption: string): Promise<void>;
 }
-var __platform: AgentPlatform | null = null;
+let __platform: AgentPlatform | null = null;
 export function initAgentPlatform(platform: AgentPlatform) { __platform = platform; }
 function platform(): AgentPlatform {
   if (!__platform) throw new Error("AgentPlatform not initialized — call initAgentPlatform() first");
@@ -22,8 +22,8 @@ function platform(): AgentPlatform {
 
 // plugins/agent/provider.ts
 import axios from "axios";
-var MAX_OUTPUT_TOKENS = 8192;
-var ANTHROPIC_VERSION = "2023-06-01";
+const MAX_OUTPUT_TOKENS = 8192;
+const ANTHROPIC_VERSION = "2023-06-01";
 
 
 // ─────────────────────────── 真实类型层 ───────────────────────────
@@ -686,14 +686,14 @@ import import_path = require("path");
 import import_child_process = require("child_process");
 import import_globalClient = require("@utils/runtimeManager");
 import import_pluginManager = require("@utils/pluginManager");
-var MAX_TOOL_OUTPUT = 2e4;
-var MAX_TEXT_READ = 2 * 1024 * 1024;
-var MAX_WRITE_SIZE = 4 * 1024 * 1024;
-var MAX_SEND_SIZE = 50 * 1024 * 1024;
-var MAX_LIST_ENTRIES = 300;
-var MAX_TOOL_CALLS_PER_TURN = 8;
-var BLOCKED_PLUGIN_COMMANDS = /* @__PURE__ */ new Set(["agent", "plan", "sysagent", "sysplan", "ai", "exec"]);
-var OBJECT_SCHEMA = "object";
+const MAX_TOOL_OUTPUT = 2e4;
+const MAX_TEXT_READ = 2 * 1024 * 1024;
+const MAX_WRITE_SIZE = 4 * 1024 * 1024;
+const MAX_SEND_SIZE = 50 * 1024 * 1024;
+const MAX_LIST_ENTRIES = 300;
+const MAX_TOOL_CALLS_PER_TURN = 8;
+const BLOCKED_PLUGIN_COMMANDS = /* @__PURE__ */ new Set(["agent", "plan", "sysagent", "sysplan", "ai", "exec"]);
+const OBJECT_SCHEMA = "object";
 function schema(properties: any, required: any[] = []) {
   return {
     type: OBJECT_SCHEMA,
@@ -702,7 +702,7 @@ function schema(properties: any, required: any[] = []) {
     additionalProperties: false
   };
 }
-var TOOL_DEFINITIONS = [
+const TOOL_DEFINITIONS = [
   {
     name: "update_plan",
     description: "\u521B\u5EFA\u6216\u66F4\u65B0\u6267\u884C\u8BA1\u5212\u3002\u9002\u7528\u4E8E\u591A\u6B65\u9AA4\u6216\u590D\u6742\u4EFB\u52A1\uFF1A\u5148\u5217\u51FA\u6240\u6709\u6B65\u9AA4\uFF0C\u6267\u884C\u65F6\u9010\u6B65\u628A\u5F53\u524D\u6B65\u9AA4\u6807\u8BB0 in_progress\u3001\u5B8C\u6210\u540E\u6807\u8BB0 completed\u3002\u6BCF\u6B21\u53EA\u80FD\u6709\u4E00\u4E2A in_progress\u3002\u8BA1\u5212\u662F\u8FDB\u5EA6\u8BB0\u5F55\uFF0C\u4E0D\u662F\u6700\u7EC8\u7ED3\u679C\u3002",
@@ -1194,20 +1194,20 @@ import import_fs2 = require("fs");
 import import_path2 = require("path");
 import import_node = require("lowdb/node");
 import import_pathHelpers = require("@utils/pathHelpers");
-var UAI_DIR = (0, import_pathHelpers.createDirectoryInAssets)("uai");
-var ZN_CONFIG_PATH = import_path2.join(UAI_DIR, "config.json");
-var WORKSPACE_ROOT = import_path2.join(UAI_DIR, "workspaces");
-var AGENT_SCHEMA_VERSION = 3;
-var LEGACY_BUILTIN_SKILL_SUFFIX = "\u7F16\u7A0B\u667A\u80FD\u4F53\u9ED8\u8BA4\u89C4\u5219";
-var LEGACY_NAME_PATTERNS = [/^Curs[o]r$/i, /^Cod[e]x$/i];
-var DEFAULT_TIMEOUT_MS = 12e4;
-var DEFAULT_COMMAND_TIMEOUT_MS = 12e4;
-var DEFAULT_MAX_STEPS = 12;
-var DEFAULT_CONTEXT_LIMIT = 20;
-var MAX_CONTEXT_LIMIT = 40;
-var MAX_AGENT_STEPS = 100;
-var DEFAULT_WORKSPACE_ID = "1";
-var DEFAULT_CONFIG = {
+const UAI_DIR = (0, import_pathHelpers.createDirectoryInAssets)("uai");
+const ZN_CONFIG_PATH = import_path2.join(UAI_DIR, "config.json");
+const WORKSPACE_ROOT = import_path2.join(UAI_DIR, "workspaces");
+const AGENT_SCHEMA_VERSION = 3;
+const LEGACY_BUILTIN_SKILL_SUFFIX = "\u7F16\u7A0B\u667A\u80FD\u4F53\u9ED8\u8BA4\u89C4\u5219";
+const LEGACY_NAME_PATTERNS = [/^Curs[o]r$/i, /^Cod[e]x$/i];
+const DEFAULT_TIMEOUT_MS = 12e4;
+const DEFAULT_COMMAND_TIMEOUT_MS = 12e4;
+const DEFAULT_MAX_STEPS = 12;
+const DEFAULT_CONTEXT_LIMIT = 20;
+const MAX_CONTEXT_LIMIT = 40;
+const MAX_AGENT_STEPS = 100;
+const DEFAULT_WORKSPACE_ID = "1";
+const DEFAULT_CONFIG = {
   agent_schema_version: AGENT_SCHEMA_VERSION,
   prompts: {},
   skill_raws: {},
@@ -1218,7 +1218,7 @@ var DEFAULT_CONFIG = {
   zn_conversations: {},
   zn_workspaces: {}
 };
-var writeQueue = Promise.resolve();
+let writeQueue = Promise.resolve();
 function migrateLegacyAgentData(config: any) {
   const version = Number.parseInt(String(config.agent_schema_version || 0), 10) || 0;
   let changed = false;
@@ -1806,12 +1806,12 @@ import import_fs3 = require("fs");
 import import_path3 = require("path");
 import import_globalClient2 = require("@utils/runtimeManager");
 import import_pluginManager2 = require("@utils/pluginManager");
-var SAFE_MESSAGE_LIMIT = 3900;
-var MAX_REPLY_DOWNLOAD = 20 * 1024 * 1024;
-var MAX_INLINE_TEXT = 6e4;
-var IMAGE_MIMES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-var TEXT_EXTENSIONS = /\.(txt|md|csv|json|jsonl|yaml|yml|toml|ini|cfg|conf|log|py|ts|js|jsx|tsx|sh|bat|ps1|html|htm|xml|sql|go|rs|java|c|cpp|h|cs|php|rb|swift|kt|env|properties)$/i;
-var TEXT_MIMES = /^(text\/|application\/(json|javascript|xml|x-yaml|x-sh|x-python|toml|csv|sql|typescript))/i;
+const SAFE_MESSAGE_LIMIT = 3900;
+const MAX_REPLY_DOWNLOAD = 20 * 1024 * 1024;
+const MAX_INLINE_TEXT = 6e4;
+const IMAGE_MIMES = /* @__PURE__ */ new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const TEXT_EXTENSIONS = /\.(txt|md|csv|json|jsonl|yaml|yml|toml|ini|cfg|conf|log|py|ts|js|jsx|tsx|sh|bat|ps1|html|htm|xml|sql|go|rs|java|c|cpp|h|cs|php|rb|swift|kt|env|properties)$/i;
+const TEXT_MIMES = /^(text\/|application\/(json|javascript|xml|x-yaml|x-sh|x-python|toml|csv|sql|typescript))/i;
 function tgEscape(text: string) {
   return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -1965,7 +1965,7 @@ function summarizeArgs(args: any) {
   if (keys.length === 1) return truncate2(String(args[keys[0]]).replace(/\s+/g, " "), 180);
   return keys.join(", ") || "\u65E0\u53C2\u6570";
 }
-var AgentStatus = class {
+const AgentStatus = class {
   startedAt: any;
   step: any;
   state: any;
@@ -2254,10 +2254,10 @@ ${chunks[0] || "\uFF08\u7A7A\uFF09"}` }
 }
 
 // plugins/agent/main.ts
-var prefixes = (0, import_pluginManager3.getPrefixes)();
-var mainPrefix = prefixes[0] || ".";
-var MAX_WORKSPACE_LIST = 200;
-var SUBCOMMANDS = {
+const prefixes = (0, import_pluginManager3.getPrefixes)();
+const mainPrefix = prefixes[0] || ".";
+const MAX_WORKSPACE_LIST = 200;
+const SUBCOMMANDS = {
   // 每个子命令一组别名：第一项是“首选英文键”（易记），其余为兼容别名。
   // 既保留旧中文别名（肌肉记忆），也新增英文别名，逐步淘汰难记的拼音缩写。
   help: /* @__PURE__ */ new Set(["help", "?", "bz", "\u5E2E\u52A9"]),
@@ -2430,7 +2430,7 @@ function directExec(command: string, cwd: string, timeoutMs: number): Promise<{ 
     );
   });
 }
-var AgentPlugin = class extends Plugin {
+const AgentPlugin = class extends Plugin {
   description: any;
   abortSignal: any;
   cmdHandlers: any;
