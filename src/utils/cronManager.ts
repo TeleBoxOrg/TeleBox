@@ -49,7 +49,7 @@ class CronManager {
         taskState.executionsFinished += 1;
       });
       if (context) {
-        context.trackTask(task, { label: `cron:${name}:execution`, kind: "cron-execution" });
+        context.trackTask(task, { label: `cron:${name}:execution` });
         task.catch(console.error);
       } else {
         task.catch(console.error);
@@ -64,7 +64,6 @@ class CronManager {
     };
     const dispose = context?.trackDisposable(stopCronTask, {
       label: `cron:${name}:job`,
-      kind: "cron-job",
     }) ?? stopCronTask;
     return dispose;
   }

@@ -143,7 +143,6 @@ async function waitForMessage(
         removeListener = options.lifecycle
           ? options.lifecycle.trackDisposable(disposeListener, {
             label: "conversation-wait-message:handler",
-            kind: "handler",
           })
           : disposeListener;
 
@@ -166,7 +165,7 @@ async function waitForMessage(
   });
 
   return options.lifecycle
-    ? options.lifecycle.trackTask(task, { label: "conversation-wait-message", kind: "conversation" })
+    ? options.lifecycle.trackTask(task, { label: "conversation-wait-message" })
     : task;
 }
 

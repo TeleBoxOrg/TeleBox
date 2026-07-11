@@ -16,9 +16,6 @@ import {
   createGenerationContext,
   type DrainResult,
   type GenerationContext,
-  type GenerationContextSnapshot,
-  type GenerationResourceStats,
-  type ResourceResidual,
 } from "./generationContext";
 
 export type RuntimeState =
@@ -46,45 +43,10 @@ let currentRuntime: TeleBoxRuntime | null = null;
 let transitionPromise: Promise<TeleBoxRuntime | void> | null = null;
 let nextGeneration = 1;
 
-function formatResourceStats(stats: GenerationResourceStats): string {
-  return Object.entries(stats)
-    .filter(([, value]) => value.created > 0 || value.active > 0 || value.canceled > 0 || value.timedOut > 0)
-    .map(([kind, value]) => {
-      return `${kind}=active:${value.active},created:${value.created},drained:${value.completed},canceled:${value.canceled},timedOut:${value.timedOut}`;
-    })
-    .join("; ") || "none";
-}
-
-function formatResidualResources(residuals: ResourceResidual[], limit = 12): string {
-  if (residuals.length === 0) return "none";
-  const formatted = residuals.slice(0, limit).map((resource) => {
-    return `${resource.kind}#${resource.id}:${resource.label}:${resource.state}:${resource.ageMs}ms`;
-  });
-  if (residuals.length > limit) {
-    formatted.push(`+${residuals.length - limit} more`);
-  }
-  return formatted.join("; ");
-}
-
-function logGenerationSnapshot(prefix: string, snapshot: GenerationContextSnapshot): void {
-  console.log(
-    `${prefix} generation=${snapshot.generation} state=${snapshot.state} tasks=${snapshot.trackedTasks} disposables=${snapshot.trackedDisposables} stats=[${formatResourceStats(snapshot.stats)}] residual=[${formatResidualResources(snapshot.residualResources)}]`
-  );
-}
-
 function logDrainResult(runtime: TeleBoxRuntime, reason: string, result: DrainResult): void {
-  const residual = formatResidualResources(result.residualResources);
   console.log(
-    `[RUNTIME] Generation ${runtime.generation} ${reason} diagnostics: canceled=${result.canceledResources}, drained=${result.drainedResources}, timedOut=${result.timedOutResources}, residual=${result.residualResources.length}, stats=[${formatResourceStats(result.stats)}], residualDetail=[${residual}]`
+    `[RUNTIME] Gen${runtime.generation} ${reason}: completed=${result.completed} timedOut=${result.timedOut} pendingTasks=${result.pendingTasks} pendingDisposables=${result.pendingDisposables} errors=${result.errors.length}`
   );
-}
-
-function cloneEmptyDrainStats(stats: GenerationResourceStats): GenerationResourceStats {
-  const cloned = {} as GenerationResourceStats;
-  for (const [kind, value] of Object.entries(stats)) {
-    cloned[kind as keyof GenerationResourceStats] = { ...value };
-  }
-  return cloned;
 }
 
 async function withTimeout<T>(
@@ -259,21 +221,20 @@ async function drainRuntime(
   timeoutMs = RUNTIME_DRAIN_TIMEOUT_MS
 ): Promise<DrainResult> {
   runtime.state = "draining";
-  console.log(`[RUNTIME] Generation ${runtime.generation} aborting: ${reason}`);
-  logGenerationSnapshot("[RUNTIME] Pre-drain snapshot", runtime.context.snapshot());
+  console.log(`[RUNTIME] Gen${runtime.generation} draining: ${reason}`);
   runtime.context.abort(reason);
   const result = await runtime.context.dispose(timeoutMs);
   logDrainResult(runtime, reason, result);
   if (result.timedOut) {
     console.warn(
-      `[RUNTIME] Generation ${runtime.generation} drain timed out with ${result.pendingTasks} pending tasks and ${result.pendingDisposables} pending disposables.`
+      `[RUNTIME] Gen${runtime.generation} drain timed out: ${result.pendingTasks} pending tasks, ${result.pendingDisposables} pending disposables.`
     );
   } else if (result.errors.length > 0) {
     console.warn(
-      `[RUNTIME] Generation ${runtime.generation} drained with ${result.errors.length} disposable error(s).`
+      `[RUNTIME] Gen${runtime.generation} drained with ${result.errors.length} disposable error(s).`
     );
   } else {
-    console.log(`[RUNTIME] Generation ${runtime.generation} drained and disposed.`);
+    console.log(`[RUNTIME] Gen${runtime.generation} drain complete.`);
   }
   return result;
 }
@@ -291,11 +252,6 @@ async function disposeRuntime(
       errors: [],
       pendingTasks: 0,
       pendingDisposables: 0,
-      canceledResources: 0,
-      drainedResources: 0,
-      timedOutResources: 0,
-      residualResources: [],
-      stats: cloneEmptyDrainStats(runtime.context.snapshot().stats),
     };
   }
 

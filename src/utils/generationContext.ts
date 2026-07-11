@@ -1,42 +1,26 @@
+// ─────────────────────────── Generation Context ───────────────────────────
+// 核心职责：reload/shutdown 时安全终止所有进行中的操作，防止内存泄漏。
+//
+// 工作原理：
+// - AbortController → 统一取消信号，所有异步操作监听 signal.aborted
+// - trackDisposable() → 注册清理回调（timer、interval、child_process、event listener）
+// - trackTask()         → 追踪进行中的异步任务，drain() 等待它们全部完成
+// - AsyncLocalStorage   → 隐式传递当前 generation，drain() 排除自身避免死锁
+//
+// 简化说明（vs 旧版约 550 行）：
+// - 移除了 ResourceKind 统计框架（10 种资源类型 × 5 个计数器 = 50 个指标）——纯探测用，无业务价值
+// - DrainResult 从 12 字段压缩到 5 字段
+// - trackDisposable/trackTask 不再按 kind 分类，仅保留 label 用于错误日志
+
 import type { ChildProcess } from "child_process";
 import { AsyncLocalStorage } from "async_hooks";
 
-export type GenerationLifecycleState =
-  | "active"
-  | "aborting"
-  | "draining"
-  | "disposed";
-
-export type GenerationResourceKind =
-  | "abort-token"
-  | "child-process"
-  | "conversation"
-  | "cron-execution"
-  | "cron-job"
-  | "handler"
-  | "interval"
-  | "promise"
-  | "task"
-  | "timeout";
+export type GenerationLifecycleState = "active" | "aborting" | "draining" | "disposed";
 
 export type Disposable = () => void | Promise<void>;
 
-export interface ResourceStats {
-  active: number;
-  created: number;
-  completed: number;
-  canceled: number;
-  timedOut: number;
-}
-
-export type GenerationResourceStats = Record<GenerationResourceKind, ResourceStats>;
-
-export interface ResourceResidual {
-  id: number;
-  kind: GenerationResourceKind;
-  label: string;
-  ageMs: number;
-  state: "active" | "disposing" | "timed-out";
+export interface TrackOptions {
+  label?: string;
 }
 
 export interface DrainResult {
@@ -45,62 +29,22 @@ export interface DrainResult {
   errors: unknown[];
   pendingTasks: number;
   pendingDisposables: number;
-  canceledResources: number;
-  drainedResources: number;
-  timedOutResources: number;
-  residualResources: ResourceResidual[];
-  stats: GenerationResourceStats;
-}
-
-export interface GenerationContextSnapshot {
-  generation: number;
-  state: GenerationLifecycleState;
-  abortReason?: unknown;
-  trackedTasks: number;
-  trackedDisposables: number;
-  stats: GenerationResourceStats;
-  residualResources: ResourceResidual[];
-}
-
-export interface TrackOptions {
-  label?: string;
-  kind?: GenerationResourceKind;
-}
-
-interface ResourceEntry {
-  id: number;
-  kind: GenerationResourceKind;
-  label: string;
-  createdAt: number;
-  state: "active" | "disposing" | "timed-out";
 }
 
 interface DisposableEntry {
-  resource: ResourceEntry;
   dispose: Disposable;
+  label: string;
 }
 
 interface TaskEntry {
-  resource: ResourceEntry;
   promise: Promise<unknown>;
+  label: string;
 }
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 type IntervalHandle = ReturnType<typeof setInterval>;
 
 const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
-const RESOURCE_KINDS: GenerationResourceKind[] = [
-  "abort-token",
-  "child-process",
-  "conversation",
-  "cron-execution",
-  "cron-job",
-  "handler",
-  "interval",
-  "promise",
-  "task",
-  "timeout",
-];
 
 function toError(reason: unknown): Error {
   if (reason instanceof Error) return reason;
@@ -110,37 +54,9 @@ function toError(reason: unknown): Error {
 
 function createTimeoutPromise(ms: number): Promise<"timeout"> {
   return new Promise((resolve) => {
-    const timeout = setTimeout(() => resolve("timeout"), ms);
-    if (typeof timeout.unref === "function") {
-      timeout.unref();
-    }
+    const timer = setTimeout(() => resolve("timeout"), ms);
+    if (typeof timer.unref === "function") timer.unref();
   });
-}
-
-function createEmptyStats(): GenerationResourceStats {
-  const stats = {} as GenerationResourceStats;
-  for (const kind of RESOURCE_KINDS) {
-    stats[kind] = {
-      active: 0,
-      created: 0,
-      completed: 0,
-      canceled: 0,
-      timedOut: 0,
-    };
-  }
-  return stats;
-}
-
-function cloneStats(stats: GenerationResourceStats): GenerationResourceStats {
-  const cloned = {} as GenerationResourceStats;
-  for (const kind of RESOURCE_KINDS) {
-    cloned[kind] = { ...stats[kind] };
-  }
-  return cloned;
-}
-
-function classifyKind(options: TrackOptions | undefined, fallback: GenerationResourceKind): GenerationResourceKind {
-  return options?.kind ?? fallback;
 }
 
 export class GenerationContext {
@@ -149,17 +65,13 @@ export class GenerationContext {
   private readonly abortController = new AbortController();
   private readonly disposables = new Set<DisposableEntry>();
   private readonly tasks = new Set<TaskEntry>();
-  private readonly resources = new Map<number, ResourceEntry>();
-  private readonly stats = createEmptyStats();
   private readonly currentTaskStorage = new AsyncLocalStorage<TaskEntry>();
   private lifecycleState: GenerationLifecycleState = "active";
   private abortCause: unknown;
-  private nextResourceId = 1;
 
   constructor(generation: number) {
     this.generation = generation;
     this.createdAt = Date.now();
-    this.createResource("abort-token", "generation-abort-signal");
   }
 
   get signal(): AbortSignal {
@@ -174,17 +86,7 @@ export class GenerationContext {
     return this.abortCause;
   }
 
-  snapshot(): GenerationContextSnapshot {
-    return {
-      generation: this.generation,
-      state: this.lifecycleState,
-      abortReason: this.abortCause,
-      trackedTasks: this.tasks.size,
-      trackedDisposables: this.disposables.size,
-      stats: cloneStats(this.stats),
-      residualResources: this.getResidualResources(),
-    };
-  }
+  // ── 生命周期 ──
 
   abort(reason?: unknown): void {
     if (this.lifecycleState === "disposed") return;
@@ -194,56 +96,44 @@ export class GenerationContext {
     }
     if (!this.abortController.signal.aborted) {
       this.abortController.abort(reason);
-      this.markResourcesCanceled();
     }
   }
 
+  // ── 资源追踪 ──
+
   trackDisposable(dispose: Disposable, options?: TrackOptions): Disposable {
-    const resource = this.createResource(
-      classifyKind(options, "task"),
-      options?.label ?? "disposable"
-    );
     const entry: DisposableEntry = {
-      resource,
       dispose,
+      label: options?.label ?? "disposable",
     };
 
     if (this.lifecycleState === "disposed") {
       void Promise.resolve(dispose()).catch((error) => {
-        console.error(`[GENERATION ${this.generation}] Late disposable cleanup failed:`, error);
+        console.error(`[GEN ${this.generation}] Late disposable "${entry.label}" cleanup failed:`, error);
       });
-      this.completeResource(resource, "completed");
       return dispose;
     }
 
     this.disposables.add(entry);
     return async () => {
       if (!this.disposables.delete(entry)) return;
-      resource.state = "disposing";
       try {
         await entry.dispose();
-        this.completeResource(resource, "completed");
       } catch (error) {
-        this.completeResource(resource, "completed");
         throw error;
       }
     };
   }
 
   trackTask<T>(task: Promise<T>, options?: TrackOptions): Promise<T> {
-    const resource = this.createResource(
-      classifyKind(options, "task"),
-      options?.label ?? "task"
-    );
     const entry: TaskEntry = {
-      resource,
       promise: task,
+      label: options?.label ?? "task",
     };
 
     this.tasks.add(entry);
     task.finally(() => {
       this.tasks.delete(entry);
-      this.completeResource(resource, "completed");
     }).catch(() => undefined);
 
     return task;
@@ -256,17 +146,16 @@ export class GenerationContext {
     return this.trackTask(factory(this.signal), options);
   }
 
+  // ── 定时器（自动清理） ──
+
   setTimeout(callback: () => void, ms: number, options?: TrackOptions): TimerHandle {
     const handle = setTimeout(() => {
       void dispose();
-      if (!this.signal.aborted) {
-        callback();
-      }
+      if (!this.signal.aborted) callback();
     }, ms);
 
     const dispose = this.trackDisposable(() => clearTimeout(handle), {
       label: options?.label ?? "timeout",
-      kind: classifyKind(options, "timeout"),
     });
     return handle;
   }
@@ -279,14 +168,14 @@ export class GenerationContext {
     const label = options?.label ?? "delay";
     const task = new Promise<void>((resolve, reject) => {
       let settled = false;
-      let dispose: Disposable = () => undefined;
+      let disposeTimer: Disposable = () => undefined;
 
       const settle = (callback: () => void): void => {
         if (settled) return;
         settled = true;
         this.signal.removeEventListener("abort", onAbort);
-        void Promise.resolve(dispose()).catch((error) => {
-          console.error(`[GENERATION ${this.generation}] Delay cleanup failed:`, error);
+        void Promise.resolve(disposeTimer()).catch((error) => {
+          console.error(`[GEN ${this.generation}] Delay cleanup failed:`, error);
         });
         callback();
       };
@@ -299,30 +188,27 @@ export class GenerationContext {
         settle(resolve);
       }, ms);
 
-      dispose = this.trackDisposable(() => clearTimeout(handle), { label, kind: "timeout" });
+      disposeTimer = this.trackDisposable(() => clearTimeout(handle), { label });
       this.signal.addEventListener("abort", onAbort, { once: true });
 
-      if (this.signal.aborted) {
-        onAbort();
-      }
+      if (this.signal.aborted) onAbort();
     });
 
-    return this.trackTask(task, { label, kind: classifyKind(options, "promise") });
+    return this.trackTask(task, { label });
   }
 
   setInterval(callback: () => void, ms: number, options?: TrackOptions): IntervalHandle {
     const handle = setInterval(() => {
-      if (!this.signal.aborted) {
-        callback();
-      }
+      if (!this.signal.aborted) callback();
     }, ms);
 
     this.trackDisposable(() => clearInterval(handle), {
       label: options?.label ?? "interval",
-      kind: classifyKind(options, "interval"),
     });
     return handle;
   }
+
+  // ── Event Listener ──
 
   trackListener<TEvent>(
     add: (handler: (event: TEvent) => void | Promise<void>) => void,
@@ -331,14 +217,12 @@ export class GenerationContext {
     options?: TrackOptions
   ): (event: TEvent) => void | Promise<void> {
     const label = options?.label ?? "listener";
-    const taskKind = classifyKind(options, "promise");
     const trackedHandler = (event: TEvent): void | Promise<void> => {
       if (this.signal.aborted) return;
 
-      const resource = this.createResource(taskKind, label);
       const entry: TaskEntry = {
-        resource,
         promise: Promise.resolve(),
+        label,
       };
       this.tasks.add(entry);
 
@@ -360,25 +244,21 @@ export class GenerationContext {
       });
       entry.promise = wrapped;
       wrapped
-        .finally(() => {
-          this.tasks.delete(entry);
-          this.completeResource(resource, "completed");
-        })
+        .finally(() => { this.tasks.delete(entry); })
         .catch(() => undefined);
       wrapped.catch((error) => {
-        console.error(`[GENERATION ${this.generation}] Listener task failed:`, error);
+        console.error(`[GEN ${this.generation}] Listener task failed:`, error);
       });
 
       return syncResult;
     };
 
     add(trackedHandler);
-    this.trackDisposable(() => remove(trackedHandler), {
-      label: options?.label ?? "listener",
-      kind: classifyKind(options, "handler"),
-    });
+    this.trackDisposable(() => remove(trackedHandler), { label });
     return trackedHandler;
   }
+
+  // ── Child Process ──
 
   trackChildProcess(child: ChildProcess, options?: TrackOptions): ChildProcess {
     const label = options?.label ?? "child-process";
@@ -387,31 +267,22 @@ export class GenerationContext {
       child.once("exit", () => resolve());
       child.once("error", () => resolve());
     });
-    this.trackTask(settle, { label, kind: "child-process" });
+    this.trackTask(settle, { label });
 
     this.trackDisposable(() => {
       if (!child.killed && child.exitCode === null) {
         child.kill();
       }
-    }, { label, kind: "child-process" });
+    }, { label });
 
     return child;
   }
 
+  // ── Drain / Dispose ──
+
   async drain(timeoutMs = DEFAULT_DRAIN_TIMEOUT_MS): Promise<DrainResult> {
     if (this.lifecycleState === "disposed") {
-      return {
-        completed: true,
-        timedOut: false,
-        errors: [],
-        pendingTasks: 0,
-        pendingDisposables: 0,
-        canceledResources: this.sumStats("canceled"),
-        drainedResources: this.sumStats("completed"),
-        timedOutResources: this.sumStats("timedOut"),
-        residualResources: [],
-        stats: cloneStats(this.stats),
-      };
+      return { completed: true, timedOut: false, errors: [], pendingTasks: 0, pendingDisposables: 0 };
     }
 
     if (this.lifecycleState === "active") {
@@ -419,46 +290,38 @@ export class GenerationContext {
     }
     this.lifecycleState = "draining";
 
+    // 1. 执行所有 disposable
     const errors: unknown[] = [];
     const disposableEntries = [...this.disposables];
     this.disposables.clear();
 
     await Promise.all(
       disposableEntries.map(async (entry) => {
-        entry.resource.state = "disposing";
         try {
           await entry.dispose();
-          this.completeResource(entry.resource, "completed");
         } catch (error) {
-          this.completeResource(entry.resource, "completed");
           errors.push(error);
-          console.error(`[GENERATION ${this.generation}] Disposable "${entry.resource.label}" failed:`, error);
+          console.error(`[GEN ${this.generation}] Disposable "${entry.label}" failed:`, error);
         }
       })
     );
 
+    // 2. 等待所有 task 完成（排除当前 drain task 自身）
     const waitForTasks = async (): Promise<void> => {
       while (true) {
         const selfEntry = this.currentTaskStorage.getStore();
-        const pending = [...this.tasks].filter((entry) => entry !== selfEntry);
+        const pending = [...this.tasks].filter((e) => e !== selfEntry);
         if (pending.length === 0) break;
-        await Promise.allSettled(pending.map((entry) => entry.promise));
+        await Promise.allSettled(pending.map((e) => e.promise));
       }
     };
 
     const taskWait = waitForTasks();
-    const result = await Promise.race([taskWait, createTimeoutPromise(timeoutMs)]);
-    const timedOut = result === "timeout";
+    const raceResult = await Promise.race([taskWait, createTimeoutPromise(timeoutMs)]);
+    const timedOut = raceResult === "timeout";
 
-    if (timedOut) {
-      const selfEntry = this.currentTaskStorage.getStore();
-      for (const entry of this.tasks) {
-        if (entry === selfEntry) continue;
-        this.markResourceTimedOut(entry.resource);
-      }
-    } else {
+    if (!timedOut) {
       this.lifecycleState = "disposed";
-      this.completeAbortToken();
     }
 
     const selfEntry = this.currentTaskStorage.getStore();
@@ -472,76 +335,11 @@ export class GenerationContext {
       errors,
       pendingTasks: pendingTaskCount,
       pendingDisposables: this.disposables.size,
-      canceledResources: this.sumStats("canceled"),
-      drainedResources: this.sumStats("completed"),
-      timedOutResources: this.sumStats("timedOut"),
-      residualResources: this.getResidualResources(),
-      stats: cloneStats(this.stats),
     };
   }
 
   async dispose(timeoutMs?: number): Promise<DrainResult> {
     return await this.drain(timeoutMs);
-  }
-
-  private createResource(kind: GenerationResourceKind, label: string): ResourceEntry {
-    const resource: ResourceEntry = {
-      id: this.nextResourceId++,
-      kind,
-      label,
-      createdAt: Date.now(),
-      state: "active",
-    };
-    this.resources.set(resource.id, resource);
-    this.stats[kind].created += 1;
-    this.stats[kind].active += 1;
-    return resource;
-  }
-
-  private completeResource(resource: ResourceEntry, outcome: "completed" | "canceled"): void {
-    if (!this.resources.delete(resource.id)) return;
-    const stat = this.stats[resource.kind];
-    stat.active = Math.max(0, stat.active - 1);
-    if (outcome === "canceled") {
-      stat.canceled += 1;
-    } else {
-      stat.completed += 1;
-    }
-  }
-
-  private markResourceTimedOut(resource: ResourceEntry): void {
-    if (resource.state === "timed-out") return;
-    resource.state = "timed-out";
-    this.stats[resource.kind].timedOut += 1;
-  }
-
-  private markResourcesCanceled(): void {
-    for (const resource of this.resources.values()) {
-      if (resource.kind === "abort-token") continue;
-      this.stats[resource.kind].canceled += 1;
-    }
-  }
-
-  private completeAbortToken(): void {
-    const abortToken = [...this.resources.values()].find((resource) => resource.kind === "abort-token");
-    if (abortToken) {
-      this.completeResource(abortToken, "completed");
-    }
-  }
-
-  private getResidualResources(): ResourceResidual[] {
-    const now = Date.now();
-    return [...this.resources.values()].map((resource) => ({
-      id: resource.id,
-      kind: resource.kind,
-      label: resource.label,
-      ageMs: now - resource.createdAt,
-      state: resource.state,
-    }));
-  }
-
-  private sumStats(key: keyof Pick<ResourceStats, "canceled" | "completed" | "timedOut">): number {
-    return RESOURCE_KINDS.reduce((sum, kind) => sum + this.stats[kind][key], 0);
   }
 }
 

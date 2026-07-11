@@ -297,31 +297,11 @@ class TeleBoxSystemMonitor extends Plugin {
 
   private formatLifecycleDiagnostics(): string {
     const context = tryGetCurrentGenerationContext();
-    if (!context) return "<b>🧪 Lifecycle diagnostics</b>\n\n当前没有运行中的 generation。";
-    const snapshot = context.snapshot();
-    const stats = Object.entries(snapshot.stats)
-      .filter(([, stat]) => stat.created > 0 || stat.active > 0 || stat.canceled > 0 || stat.timedOut > 0)
-      .map(([kind, stat]) => {
-        return `• <code>${kind}</code>: active=<code>${stat.active}</code>, created=<code>${stat.created}</code>, drained=<code>${stat.completed}</code>, canceled=<code>${stat.canceled}</code>, timedOut=<code>${stat.timedOut}</code>`;
-      })
-      .join("\n") || "• <code>none</code>";
-    const residuals = snapshot.residualResources
-      .slice(0, 12)
-      .map((resource) => {
-        return `• <code>${resource.kind}#${resource.id}</code> ${resource.label} ${resource.state} age=<code>${resource.ageMs}ms</code>`;
-      })
-      .join("\n") || "• <code>none</code>";
-    const more = snapshot.residualResources.length > 12
-      ? `\n• ...and <code>${snapshot.residualResources.length - 12}</code> more`
-      : "";
-
-    return `<b>🧪 Lifecycle diagnostics</b>\n\n` +
-      `Generation: <code>${snapshot.generation}</code>\n` +
-      `State: <code>${snapshot.state}</code>\n` +
-      `Tracked tasks: <code>${snapshot.trackedTasks}</code>\n` +
-      `Tracked disposables: <code>${snapshot.trackedDisposables}</code>\n\n` +
-      `<b>Resource counters</b>\n${stats}\n\n` +
-      `<b>Residual resources</b>\n${residuals}${more}`;
+    if (!context) return "<b>🧪 Lifecycle</b>\n\n当前没有运行中的 generation。";
+    return `<b>🧪 Lifecycle</b>\n\n` +
+      `Generation: <code>${context.generation}</code>\n` +
+      `State: <code>${context.state}</code>\n` +
+      `Uptime: <code>${Math.round((Date.now() - context.createdAt) / 1000)}s</code>`;
   }
 
   private async handleLifecycleStatus(msg: Api.Message): Promise<void> {

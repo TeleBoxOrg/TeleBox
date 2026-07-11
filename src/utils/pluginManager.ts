@@ -490,19 +490,9 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
     await runPluginCleanup(plugin, runtime);
   }
 
-  const snapshot = runtime.context.snapshot();
   const handlerCount = runtime.client.listEventHandlers().length;
-  const disposableCount = snapshot.trackedDisposables;
-  const resourceSummary = Object.entries(snapshot.stats)
-    .filter(([, stat]) => stat.created > 0 || stat.active > 0)
-    .map(([kind, stat]) => `${kind}:active=${stat.active},created=${stat.created}`)
-    .join("; ") || "none";
-  const residualSummary = snapshot.residualResources
-    .slice(0, 10)
-    .map((resource) => `${resource.kind}:${resource.label}:${resource.state}:${resource.ageMs}ms`)
-    .join("; ") || "none";
   console.log(
-    `[RELOAD] Generation ${runtime.generation} stopped ingress; ${handlerCount} client handlers and ${disposableCount} lifecycle disposables are awaiting drain. resources=[${resourceSummary}] residual=[${residualSummary}]`
+    `[RELOAD] Gen${runtime.generation} unloading plugins: ${handlerCount} client handlers to drain`
   );
 
   validPlugins.length = 0;

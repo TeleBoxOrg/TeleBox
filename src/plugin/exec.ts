@@ -58,7 +58,7 @@ function runOwnedExec(shellCommand: string, lifecycle: GenerationContext): Promi
           onAbort();
         }
       }),
-    { label: "exec:shell-command", kind: "promise" }
+    { label: "exec:shell-command" }
   );
 }
 
