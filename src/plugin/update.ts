@@ -206,15 +206,21 @@ async function executeAutoExit(): Promise<void> {
 async function autoUpdatePlugins(githubMsg: Api.Message): Promise<void> {
   try {
     const statusMsg = (await githubMsg.reply({ message: "🤖 自动更新：检测到插件仓库新提交，正在更新插件…" }))!;
+    // Snapshot before updateAllPlugins → reloadAndFinalize → loadPlugins()
+    // (plugin reload invalidates statusMsg's internal _client reference)
+    const targetPeerId = statusMsg.peerId;
+    const targetMsgId = statusMsg.id;
+
     const result = await updateAllPlugins(statusMsg);
 
     if (result.failedCount === 0) {
-      // All good — delete the final status message
-      try { await statusMsg.delete(); } catch (_) {}
+      // Use fresh client — statusMsg.delete() fails post-reload
+      try {
+        const freshClient = await getGlobalClient();
+        await (freshClient as any).deleteMessages(targetPeerId, [targetMsgId], { revoke: true });
+      } catch (_) {}
     }
-    // If failedCount > 0, the error summary stays visible
   } catch (error: any) {
-    // updateAllPlugins caught the error internally; this should not normally happen
     console.error("[auto-update] 插件更新异常:", getErrorMessage(error));
   }
 }
