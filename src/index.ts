@@ -1,4 +1,5 @@
 import "dotenv/config";
+import axios from "axios";
 import { logger } from "@utils/logger"; // 引入 logger 以便尽早初始化
 import { startRuntime, shutdownRuntime } from "@utils/runtimeManager";
 import { initPluginBaseConfig } from "@utils/pluginBase";
@@ -16,11 +17,7 @@ if (httpProxy || httpsProxy) {
   console.log(`[PROXY] HTTP_PROXY: ${httpProxy || "not set"}`);
   console.log(`[PROXY] HTTPS_PROXY: ${httpsProxy || "not set"}`);
   console.log(`[PROXY] NO_PROXY: ${noProxy || "not set"}`);
-  
-  // 配置 axios 全局代理
-  // axios 1.x 支持在 defaults 中配置 proxy 选项
-  const axios = require("axios").default;
-  
+
   // 解析代理 URL
   const parseProxy = (proxyUrl: string) => {
     const url = new URL(proxyUrl);
@@ -34,13 +31,13 @@ if (httpProxy || httpsProxy) {
       } : undefined
     };
   };
-  
+
   if (httpsProxy) {
     axios.defaults.proxy = parseProxy(httpsProxy);
   } else if (httpProxy) {
     axios.defaults.proxy = parseProxy(httpProxy);
   }
-  
+
   console.log("[PROXY] 全局代理配置已应用");
 } else {
   console.log("[PROXY] 未检测到代理环境变量，使用直连");
