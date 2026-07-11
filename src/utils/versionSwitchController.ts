@@ -289,8 +289,6 @@ async function main(): Promise<void> {
       if (target === "mtcute") clearSwitchSessionMarker(target);
     }
 
-    // 给源进程 2 秒时间将已入队的消息发送出去
-    await new Promise((r) => setTimeout(r, 2_000));
     pm2("stop", PM2_NAMES[source]);
     console.log(`[controller] Stopped ${source} (${PM2_NAMES[source]})`);
 

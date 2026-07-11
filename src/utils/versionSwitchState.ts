@@ -23,12 +23,19 @@ export interface PendingLogin {
   expiresAt: number;
 }
 
+export interface SwitchNotification {
+  chatId: number;
+  msgId: number;
+  target: TeleBoxVersion;
+}
+
 export interface VersionSwitchState {
   schemaVersion: 1;
   activeVersion: TeleBoxVersion | null;
   sessions: Record<TeleBoxVersion, SessionSelection>;
   pendingTransaction: string | null;
   pendingLogin: PendingLogin | null;
+  pendingNotification: SwitchNotification | null;
   stagedSecrets: Partial<Record<"password" | "code", string>>;
 }
 
@@ -61,6 +68,7 @@ export function createDefaultSwitchState(): VersionSwitchState {
     },
     pendingTransaction: null,
     pendingLogin: null,
+    pendingNotification: null,
     stagedSecrets: {},
   };
 }
@@ -94,6 +102,15 @@ function isStagedSecrets(
   );
 }
 
+function isSwitchNotification(value: unknown): value is SwitchNotification | null {
+  if (value === null) return true;
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.chatId === "number"
+    && typeof candidate.msgId === "number"
+    && (candidate.target === "teleproto" || candidate.target === "mtcute");
+}
+
 function isState(value: unknown): value is VersionSwitchState {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<VersionSwitchState>;
@@ -107,6 +124,7 @@ function isState(value: unknown): value is VersionSwitchState {
     && (candidate.pendingTransaction === null
       || typeof candidate.pendingTransaction === "string")
     && isPendingLogin(candidate.pendingLogin)
+    && isSwitchNotification(candidate.pendingNotification)
     && isStagedSecrets(candidate.stagedSecrets);
 }
 
