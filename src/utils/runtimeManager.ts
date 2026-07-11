@@ -52,6 +52,40 @@ import { initializeClientSession } from "./loginManager";
     throw lastErr;
   };
 })();
+
+// ── Mitigate teleproto Dcenter mediaTempFailed lockout ────────────────────
+// teleproto/network/Dcenter.js: resetMediaTempKey() resets the temp key,
+// expiresAt, and mediaBound, but OMITS mediaTempFailed.  Once a single
+// bindTempAuthKey attempt fails (transient network hiccup, DC migration,
+// or just bad luck), the Dcenter is permanently locked out of temp-key
+// binding — every subsequent media request falls back to the permanent
+// auth key.  If that permanent key is also stale for the media DC,
+// MTProtoSender._handleBadAuthKey fires "Broken authorization key for dc
+// N, resetting…" and the 15-second MediaScheduler deadline kills the
+// request before the full DH + bindTempAuthKey dance completes.
+//
+// Fix: monkey-patch resetMediaTempKey to also clear mediaTempFailed so
+// the next media connection tries a fresh temp-key bind.
+// ───────────────────────────────────────────────────────────────────────────
+(function patchDcenterMediaTempFailed() {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Dcenter } = require("teleproto/network/Dcenter");
+    if (!Dcenter) return;
+
+    const originalReset = (Dcenter.prototype as any).resetMediaTempKey as () => void;
+
+    (Dcenter.prototype as any).resetMediaTempKey = function (this: any) {
+      originalReset.call(this);
+      // Clear the permanent failure flag so the next media connection
+      // will attempt a fresh DH + bindTempAuthKey instead of falling
+      // back to the (potentially stale) permanent auth key.
+      this.mediaTempFailed = false;
+    };
+  } catch (_) {
+    // teleproto not available — skip patch
+  }
+})();
 import {
   loadPluginsForRuntime,
   unloadPluginsForRuntime,
