@@ -7,7 +7,7 @@ import import_pluginManager3 = require("@utils/pluginManager");
 import import_globalClient3 = require("@utils/runtimeManager");
 
 // plugins/agent/provider.ts
-import import_axios = require("axios");
+import axios from "axios";
 var MAX_OUTPUT_TOKENS = 8192;
 var ANTHROPIC_VERSION = "2023-06-01";
 
@@ -278,7 +278,7 @@ function toOpenAIChatMessages(messages: ChatMessage[]) {
 }
 async function callOpenAIChat(provider: AIProvider, messages: ChatMessage[], tools: ToolSpec[], timeoutMs: number) {
   const auth = requestAuth(provider);
-  const response = await (import_axios as any).post(
+  const response = await axios.post(
     endpoint(provider, "chat"),
     {
       model: provider.model,
@@ -344,7 +344,7 @@ function toResponsesInput(messages: ChatMessage[]) {
 }
 async function callResponses(provider: AIProvider, messages: ChatMessage[], tools: ToolSpec[], timeoutMs: number) {
   const auth = requestAuth(provider);
-  const response = await (import_axios as any).post(
+  const response = await axios.post(
     endpoint(provider, "responses"),
     {
       model: provider.model,
@@ -442,7 +442,7 @@ function toAnthropicMessages(messages: ChatMessage[]) {
   return output;
 }
 async function callAnthropic(provider: AIProvider, messages: ChatMessage[], tools: ToolSpec[], timeoutMs: number) {
-  const response = await (import_axios as any).post(
+  const response = await axios.post(
     endpoint(provider, "anthropic"),
     {
       model: provider.model,
@@ -544,7 +544,7 @@ function toGeminiSchema(value: unknown): any {
 }
 async function callGemini(provider: AIProvider, messages: ChatMessage[], tools: ToolSpec[], timeoutMs: number) {
   const auth = requestAuth(provider);
-  const response = await (import_axios as any).post(
+  const response = await axios.post(
     endpoint(provider, "gemini"),
     {
       systemInstruction: { parts: [{ text: systemPrompt(messages) }] },
@@ -603,7 +603,7 @@ async function callModel(provider: AIProvider, messages: ChatMessage[], tools: T
   try {
     return await withTransientRetry(() => invoke(messages, tools));
   } catch (error) {
-    const status = import_axios.isAxiosError(error) ? error.response?.status : void 0;
+    const status = axios.isAxiosError(error) ? error.response?.status : void 0;
     const detail = formatProviderError(error);
     const toolCompatibilityError = tools.length > 0 && [400, 404, 422].includes(status || 0) && /(tool|function|schema|unknown field|unsupported|not support)/i.test(detail);
     if (!toolCompatibilityError) throw error;
@@ -622,7 +622,7 @@ async function callModel(provider: AIProvider, messages: ChatMessage[], tools: T
   }
 }
 function isTransientError(error: any) {
-  if (import_axios.isAxiosError(error)) {
+  if (axios.isAxiosError(error)) {
     const status = error.response?.status;
     if (status && (status >= 500 || status === 429)) return true;
     if (error.code && ["ECONNABORTED", "ETIMEDOUT", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ECONNREFUSED"].includes(error.code)) return true;
@@ -657,7 +657,7 @@ function addUsage(total: any, next: any) {
   };
 }
 function formatProviderError(error: any) {
-  if (import_axios.isAxiosError(error)) {
+  if (axios.isAxiosError(error)) {
     const data = error.response?.data;
     const message = apiError(data) || data?.message || error.message;
     const status = error.response?.status;
