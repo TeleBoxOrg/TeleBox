@@ -208,17 +208,36 @@ async function autoUpdatePlugins(githubMsg: Api.Message): Promise<void> {
     const statusMsg = (await githubMsg.reply({ message: "🤖 自动更新：检测到插件仓库新提交，正在更新插件…" }))!;
     // Snapshot before updateAllPlugins → reloadAndFinalize → loadPlugins()
     // (plugin reload invalidates statusMsg's internal _client reference)
-    const targetPeerId = statusMsg.peerId;
-    const targetMsgId = statusMsg.id;
+    const fallbackPeerId = statusMsg.peerId;
+    const fallbackMsgId = statusMsg.id;
 
     const result = await updateAllPlugins(statusMsg);
 
     if (result.failedCount === 0) {
-      // Use fresh client — statusMsg.delete() fails post-reload
+      // Use the status message info returned by updateAllPlugins — it may
+      // differ from the original snapshot if sendOrEditMessage created a new
+      // message (when edit failed). reloadAndFinalize already called
+      // loadPlugins() → reloadRuntime(), so the old client is dead and a new
+      // one is alive.
+      const targetPeerId = result.statusPeerId ?? fallbackPeerId;
+      const targetMsgId = result.statusMsgId ?? fallbackMsgId;
       try {
         const freshClient = await getGlobalClient();
         await (freshClient as any).deleteMessages(targetPeerId, [targetMsgId], { revoke: true });
-      } catch (_) {}
+        console.log("[auto-update] 插件更新完成，状态消息已删除");
+      } catch (err: any) {
+        console.error("[auto-update] 删除状态消息失败:", err?.message || err);
+        // Retry once after a short delay — the new client may need a moment
+        // to fully establish its entity cache after reloadRuntime().
+        try {
+          await new Promise((r) => setTimeout(r, 2000));
+          const freshClient = await getGlobalClient();
+          await (freshClient as any).deleteMessages(targetPeerId, [targetMsgId], { revoke: true });
+          console.log("[auto-update] 状态消息删除重试成功");
+        } catch (retryErr: any) {
+          console.error("[auto-update] 状态消息删除重试失败:", retryErr?.message || retryErr);
+        }
+      }
     }
   } catch (error: any) {
     console.error("[auto-update] 插件更新异常:", getErrorMessage(error));
