@@ -478,7 +478,7 @@ class TeleBoxSystemMonitor extends Plugin {
     await this.db.write();
 
     await msg.edit({
-      text: "✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果",
+      text: `✅ 模板已保存！使用 <code>${mainPrefix}status</code> 查看效果`,
       parseMode: "html",
     });
   }
