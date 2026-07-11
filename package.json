@@ -6,7 +6,10 @@
     "start": "node scripts/run-tsx.cjs ./src/index.ts",
     "tpm": "node scripts/run-tsx.cjs ./src/plugin/tpm.ts",
     "dev": "NODE_ENV=development node scripts/run-tsx.cjs ./src/index.ts",
-    "leech:smoke": "node scripts/run-tsx.cjs ./scripts/leech-smoke.ts"
+    "leech:smoke": "node scripts/run-tsx.cjs ./scripts/leech-smoke.ts",
+    "pm2:start": "pm2 start scripts/pm2-launcher.sh --name telebox --cwd . --interpreter bash --time --max-memory-restart 512M --restart-delay 5000",
+    "pm2:stop": "pm2 stop telebox",
+    "pm2:restart": "pm2 restart telebox --update-env"
   },
   "repository": {
     "type": "git",

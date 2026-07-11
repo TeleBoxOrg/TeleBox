@@ -41,19 +41,73 @@ import path from "path";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-const REPO_ROOTS: Record<"teleproto" | "mtcute", string> = {
-  teleproto: "/root/telebox",
-  mtcute: "/root/telebox_mtcute",
+type SwitchVersion = "teleproto" | "mtcute";
+
+function findProjectRoot(startDir: string): string {
+  let dir = path.resolve(startDir);
+  while (true) {
+    if (fs.existsSync(path.join(dir, "package.json")) && fs.existsSync(path.join(dir, "src", "index.ts"))) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) return path.resolve(startDir);
+    dir = parent;
+  }
+}
+
+function existingDir(candidates: string[]): string | undefined {
+  return candidates.map((p) => path.resolve(p)).find((p) => fs.existsSync(p) && fs.statSync(p).isDirectory());
+}
+
+function isMtcuteRepo(root: string): boolean {
+  return fs.existsSync(path.join(root, "src", "utils", "mtcuteClient.ts"))
+    || fs.existsSync(path.join(root, "node_modules", "@mtcute"))
+    || /mtcute|telebox_m/i.test(path.basename(root));
+}
+
+const CURRENT_REPO_ROOT = findProjectRoot(process.cwd());
+const CURRENT_IS_MTCUTE = isMtcuteRepo(CURRENT_REPO_ROOT);
+const SIBLING_BASE = path.dirname(CURRENT_REPO_ROOT);
+
+const REPO_ROOTS: Record<SwitchVersion, string> = {
+  teleproto: path.resolve(
+    process.env.TELEBOX_TELEPROTO_ROOT
+      || (CURRENT_IS_MTCUTE
+        ? existingDir([path.join(SIBLING_BASE, "telebox"), path.join(SIBLING_BASE, "TeleBox")])
+        : CURRENT_REPO_ROOT)
+      || path.join(SIBLING_BASE, "telebox"),
+  ),
+  mtcute: path.resolve(
+    process.env.TELEBOX_MTCUTE_ROOT
+      || (CURRENT_IS_MTCUTE
+        ? CURRENT_REPO_ROOT
+        : existingDir([path.join(SIBLING_BASE, "telebox_mtcute"), path.join(SIBLING_BASE, "TeleBox_M"), path.join(SIBLING_BASE, "TeleBox_mtcute")]))
+      || path.join(SIBLING_BASE, "telebox_mtcute"),
+  ),
 };
 
-const PM2_NAMES: Record<"teleproto" | "mtcute", string> = {
-  teleproto: "telebox",
-  mtcute: "telebox-mtcute",
+const PM2_NAMES: Record<SwitchVersion, string> = {
+  teleproto: process.env.TELEBOX_PM2_NAME || "telebox",
+  mtcute: process.env.TELEBOX_MTCUTE_PM2_NAME || "telebox-mtcute",
+};
+const VERSION_BY_PM2_NAME = new Map(Object.entries(PM2_NAMES).map(([version, name]) => [name, version as SwitchVersion]));
+
+const PLUGIN_REPO_ROOTS: Record<SwitchVersion, string> = {
+  teleproto: path.resolve(
+    process.env.TELEBOX_PLUGINS_ROOT
+      || existingDir([path.join(SIBLING_BASE, "TeleBox_Plugins"), path.join(SIBLING_BASE, "telebox_plugins")])
+      || path.join(SIBLING_BASE, "TeleBox_Plugins"),
+  ),
+  mtcute: path.resolve(
+    process.env.TELEBOX_M_PLUGINS_ROOT
+      || existingDir([path.join(SIBLING_BASE, "TeleBox_M_Plugins"), path.join(SIBLING_BASE, "telebox_m_plugins")])
+      || path.join(SIBLING_BASE, "TeleBox_M_Plugins"),
+  ),
 };
 
-const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string> = {
-  teleproto: "/root/TeleBox_Plugins/plugins.json",
-  mtcute: "/root/TeleBox_M_Plugins/plugins.json",
+const PLUGIN_INDEX_PATHS: Record<SwitchVersion, string> = {
+  teleproto: path.join(PLUGIN_REPO_ROOTS.teleproto, "plugins.json"),
+  mtcute: path.join(PLUGIN_REPO_ROOTS.mtcute, "plugins.json"),
 };
 
 const READY_TIMEOUT_MS = 60_000;
@@ -61,27 +115,93 @@ const READY_POLL_MS = 2_000;
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-function pm2(action: "stop" | "start" | "restart", name: string): void {
-  const result = spawnSync("pm2", [action, name], {
-    stdio: "pipe",
-    timeout: 30_000,
-  });
-  if (result.status !== 0) {
-    throw new Error(`pm2 ${action} ${name} failed: ${result.stderr.toString()}`);
+type Pm2Process = {
+  name: string;
+  pid: number;
+  pm2_env?: {
+    status: string;
+    pm_exec_path?: string;
+    pm_cwd?: string;
+    exec_interpreter?: string;
+  };
+};
+
+function getPm2Process(name: string): Pm2Process | undefined {
+  try {
+    const out = execSync("pm2 jlist", { encoding: "utf8", timeout: 10_000 });
+    const list: Pm2Process[] = JSON.parse(out);
+    return list.find((p) => p.name === name);
+  } catch {
+    return undefined;
   }
-  console.log(`[controller] pm2 ${action} ${name} OK`);
+}
+
+function runPm2(args: string[], label: string, allowMissing = false): void {
+  const result = spawnSync("pm2", args, { stdio: "pipe", timeout: 30_000 });
+  const output = `${result.stdout.toString()}${result.stderr.toString()}`;
+  if (result.status !== 0) {
+    if (allowMissing && /not found|doesn't exist|process or namespace not found/i.test(output)) {
+      console.log(`[controller] pm2 ${label}: process missing, treated as OK`);
+      return;
+    }
+    throw new Error(`pm2 ${label} failed: ${output}`);
+  }
+  console.log(`[controller] pm2 ${label} OK`);
+}
+
+function pm2(action: "stop" | "start" | "restart", name: string): void {
+  const existing = getPm2Process(name);
+  const version = VERSION_BY_PM2_NAME.get(name);
+
+  if (action === "stop") {
+    if (!existing) {
+      console.log(`[controller] pm2 stop ${name}: process missing, treated as OK`);
+      return;
+    }
+    runPm2(["stop", name], `stop ${name}`);
+    return;
+  }
+
+  if (!version) {
+    runPm2([action, name], `${action} ${name}`);
+    return;
+  }
+
+  const repo = REPO_ROOTS[version];
+  const launcher = path.join(repo, "scripts", "pm2-launcher.sh");
+  if (!fs.existsSync(launcher)) {
+    throw new Error(`PM2 launcher not found for ${version}: ${launcher}`);
+  }
+
+  const currentExec = existing?.pm2_env?.pm_exec_path ? path.resolve(existing.pm2_env.pm_exec_path) : "";
+  const desiredExec = path.resolve(launcher);
+  const currentInterpreter = existing?.pm2_env?.exec_interpreter || "";
+  const usesPortableLauncher = currentExec === desiredExec && currentInterpreter === "bash";
+
+  if (existing && usesPortableLauncher) {
+    runPm2([action, name, "--update-env"], `${action} ${name}`);
+    return;
+  }
+
+  if (existing && !usesPortableLauncher) {
+    console.log(`[controller] pm2 ${name} uses old startup config (${currentExec || "unknown"}); recreating with portable launcher.`);
+    runPm2(["delete", name], `delete ${name}`);
+  }
+
+  runPm2([
+    "start", launcher,
+    "--name", name,
+    "--cwd", repo,
+    "--interpreter", "bash",
+    "--time",
+    "--max-memory-restart", process.env.TELEBOX_PM2_MAX_MEMORY || "512M",
+    "--restart-delay", process.env.TELEBOX_PM2_RESTART_DELAY || "5000",
+  ], `start ${name} via ${launcher}`);
 }
 
 function isPm2Online(name: string): boolean {
-  try {
-    const out = execSync(`pm2 jlist`, { encoding: "utf8", timeout: 10_000 });
-    const list: Array<{ name: string; pid: number; pm2_env?: { status: string } }> =
-      JSON.parse(out);
-    const proc = list.find((p) => p.name === name);
-    return proc?.pm2_env?.status === "online" && proc.pid > 0;
-  } catch {
-    return false;
-  }
+  const proc = getPm2Process(name);
+  return proc?.pm2_env?.status === "online" && proc.pid > 0;
 }
 
 function loadPluginIndex(version: "teleproto" | "mtcute"): Record<string, PluginIndexEntry> {
@@ -97,11 +217,11 @@ function listInstalledPlugins(version: "teleproto" | "mtcute"): string[] {
 
 function runLoginHelper(version: "teleproto" | "mtcute"): void {
   const repo = REPO_ROOTS[version];
-  const script = path.join(repo, "src", "utils", "versionSwitchLogin.ts");
-  console.log(`[controller] Running login helper: ${script}`);
+  const script = "./src/utils/versionSwitchLogin.ts";
+  console.log(`[controller] Running login helper: ${path.join(repo, script)}`);
   const result = spawnSync(
-    "npx",
-    ["tsx", script],
+    process.execPath,
+    ["scripts/run-tsx.cjs", script],
     { cwd: repo, stdio: "inherit", timeout: 120_000 },
   );
   if (result.status !== 0) {
@@ -122,16 +242,22 @@ async function main(): Promise<void> {
   let extPath: string;
 
   if (skipLogin && envSource && envTarget) {
-    // Fast path: external session already exists
+    // Fast path: session already exists (native or external)
     source = envSource;
     target = envTarget;
     console.log(`[controller] Fast-path switching ${source} → ${target}`);
 
+    const targetSession = state.sessions[target];
     extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME) ?? "";
-    if (!extPath) {
-      throw new Error("SWITCH_SKIP_LOGIN set but no external session registered for " + target);
+    if (targetSession.kind === "native") {
+      // Native session — the session lives in the target repo already, no injection needed
+      extPath = "";
+      console.log(`[controller] Target ${target} has native session — no injection needed`);
+    } else if (!extPath) {
+      throw new Error("SWITCH_SKIP_LOGIN set but no session registered for " + target);
+    } else {
+      console.log(`[controller] Using existing external session: ${extPath}`);
     }
-    console.log(`[controller] Using existing external session: ${extPath}`);
   } else {
     // Slow path: login required
     const pendingLogin = state.pendingLogin;

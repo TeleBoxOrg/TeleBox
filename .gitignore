@@ -44,3 +44,7 @@ pnpm-debug.log*
 # Mis-emitted source artifacts
 src/**/*.js
 src/**/*.js.map
+# Local PM2 configs (do not commit; use scripts/pm2-launcher.sh instead)
+ecosystem.config.*
+ecosystem.*.js
+pm2-*.config.*

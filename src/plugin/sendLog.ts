@@ -15,11 +15,11 @@ async function findLogFiles(): Promise<{
   errLog: string | null;
 }> {
   const possiblePaths = [
-    // ecosystem.config.cjs 默认输出 (cwd/logs/telebox-*.log) — 必须排在前面
+    // 项目本地 PM2/手动日志输出 (cwd/logs/telebox-*.log) — 必须排在前面
     path.join(process.cwd(), "logs/telebox-out.log"),
     path.join(process.cwd(), "logs/telebox-error.log"),
     path.join(process.cwd(), "logs/telebox-combined.log"),
-    // PM2_LOG_DIR 自定义路径（同 ecosystem 命名）
+    // PM2_LOG_DIR 自定义路径
     process.env.PM2_LOG_DIR
       ? path.join(process.env.PM2_LOG_DIR, "telebox-out.log")
       : null,
@@ -101,7 +101,7 @@ const fn = async (msg: Api.Message) => {
 
     if (!outLog && !errLog) {
       await msg.edit({
-        text: "❌ 未找到日志文件\n\n已检查路径:\n• ./logs/telebox-*.log (ecosystem 默认)\n• ~/.pm2/logs/telebox-*.log\n• ./logs/*.log\n• /var/log/telebox/*.log",
+        text: "❌ 未找到日志文件\n\n已检查路径:\n• ./logs/telebox-*.log (项目本地)\n• ~/.pm2/logs/telebox-*.log\n• ./logs/*.log\n• /var/log/telebox/*.log",
       });
       return;
     }
@@ -159,7 +159,7 @@ const fn = async (msg: Api.Message) => {
 
     if (!outLog && !errLog) {
       await msg.edit({
-        text: "❌ 未找到日志文件\n\n已检查路径:\n• ./logs/telebox-*.log (ecosystem 默认)\n• ~/.pm2/logs/telebox-*.log\n• ./logs/*.log\n• /var/log/telebox/*.log\n\n建议:\n• 检查PM2进程状态\n• 确认日志文件路径",
+        text: "❌ 未找到日志文件\n\n已检查路径:\n• ./logs/telebox-*.log (项目本地)\n• ~/.pm2/logs/telebox-*.log\n• ./logs/*.log\n• /var/log/telebox/*.log\n\n建议:\n• 检查PM2进程状态\n• 确认日志文件路径",
       });
       return;
     }
