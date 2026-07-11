@@ -2,7 +2,7 @@ import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { Api } from "teleproto";
-import { exec, execFile } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { createConnection } from "net";
 import { PromisedNetSockets } from "teleproto/extensions";
@@ -13,7 +13,7 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 // 数据中心IP地址映射 (参考PagerMaid-Modify)
 const DCs = {
@@ -170,7 +170,6 @@ async function systemPing(
     throw new Error("无效的 ping 目标");
   }
   const safeCount = Math.min(Math.max(Math.trunc(count) || 3, 1), 10);
-  const execFileAsync = promisify(execFile);
   try {
     const { stdout, stderr } = await execFileAsync(
       "ping",
@@ -219,16 +218,17 @@ async function pingDataCenters(): Promise<string[]> {
   for (let dc = 1; dc <= 5; dc++) {
     const ip = DCs[dc as keyof typeof DCs];
     try {
-      // Linux: 使用awk提取时间
-      const { stdout } = await execAsync(
-        `ping -c 1 ${ip} | awk -F 'time=' '/time=/ {print $2}' | awk '{print $1}'`
+      const { stdout } = await execFileAsync(
+        "ping",
+        ["-c", "1", "-W", "5", ip],
+        { timeout: 10000, shell: false }
       );
 
+      // 从 ping 输出中提取延迟时间（替代 awk 管道）
       let pingTime = "0";
-      try {
-        pingTime = String(Math.round(parseFloat(stdout.trim())));
-      } catch {
-        pingTime = "0";
+      const timeMatch = stdout.match(/time=([0-9.]+)/);
+      if (timeMatch) {
+        pingTime = String(Math.round(parseFloat(timeMatch[1])));
       }
 
       const dcLocation =
