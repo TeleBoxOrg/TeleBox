@@ -5,6 +5,8 @@ import { Api } from "teleproto";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import { createConnection } from "net";
+import * as http from "http";
+import * as https from "https";
 import { PromisedNetSockets } from "teleproto/extensions";
 import * as dns from "dns";
 
@@ -102,7 +104,7 @@ async function httpPing(
 ): Promise<number> {
   return new Promise((resolve) => {
     const start = performance.now();
-    const protocol = useHttps ? require("https") : require("http");
+    const protocol = useHttps ? https : http;
     const port = useHttps ? 443 : 80;
 
     const req = protocol.request(
@@ -116,7 +118,7 @@ async function httpPing(
           "User-Agent": "TeleBox-Ping/1.0",
         },
       },
-      (res: any) => {
+      (res: http.IncomingMessage) => {
         const end = performance.now();
         req.destroy();
         resolve(Math.round(end - start));
@@ -176,8 +178,6 @@ async function systemPing(
       ["-c", String(safeCount), "-W", "5", target],
       { timeout: 10000, shell: false }
     );
-
-    console.log(stdout);
 
     // 解析Linux ping结果
     let avgTime = -1;
