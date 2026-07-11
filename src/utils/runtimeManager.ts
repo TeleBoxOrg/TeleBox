@@ -88,17 +88,15 @@ import { initializeClientSession } from "./loginManager";
 })();
 
 // ── Mitigate teleproto Network: clear permanent auth key on media DC break ─
-// When a media DC's permanent auth key is broken, _onSenderBreak currently
-// only resets the temp key.  Our Dcenter patch above clears mediaTempFailed,
-// which causes the next connection to attempt temp-key binding — but that
-// binding uses the (broken) permanent key as its anchor, so it fails every
-// time.  Result: "Broken authorization key" → mediaTempFailed=true →
-// resetMediaTempKey → mediaTempFailed=false → retry → same failure → …
+// When a non-main media DC's permanent key is broken, teleproto only resets
+// the temp key — it never clears the broken permanent key. The next
+// connection will attempt temp-key binding anchored on the stale permanent
+// key, fail, and loop forever.
 //
-// Fix: after the original _onSenderBreak, also wipe the permanent auth key
-// for the affected media DC.  The next connection will find a blank permanent
-// key, skip temp binding, and trigger a full auth.ExportAuthorization +
-// auth.ImportAuthorization to obtain a fresh permanent key.
+// Fix: after the original _onSenderBreak, wipe the permanent auth key for
+// the affected media DC — but ONLY when that DC is NOT the session's main
+// DC. Clearing the main DC's key would kill the primary connection and
+// trigger a runtime reload (which nukes in-flight media operations anyway).
 // ───────────────────────────────────────────────────────────────────────────
 (function patchNetworkOnSenderBreak() {
   try {
@@ -121,21 +119,19 @@ import { initializeClientSession } from "./loginManager";
 
       if (isDownloadDcId(shiftedDcId) || isUploadDcId(shiftedDcId)) {
         const dcId = bareDcId(shiftedDcId);
+        // NEVER clear the permanent key for the session's main DC — that
+        // would drop the primary connection and trigger a runtime reload
+        // that kills in-flight media operations on every other DC.
+        if (dcId === this._client.session.dcId) return;
+
         try {
-          // Wipe the permanent key from both the in-memory Dcenter and the
-          // session store.  The next media connection will find an empty key
-          // and trigger a fresh auth.ExportAuthorization →
-          // auth.ImportAuthorization cycle, obtaining a working permanent key.
           const dcenter = this._client._dcenters.get(dcId);
           if (dcenter) {
             dcenter.authKey.setKey(undefined).catch(() => {});
             dcenter.mediaBound = false;
           }
           this._client.session.setAuthKey(undefined, dcId);
-        } catch (_) {
-          // Best-effort — the next connection may still retry temp-key bind
-          // if the permanent key survives, but the dead loop is broken.
-        }
+        } catch (_) {}
       }
     };
   } catch (_) {
