@@ -1,91 +1,10 @@
 import { TelegramClient, events } from "teleproto";
 import { UpdateConnectionState } from "teleproto/network";
 import { StringSession } from "teleproto/sessions";
-import { MediaScheduler } from "teleproto/network/MediaScheduler";
 import { getApiConfig } from "./apiConfig";
 import { readAppName } from "./teleboxInfoHelper";
 import { logger } from "./logger";
 import { initializeClientSession } from "./loginManager";
-
-// ── Mitigate teleproto "Media request deadline exceeded" ──────────────────
-// teleproto's MediaScheduler hardcodes REQUEST_DEADLINE_MS = 15_000 (15 s).
-// When a DC connection is slow or the network is congested, both
-// ensureConnected() and the actual RPC can exhaust that budget, causing every
-// getFile / savePart retry to fail with "Media request deadline exceeded".
-//
-// This monkey-patch wraps the private _run() method to add **internal**
-// retries (with backoff) when a timeout fires inside a single _run() call,
-// so each getFile-level attempt gets up to 4 × 15 s = 60 s of effective time.
-// ───────────────────────────────────────────────────────────────────────────
-(function patchMediaDeadline() {
-  const RETRIES = 3;
-  const BACKOFF_MS = 2000;
-
-  const originalRun = (MediaScheduler.prototype as any)._run as (
-    ...args: any[]
-  ) => Promise<any>;
-
-  (MediaScheduler.prototype as any)._run = async function (
-    this: any,
-    ...args: any[]
-  ) {
-    let lastErr: any;
-    for (let attempt = 0; attempt <= RETRIES; attempt++) {
-      try {
-        return await originalRun.apply(this, args);
-      } catch (err: any) {
-        lastErr = err;
-        const isTimeout =
-          err?.errorMessage === "TIMEOUT" ||
-          err?.message === "Media request deadline exceeded";
-        if (!isTimeout) throw err;
-        // Bail early if the caller already cancelled
-        const signal: AbortSignal | undefined = args[4];
-        if (signal?.aborted) throw err;
-        if (attempt < RETRIES) {
-          await new Promise<void>((r) =>
-            setTimeout(r, BACKOFF_MS * (attempt + 1))
-          );
-        }
-      }
-    }
-    throw lastErr;
-  };
-})();
-
-// ── Mitigate teleproto Dcenter mediaTempFailed lockout ────────────────────
-// teleproto/network/Dcenter.js: resetMediaTempKey() resets the temp key,
-// expiresAt, and mediaBound, but OMITS mediaTempFailed.  Once a single
-// bindTempAuthKey attempt fails (transient network hiccup, DC migration,
-// or just bad luck), the Dcenter is permanently locked out of temp-key
-// binding — every subsequent media request falls back to the permanent
-// auth key.  If that permanent key is also stale for the media DC,
-// MTProtoSender._handleBadAuthKey fires "Broken authorization key for dc
-// N, resetting…" and the 15-second MediaScheduler deadline kills the
-// request before the full DH + bindTempAuthKey dance completes.
-//
-// Fix: monkey-patch resetMediaTempKey to also clear mediaTempFailed so
-// the next media connection tries a fresh temp-key bind.
-// ───────────────────────────────────────────────────────────────────────────
-(function patchDcenterMediaTempFailed() {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { Dcenter } = require("teleproto/network/Dcenter");
-    if (!Dcenter) return;
-
-    const originalReset = (Dcenter.prototype as any).resetMediaTempKey as () => void;
-
-    (Dcenter.prototype as any).resetMediaTempKey = function (this: any) {
-      originalReset.call(this);
-      // Clear the permanent failure flag so the next media connection
-      // will attempt a fresh DH + bindTempAuthKey instead of falling
-      // back to the (potentially stale) permanent auth key.
-      this.mediaTempFailed = false;
-    };
-  } catch (_) {
-    // teleproto not available — skip patch
-  }
-})();
 
 // ── Mitigate teleproto Network: clear permanent auth key on media DC break ─
 // When a non-main media DC's permanent key is broken, teleproto only resets
