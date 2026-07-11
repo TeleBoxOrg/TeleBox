@@ -1,5 +1,5 @@
 import { Plugin } from "@utils/pluginBase";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { Api, TelegramClient } from "teleproto";
 import { safeGetMessages, safeGetReplyMessage } from "@utils/safeGetMessages";
 import { getPrefixes } from "@utils/pluginManager";

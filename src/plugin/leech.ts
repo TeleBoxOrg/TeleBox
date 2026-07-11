@@ -1,6 +1,6 @@
 import { Api } from "teleproto";
 import { Plugin } from "@utils/pluginBase";
-import { getGlobalClient, tryGetCurrentGenerationContext } from "@utils/globalClient";
+import { getGlobalClient, tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 import { getPrefixes } from "@utils/pluginManager";
 import { LeechDB } from "@utils/leech/leechDB";
 import { LeechService } from "@utils/leech/leechService";

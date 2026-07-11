@@ -4,8 +4,8 @@ import { Entity } from "teleproto/define";
 import {
   getCurrentGeneration,
   tryGetCurrentGenerationContext,
-  type GenerationContext,
-} from "./globalClient";
+} from "./runtimeManager";
+import type { GenerationContext } from "./generationContext";
 
 type EntityHelperCancellationContext = {
   signal?: AbortSignal;

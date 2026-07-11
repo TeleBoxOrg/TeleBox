@@ -1,7 +1,7 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { getGlobalClient, getCurrentGeneration } from "@utils/globalClient";
+import { getGlobalClient, getCurrentGeneration } from "@utils/runtimeManager";
 import { NewMessageEvent, NewMessage } from "teleproto/events";
 import { AliasDB } from "./aliasDB";
 import { Api } from "teleproto";

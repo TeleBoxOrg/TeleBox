@@ -3,7 +3,7 @@ import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 import { logger, LogLevel } from "@utils/logger";
 
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];

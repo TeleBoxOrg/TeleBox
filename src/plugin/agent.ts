@@ -4,7 +4,7 @@ import import_fs4 = require("fs");
 import import_path4 = require("path");
 import import_child_process2 = require("child_process");
 import import_pluginManager3 = require("@utils/pluginManager");
-import import_globalClient3 = require("@utils/globalClient");
+import import_globalClient3 = require("@utils/runtimeManager");
 
 // plugins/agent/provider.ts
 import import_axios = require("axios");
@@ -670,7 +670,7 @@ function formatProviderError(error: any) {
 import import_fs = require("fs");
 import import_path = require("path");
 import import_child_process = require("child_process");
-import import_globalClient = require("@utils/globalClient");
+import import_globalClient = require("@utils/runtimeManager");
 import import_pluginManager = require("@utils/pluginManager");
 var MAX_TOOL_OUTPUT = 2e4;
 var MAX_TEXT_READ = 2 * 1024 * 1024;
@@ -1794,7 +1794,7 @@ ${lastObservation}` : "\u672C\u8F6E\u6CA1\u6709\u53EF\u7528\u89C2\u5BDF\u3002"
 import import_fs3 = require("fs");
 import import_path3 = require("path");
 import import_teleproto = require("teleproto");
-import import_globalClient2 = require("@utils/globalClient");
+import import_globalClient2 = require("@utils/runtimeManager");
 import import_pluginManager2 = require("@utils/pluginManager");
 var SAFE_MESSAGE_LIMIT = 3900;
 var MAX_REPLY_DOWNLOAD = 20 * 1024 * 1024;

@@ -11,7 +11,7 @@ import { Api } from "teleproto";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
-import { tryGetCurrentGenerationContext, getGlobalClient } from "@utils/globalClient";
+import { tryGetCurrentGenerationContext, getGlobalClient } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];

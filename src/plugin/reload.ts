@@ -5,11 +5,11 @@ import type { EntityLike } from "teleproto/define";
 import { createDirectoryInTemp, createDirectoryInAssets } from "@utils/pathHelpers";
 import fs from "fs";
 import path from "path";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { exec } from "child_process";
 import { promisify } from "util";
 import { JSONFilePreset } from "lowdb/node";
-import { getCurrentGenerationContext } from "@utils/globalClient";
+import { getCurrentGenerationContext } from "@utils/runtimeManager";
 import { reloadRuntime } from "@utils/runtimeManager";
 
 const prefixes = getPrefixes();

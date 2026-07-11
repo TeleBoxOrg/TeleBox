@@ -1,7 +1,10 @@
 import "dotenv/config";
 import { logger } from "@utils/logger"; // 引入 logger 以便尽早初始化
 import { startRuntime, shutdownRuntime } from "@utils/runtimeManager";
+import { initPluginBaseConfig } from "@utils/pluginBase";
 import "./hook/patches/telegram.patch";
+
+initPluginBaseConfig();
 
 // 配置全局 HTTP 代理 - 让所有 axios 请求走代理
 // 支持环境变量：HTTP_PROXY, HTTPS_PROXY, NO_PROXY
@@ -43,7 +46,6 @@ if (httpProxy || httpsProxy) {
   console.log("[PROXY] 未检测到代理环境变量，使用直连");
 }
 
-// patchMsgEdit();
 
 // Global error handlers to prevent unhandled rejections and exceptions
 // from crashing the process silently. These log the error for debugging.

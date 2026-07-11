@@ -4,7 +4,7 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { executeExit } from "./reload";
 
 const prefixes = getPrefixes();

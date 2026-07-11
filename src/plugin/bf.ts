@@ -1,7 +1,7 @@
 import { Plugin, type PluginRuntimeContext } from "@utils/pluginBase";
 import { Api } from "teleproto";
 import { safeGetMessages } from "@utils/safeGetMessages";
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as fs from "fs";
 import * as path from "path";
