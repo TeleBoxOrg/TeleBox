@@ -195,10 +195,10 @@ const help_text = `⚙️ <b>[插件名]</b>
 telebox/
 ├── src/                    # 源代码目录
 │   ├── index.ts           # 程序入口
-│   ├── utils/             # 核心工具模块 (17个文件)
-│   ├── plugin/            # 系统插件 (15个文件)
-│   └── hook/              # Hook系统
-├── plugins/               # 用户插件目录
+│   ├── utils/             # 核心工具模块 (36个文件 + leech/ 子目录8文件)
+│   ├── plugin/            # 系统插件 (19个文件)
+│   └── hook/              # Hook系统 (patches/ + types/)
+├── plugins/               # 用户插件目录 (124个插件，gitignored)
 ├── assets/                # 资源文件目录
 ├── temp/                  # 临时文件目录
 ├── logs/                  # 日志目录
@@ -215,16 +215,27 @@ telebox/
 
 ```typescript
 import "dotenv/config";
-import { login } from "@utils/loginManager";
-import { loadPlugins } from "@utils/pluginManager";
-import { patchMsgEdit } from "hook/listen";
+import axios from "axios";
+import { logger } from "@utils/logger";
+import { startRuntime, shutdownRuntime } from "@utils/runtimeManager";
+import { initPluginBaseConfig } from "@utils/pluginBase";
 import "./hook/patches/telegram.patch";
 
-// patchMsgEdit(); // Hook功能（当前已注释）
+initPluginBaseConfig();
+
+// 配置全局 HTTP 代理（支持 HTTP_PROXY, HTTPS_PROXY, NO_PROXY 环境变量）
+// ...代理解析逻辑...
+
+// 全局错误处理（不退出进程，PM2 负责重启）
+process.on("unhandledRejection", (reason) => { /* 记录日志 */ });
+process.on("uncaughtException", (error) => { /* 记录日志 */ });
+
+// 优雅关闭（PM2 SIGTERM → shutdownRuntime → 插件 cleanup）
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 async function run() {
-  await login();          // 登录 Telegram
-  await loadPlugins();    // 加载插件
+  await startRuntime();  // 初始化客户端 + 加载插件
 }
 
 run();
@@ -232,21 +243,26 @@ run();
 
 **职责**：
 - 加载环境变量
-- 初始化 Telegram 客户端
-- 加载插件系统
-- 应用Hook补丁
+- 配置全局 HTTP 代理（axios）
+- 初始化 logger 和 pluginBase 配置
+- 启动 TeleBox runtime（`startRuntime()` 包含登录 + 插件加载）
+- 注册全局错误处理和优雅关闭钩子
+- 应用 Telegram API 补丁
 
 #### 工具模块 (utils/)
 
-17个核心工具文件：
+36个核心工具文件（+ `leech/` 子目录8文件 + `agent*.ts` 7文件 + `versionSwitch*.ts` 5文件）：
 
 | 文件名 | 功能说明 |
 |--------|----------|
-| `pluginBase.ts` | 插件基类定义 |
+| `pluginBase.ts` | 插件基类定义 + `initPluginBaseConfig()` |
 | `pluginManager.ts` | 插件管理器，负责加载和路由 |
-| `globalClient.ts` | 全局客户端实例 |
+| `runtimeManager.ts` | 运行时管理器（客户端管理、`getGlobalClient()`、`startRuntime()`、`shutdownRuntime()`） |
 | `loginManager.ts` | 登录管理器 |
-| `apiConfig.ts` | API配置管理 |
+| `generationContext.ts` | 生成上下文（generation-based 生命周期、AbortController 取消） |
+| `logger.ts` | 统一日志模块 |
+| `channelGapBreaker.ts` | 频道消息间隔处理 |
+| `apiConfig.ts` | API配置管理（config.json 读写） |
 | `pathHelpers.ts` | 路径辅助工具 |
 | `entityHelpers.ts` | Telegram实体处理工具 |
 | `aliasDB.ts` | 命令别名数据库 |
@@ -255,42 +271,63 @@ run();
 | `sendLogDB.ts` | 发送日志数据库 |
 | `banUtils.ts` | 封禁管理工具 |
 | `cronManager.ts` | 定时任务管理器 |
-| `conversation.ts` | 对话管理器 |
+| `conversation.ts` | 对话管理器（仅 teleproto） |
 | `tlRevive.ts` | Telegram实体序列化工具 |
 | `npm_install.ts` | NPM包安装工具 |
 | `teleboxInfoHelper.ts` | 系统信息助手 |
+| `authGuards.ts` | 权限守卫工具 |
+| `safeGetMessages.ts` | 安全消息获取工具 |
+| `telegramFormatter.ts` | Telegram HTML 消息格式化工具 |
+| `telegraphFormatter.ts` | Telegraph 页面格式化工具 |
+| `agentCore.ts` | Agent barrel re-export（6模块汇总） |
+| `agentTypes.ts` | Agent 类型定义 |
+| `agentProvider.ts` | Agent LLM provider（5个供应商 + retry/usage） |
+| `agentTools.ts` | Agent 工具（12个工具 + 路径安全） |
+| `agentStore.ts` | Agent 配置持久化 + 会话/workspace 管理 |
+| `agentLoop.ts` | Agent 循环（runAgent + AgentStatus UI） |
+| `agentPlugin.ts` | AgentPlugin 类 + 子命令路由 |
+| `versionSwitchController.ts` | 版本切换主控逻辑 |
+| `versionSwitchCore.ts` | 版本切换核心流程 |
+| `versionSwitchFs.ts` | 版本切换文件系统操作 |
+| `versionSwitchLogin.ts` | 版本切换登录处理 |
+| `versionSwitchState.ts` | 版本切换状态管理（`~/.telebox-switch/state.json`） |
+
+**leech/ 子目录**（8文件）：`types.ts`, `json.ts`, `dateRange.ts`, `structuredLogger.ts`, `targetResolver.ts`, `messageSerializer.ts`, `leechDB.ts`, `leechService.ts`
 
 #### 系统插件 (plugin/)
 
-15个内置插件：
+19个内置插件：
 
 | 插件名 | 功能说明 |
 |--------|----------|
+| `agent.ts` | AI 智能体（多模型对话、工具调用、规划模式） |
 | `alias.ts` | 命令别名管理 |
 | `bf.ts` | 备份功能 |
 | `debug.ts` | 调试工具 |
 | `exec.ts` | 命令执行 |
 | `help.ts` | 帮助系统 |
+| `leech.ts` | 消息搬运（多目标、日期范围、序列化） |
+| `loglevel.ts` | 日志级别动态调整 |
 | `ping.ts` | 网络测试 |
 | `prefix.ts` | 前缀管理 |
 | `re.ts` | 消息复读 |
 | `reload.ts` | 热重载 |
 | `sendLog.ts` | 日志发送 |
+| `status.ts` | 系统状态（PM2、版本、内存、generation） |
 | `sudo.ts` | 权限管理 |
 | `sure.ts` | 确认操作 |
-| `sysinfo.ts` | 系统信息 |
+| `switch.ts` | 版本切换（teleproto ↔ mtcute） |
 | `tpm.ts` | 插件包管理器 |
-| `update.ts` | 更新管理 |
+| `update.ts` | 更新管理（含自动更新功能） |
 
 #### Hook系统 (hook/)
 
-- `listen.ts` - 消息监听器和编辑补丁（为sudo用户提供特殊消息处理）
-- `patches/` - Telegram API补丁
-- `types/` - 类型定义
+- `patches/telegram.patch.ts` - Telegram API 补丁（运行时 monkey-patch）
+- `types/telegram.d.ts` - 类型定义
 
 **特殊功能**：
-- 为sudo管理员用户提供消息编辑重定向功能
-- 可通过 `patchMsgEdit()` 启用（默认注释）
+- 在 `index.ts` 中通过 `import "./hook/patches/telegram.patch"` 加载
+- 包含对 teleproto 运行时的补丁（如 MediaScheduler、Network.onSenderBreak 等）
 
 ### 目录组织
 
@@ -299,18 +336,26 @@ run();
 ```
 src/
 ├── index.ts              # 程序入口
-├── utils/                # 工具模块
+├── utils/                # 工具模块 (36个文件)
 │   ├── pluginBase.ts
 │   ├── pluginManager.ts
+│   ├── runtimeManager.ts
+│   ├── generationContext.ts
+│   ├── agent*.ts         # Agent AI 7文件
+│   ├── versionSwitch*.ts # 版本切换 5文件
+│   ├── leech/            # 消息搬运 8文件
 │   └── ...
-├── plugin/               # 系统插件
+├── plugin/               # 系统插件 (19个文件)
 │   ├── help.ts
-│   ├── alias.ts
+│   ├── agent.ts
+│   ├── switch.ts
+│   ├── status.ts
 │   └── ...
 └── hook/                 # Hook系统
-    ├── listen.ts
     ├── patches/
+    │   └── telegram.patch.ts
     └── types/
+        └── telegram.d.ts
 ```
 
 #### 插件目录结构
@@ -353,19 +398,26 @@ logs/
 
 ```
 index.ts
-  ├── loginManager → 登录 Telegram
-  ├── pluginManager → 加载插件
-  │     ├── pluginBase → 插件基类
-  │     ├── plugins/* → 用户插件
-  │     └── src/plugin/* → 系统插件
-  └── hook/listen → 消息监听
-        └── patches → API补丁
+  ├── runtimeManager → startRuntime() 初始化客户端 + 加载插件
+  │     ├── loginManager → 登录 Telegram
+  │     ├── pluginManager → 加载插件
+  │     │     ├── pluginBase → 插件基类
+  │     │     ├── plugins/* → 用户插件
+  │     │     └── src/plugin/* → 系统插件
+  │     ├── generationContext → generation-based 生命周期
+  │     └── channelGapBreaker → 频道消息间隔处理
+  ├── pluginBase → initPluginBaseConfig()
+  ├── logger → 统一日志
+  └── hook/patches → Telegram API 补丁
 
 utils/* (工具模块)
-  ├── globalClient → Telegram客户端
-  ├── *DB.ts → 数据库操作
+  ├── runtimeManager → Telegram客户端 + getGlobalClient()
+  ├── *DB.ts → 数据库操作 (aliasDB, sudoDB, sureDB, sendLogDB)
   ├── cronManager → 定时任务
-  └── conversation → 对话管理
+  ├── conversation → 对话管理（仅 teleproto）
+  ├── agent*.ts → AI Agent 6模块 + barrel
+  ├── versionSwitch*.ts → 版本切换 5模块
+  └── leech/ → 消息搬运 8模块
 ```
 
 ### 版本信息
@@ -373,7 +425,7 @@ utils/* (工具模块)
 - **当前版本**: 0.2.8
 - **Node.js要求**: 24.x
 - **TypeScript版本**: ^5.9.2
-- **Telegram 库版本**: ^1.227.1
+- **Telegram 库版本**: teleproto ^1.227.5
 - **协议**: LGPL-2.1-only
 
 ## 🔌 插件系统
@@ -637,7 +689,7 @@ cronTasks = {
 
 ## 📦 核心工具模块
 
-TeleBox提供了17个核心工具模块，位于 `src/utils/` 目录。
+TeleBox提供了36个核心工具模块，位于 `src/utils/` 目录（另含 `leech/` 子目录8文件、`agent*.ts` 7文件、`versionSwitch*.ts` 5文件）。
 
 ### 插件管理器
 
@@ -668,17 +720,17 @@ import {
 
 ### 全局客户端
 
-**globalClient.ts** - 全局客户端实例
+**runtimeManager.ts** - 运行时管理器（包含全局客户端实例）
 
 ```typescript
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 
 const client = await getGlobalClient();
 // 使用client进行API调用
 await client.sendMessage(peer, { message: "Hello" });
 ```
 
-**作用**：维护全局唯一的Telegram客户端实例，避免重复连接。
+**作用**：维护全局唯一的Telegram客户端实例，避免重复连接。同时提供 `startRuntime()` / `shutdownRuntime()` 管理完整生命周期。
 
 ### 数据库工具
 
@@ -815,9 +867,9 @@ await login(); // 登录 Telegram
 **npm_install.ts** - NPM包安装工具
 
 ```typescript
-import { npmInstall } from "@utils/npm_install";
+import { npm_install } from "@utils/npm_install";
 
-await npmInstall("package-name"); // 安装NPM包
+await npm_install("package-name"); // 安装NPM包
 ```
 
 **teleboxInfoHelper.ts** - 系统信息助手
@@ -891,7 +943,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
   },
   "license": "LGPL-2.1-only",
   "dependencies": {
-    "teleproto": "^1.225.4",
+    "teleproto": "^1.227.5",
     "dotenv": "^17.2.2",
     "cron": "^4.3.3",
     "axios": "^1.11.0",
@@ -994,7 +1046,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
 
 ## 🔧 系统插件说明
 
-TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
+TeleBox内置19个系统插件，位于 `src/plugin/` 目录。
 
 ### 基础功能插件
 
@@ -1075,18 +1127,19 @@ TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
 
 ### 系统管理插件
 
-#### sysinfo - 系统信息
+#### status - 系统状态
 
-**文件**: `src/plugin/sysinfo.ts`
+**文件**: `src/plugin/status.ts`
 
 **功能**：
-- 显示TeleBox运行状态
+- 显示TeleBox运行状态（PM2 进程、版本、内存）
 - CPU、内存、磁盘使用情况
-- 系统版本信息
+- generation 上下文信息
+- 模板消息保存提示
 
 **命令**：
 ```
-.sysinfo      # 显示系统信息
+.status         # 显示系统状态
 ```
 
 #### update - 更新管理
@@ -1233,15 +1286,15 @@ TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
 
 ## 🎯 用户插件示例
 
-`plugins/` 目录包含78个用户插件示例，展示了TeleBox的各种功能实现。
+`plugins/` 目录包含124个用户插件示例，展示了TeleBox的各种功能实现。
 
 **插件总览**：
-- 群组管理类：10+ 个插件
-- 媒体处理类：15+ 个插件  
-- 实用工具类：20+ 个插件
-- 网络服务类：10+ 个插件
+- 群组管理类：15+ 个插件
+- 媒体处理类：20+ 个插件
+- 实用工具类：30+ 个插件
+- 网络服务类：15+ 个插件
 - 娱乐游戏类：10+ 个插件
-- 高级功能类：10+ 个插件
+- 高级功能类：15+ 个插件
 
 ### 群组管理类
 
@@ -1294,13 +1347,13 @@ TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
 - 删除进度追踪
 - 任务状态管理
 
-#### sunremove - 太阳图标清理
+#### bulk_delete - 批量管理
 
-**文件**: `plugins/sunremove.ts`
+**文件**: `plugins/bulk_delete.ts`
 
 **功能**：
-- 清理特定图标或标记
-- 自动检测和删除
+- 批量删除消息
+- 高级筛选和清理
 
 ### 搜索与信息类
 
@@ -1313,14 +1366,13 @@ TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
 - 结果聚合
 - 搜索历史
 
-#### ddg - DuckDuckGo搜索
+#### deepwiki - Wiki 查询
 
-**文件**: `plugins/ddg.ts`
+**文件**: `plugins/deepwiki.ts`
 
 **功能**：
-- DuckDuckGo搜索引擎集成
-- 免配置，开箱即用
-- 搜索结果格式化显示
+- 查询 DeepWiki
+- 获取项目文档摘要
 
 #### soutu - 搜图
 
@@ -1501,16 +1553,14 @@ TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
 
 ### 媒体处理类
 
-#### image_monitor - 图片监控
+#### eat - 表情包
 
-**文件**: `plugins/image_monitor.ts`
+**文件**: `plugins/eat.ts`
 
 **功能**：
-- 自动监听群组图片
-- 支持图片自动保存
-- 支持图片内容识别
-- **无需命令触发，自动工作**
-- 使用消息监听器实现
+- 趣味表情包生成
+- 自定义模板
+- 批量生成
 
 #### music - 音乐搜索下载
 
@@ -1705,7 +1755,7 @@ TeleBox内置15个系统插件，位于 `src/plugin/` 目录。
 
 ```typescript
 import { getPrefixes } from "@utils/pluginManager";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 // HTML转义（必需）
 const htmlEscape = (text: string): string => 
@@ -1794,7 +1844,7 @@ const replyMsg = await msg.getReplyMessage();
 ### Client API
 
 ```typescript
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 
 const client = await getGlobalClient();
 
@@ -1834,16 +1884,13 @@ await db.write();
 ### 📚 帮助文档生成器
 
 ```typescript
-// 可选：使用 HelpBuilder 生成帮助文本（简洁示例）
-// 假设 HelpBuilder 已提供
-const HELP = HelpBuilder.build({
-  title: "示例插件",
-  commands: [
-    { command: "example", description: "执行示例" },
-    { command: "example help", description: "显示帮助" }
-  ],
-  footer: "💡 使用 <code>.example help</code> 查看详细帮助"
-});
+// 可选：直接构建帮助文本字符串
+const HELP = `⚙️ <b>示例插件</b>
+
+<b>使用方法:</b>
+• <code>${mainPrefix}example</code> - 执行示例
+• <code>${mainPrefix}example help</code> - 显示帮助
+`;
 ```
 
 ### 🎨 标准插件开发模板
@@ -1852,25 +1899,31 @@ const HELP = HelpBuilder.build({
 // ========== 插件基础框架 ==========
 
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
-import { getGlobalClient } from "@utils/globalClient";
+import { Api } from "teleproto";
+import { getGlobalClient } from "@utils/runtimeManager";
+import { getPrefixes } from "@utils/pluginManager";
+
+const prefixes = getPrefixes();
+const mainPrefix = prefixes[0];
+
+const htmlEscape = (text: string): string =>
+  text.replace(/[&<>"']/g, m => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;',
+    '"': '&quot;', "'": '&#x27;'
+  }[m] || m));
 
 class StandardPlugin extends Plugin {
   // 插件配置
   private readonly PLUGIN_NAME = "myplugin";
-  private readonly PLUGIN_VERSION = "1.0.0";
-  
+
   // 生成帮助文档
-  private readonly HELP = HelpBuilder.build({
-    title: "我的插件",
-    icon: "📦",
-    commands: [
-      { command: "mp start", description: "开始任务" },
-      { command: "mp stop", description: "停止任务" },
-      { command: "mp status", description: "查看状态" },
-      { command: "mp help", description: "显示帮助" }
-    ]
-  });
+  private readonly HELP = `📦 <b>我的插件</b>
+
+<b>使用方法:</b>
+• <code>${mainPrefix}mp start</code> - 开始任务
+• <code>${mainPrefix}mp stop</code> - 停止任务
+• <code>${mainPrefix}mp status</code> - 查看状态
+`;
   
   // 插件描述
   description = this.HELP;
@@ -1915,7 +1968,7 @@ class StandardPlugin extends Plugin {
       await msg.edit({ text: this.HELP, parseMode: "html" });
     } else {
       // 未知命令
-      const prefix = getPrefixInfo().display;
+      const prefix = mainPrefix;
       await msg.edit({
         text: `❌ 未知命令: <code>${htmlEscape(sub)}</code>\n\n💡 使用 <code>${prefix}mp help</code> 查看帮助`,
         parseMode: "html"
@@ -2179,9 +2232,10 @@ const caption = MessageFormatter.buildHtml([
    - 这是源代码中的实际拼写，请保持一致
 
 2. **Hook系统状态**
-   - `patchMsgEdit()` 功能当前已注释
-   - 为sudo用户提供消息编辑重定向功能
-   - 需要时可手动启用
+   - `hook/listen.ts` 已删除（架构清理时移除）
+   - `patchMsgEdit()` 功能已移除
+   - 当前仅保留 `hook/patches/telegram.patch.ts`（运行时补丁）
+   - 在 `index.ts` 中通过 `import "./hook/patches/telegram.patch"` 加载
 
 3. **环境变量默认值**
    - `TB_CMD_IGNORE_EDITED` 默认为 "true"
@@ -2194,14 +2248,14 @@ const caption = MessageFormatter.buildHtml([
    - 所有插件数据存储在 assets/插件名/ 目录下
 
 5. **插件数量**
-   - 系统插件：15个
-   - 用户插件示例：78个
-   - 总计93个插件
+   - 系统插件：19个
+   - 用户插件：124个
+   - 总计143个插件
 
 6. **代理配置**
-   - config.json 支持 proxy 配置
-   - 默认使用 SOCKS5 代理
-   - 端口通常为 7877
+   - `index.ts` 中通过环境变量 `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` 配置全局 axios 代理
+   - `config.json` 也支持 SOCKS5 代理配置（用于 Telegram 客户端连接）
+   - 两种代理独立配置：axios 代理用于插件 HTTP 请求，SOCKS5 用于 Telegram 连接
 
 ### 开发最佳实践
 
@@ -2235,7 +2289,7 @@ const caption = MessageFormatter.buildHtml([
 // plugins/myplugin.ts
 import { Plugin } from "@utils/pluginBase";
 import { getPrefixes } from "@utils/pluginManager";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -2272,8 +2326,8 @@ export default new MyPlugin();
 #### Telegram操作
 
 ```typescript
-import { getGlobalClient } from "@utils/globalClient";
-import { Api } from "telegram";
+import { getGlobalClient } from "@utils/runtimeManager";
+import { Api } from "teleproto";
 
 const client = await getGlobalClient();
 
@@ -2700,7 +2754,7 @@ const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 
 class SimplePlugin extends Plugin {
   description = "📌 简单示例插件";
@@ -2732,7 +2786,7 @@ export default new SimplePlugin();
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { JSONFilePreset } from "lowdb/node";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import * as path from "path";
@@ -2804,7 +2858,7 @@ export default new DataPlugin();
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
+import { Api } from "teleproto";
 import { createDirectoryInAssets } from "@utils/pathHelpers";
 import { JSONFilePreset } from "lowdb/node";
 import * as path from "path";
@@ -2871,8 +2925,8 @@ export default new MonitorPlugin();
 
 ```typescript
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
-import { getGlobalClient } from "@utils/globalClient";
+import { Api } from "teleproto";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { cronManager } from "@utils/cronManager";
 
 class SchedulePlugin extends Plugin {
@@ -2958,8 +3012,8 @@ export default new SchedulePlugin();
 ```typescript
 // 核心导入
 import { Plugin } from "@utils/pluginBase";
-import { Api } from "telegram";
-import { getGlobalClient } from "@utils/globalClient";
+import { Api } from "teleproto";
+import { getGlobalClient } from "@utils/runtimeManager";
 import { getPrefixes } from "@utils/pluginManager";
 
 // 路径管理
@@ -2995,7 +3049,7 @@ export default new QuickPlugin();
 
 ```typescript
 // 获取客户端
-import { getGlobalClient } from "@utils/globalClient";
+import { getGlobalClient } from "@utils/runtimeManager";
 const client = await getGlobalClient();
 if (!client) return;
 
@@ -3291,15 +3345,6 @@ import { Api, TelegramClient } from "teleproto";
 import { NewMessage, NewMessageEvent } from "teleproto/events";
 import { StringSession } from "teleproto/sessions";
 ```
-
-### 兼容性说明
-
-当前仓库已经完成一轮从旧 `gramjs` 风格到 `teleproto` 的迁移，但开发新插件时仍需注意以下差异：
-
-- 某些 `msg.edit()` 场景下应考虑返回值可能为 `undefined`
-- `sendFile` / `downloadMedia` 的参数类型比旧实现更严格
-- 个别旧插件里可用的方法或导出，在 `teleproto` 下不一定完全同名
-- 如遇类型不兼容，应先参考 `src/` 与已修复插件中的现有写法
 
 ### Cleanup / 资源回收要求
 
