@@ -4,9 +4,10 @@ import {
   getPrefixes,
 } from "@utils/pluginManager";
 import { Plugin } from "@utils/pluginBase";
-import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import { Api } from "teleproto";
+import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import { AliasDB } from "@utils/aliasDB";
+import { htmlEscape } from "@utils/htmlEscape";
 
 /* ============================================================
  * Entity Planner: 管理 Telegram 100 个 Entity 的限制
@@ -23,20 +24,6 @@ class EntityPlanner {
   canFit(count: number): boolean {
     return this.used + count <= this.LIMIT;
   }
-}
-
-/* ============================================================
- * Utils
- * ============================================================ */
-
-function htmlEscape(text: string): string {
-  if (typeof text !== "string") return "";
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 /* ============================================================

@@ -11,19 +11,11 @@ import { promisify } from "util";
 import { JSONFilePreset } from "lowdb/node";
 import { getCurrentGenerationContext } from "@utils/runtimeManager";
 import { reloadRuntime } from "@utils/runtimeManager";
+import { htmlEscape } from "@utils/htmlEscape";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const execAsync = promisify(exec);
-
-const htmlEscape = (text: string): string =>
-  text.replace(/[&<>"']/g, m => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#x27;'
-  }[m] || m));
 
 const exitDir = createDirectoryInTemp("exit");
 const exitFile = path.join(exitDir, "msg.json");

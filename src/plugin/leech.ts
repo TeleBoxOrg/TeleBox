@@ -6,16 +6,9 @@ import { LeechDB } from "@utils/leech/leechDB";
 import { LeechService } from "@utils/leech/leechService";
 import { StructuredLeechLogger, createLeechActionId } from "@utils/leech/structuredLogger";
 import { parseLeechDateRange } from "@utils/leech/dateRange";
+import { htmlEscape } from "@utils/htmlEscape";
 
 const mainPrefix = getPrefixes()[0] || ".";
-
-function htmlEscape(input: unknown): string {
-  return String(input ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 function splitArgs(input: string): string[] {
   const args: string[] = [];
