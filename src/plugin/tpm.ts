@@ -1336,9 +1336,14 @@ export async function updateAllPlugins(msg: Api.Message): Promise<{ failedCount:
     }
 
     const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)`;
+    // Snapshot peerId+msgId BEFORE reloadAndFinalize — loadPlugins() inside will
+    // destroy the old client, invalidating statusMsg._client. The snapshot lets
+    // the caller delete the correct message after reload.
+    const statusPeerId = statusMsg.peerId;
+    const statusMsgId = statusMsg.id;
     await reloadAndFinalize(statusMsg, finalText, { parseMode: "html" });
     console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
-    return { failedCount, statusPeerId: statusMsg.peerId, statusMsgId: statusMsg.id };
+    return { failedCount, statusPeerId, statusMsgId };
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
     try {

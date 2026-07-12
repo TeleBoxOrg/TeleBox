@@ -206,28 +206,28 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
 
 /**
  * Delete a status message using a fresh client from getGlobalClient().
- * The original message object's _client may be stale after a long blocking
- * operation (e.g. npm_install_project_dependencies uses execFileSync).
- * Includes a 2s-delayed retry — the client may need a moment to reconnect.
+ * The original message object's _client may be stale after:
+ *   - npm_install_project_dependencies() (execFileSync, blocks event loop)
+ *   - reloadRuntime() (destroys old client, creates new one)
+ * Uses exponential backoff retry — the new client may need several seconds
+ * to fully establish its connection and entity cache.
  */
 async function deleteStatusMessage(peerId: any, msgId: number): Promise<void> {
-  try {
-    const freshClient = await getGlobalClient();
-    await (freshClient as any).deleteMessages(peerId, [msgId], { revoke: true });
-    console.log("[auto-update] 状态消息已删除");
-  } catch (err: any) {
-    console.error("[auto-update] 删除状态消息失败:", err?.message || err);
-    // Retry once after a short delay — the client may need a moment to reconnect
-    // after the long synchronous npm install blocked the event loop.
+  const delays = [0, 2000, 4000, 8000]; // exponential backoff
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt] > 0) {
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
     try {
-      await new Promise((r) => setTimeout(r, 2000));
       const freshClient = await getGlobalClient();
       await (freshClient as any).deleteMessages(peerId, [msgId], { revoke: true });
-      console.log("[auto-update] 状态消息删除重试成功");
-    } catch (retryErr: any) {
-      console.error("[auto-update] 状态消息删除重试失败:", retryErr?.message || retryErr);
+      console.log(`[auto-update] 状态消息已删除 (attempt ${attempt + 1})`);
+      return;
+    } catch (err: any) {
+      console.error(`[auto-update] 删除状态消息失败 (attempt ${attempt + 1}):`, err?.message || err);
     }
   }
+  console.error("[auto-update] 状态消息删除最终失败，已重试4次");
 }
 
 async function executeAutoExit(): Promise<void> {
@@ -249,30 +249,9 @@ async function autoUpdatePlugins(githubMsg: Api.Message): Promise<void> {
     const result = await updateAllPlugins(statusMsg);
 
     if (result.failedCount === 0) {
-      // Use the status message info returned by updateAllPlugins — it may
-      // differ from the original snapshot if sendOrEditMessage created a new
-      // message (when edit failed). reloadAndFinalize already called
-      // loadPlugins() → reloadRuntime(), so the old client is dead and a new
-      // one is alive.
       const targetPeerId = result.statusPeerId ?? fallbackPeerId;
       const targetMsgId = result.statusMsgId ?? fallbackMsgId;
-      try {
-        const freshClient = await getGlobalClient();
-        await (freshClient as any).deleteMessages(targetPeerId, [targetMsgId], { revoke: true });
-        console.log("[auto-update] 插件更新完成，状态消息已删除");
-      } catch (err: any) {
-        console.error("[auto-update] 删除状态消息失败:", err?.message || err);
-        // Retry once after a short delay — the new client may need a moment
-        // to fully establish its entity cache after reloadRuntime().
-        try {
-          await new Promise((r) => setTimeout(r, 2000));
-          const freshClient = await getGlobalClient();
-          await (freshClient as any).deleteMessages(targetPeerId, [targetMsgId], { revoke: true });
-          console.log("[auto-update] 状态消息删除重试成功");
-        } catch (retryErr: any) {
-          console.error("[auto-update] 状态消息删除重试失败:", retryErr?.message || retryErr);
-        }
-      }
+      await deleteStatusMessage(targetPeerId, targetMsgId);
     }
   } catch (error: any) {
     console.error("[auto-update] 插件更新异常:", getErrorMessage(error));
