@@ -169,6 +169,14 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
   let statusMsg: Api.Message | undefined;
   try {
     statusMsg = await githubMsg.reply({ message: "🤖 自动更新：检测到主仓库新提交，正在更新…" });
+    if (!statusMsg) throw new Error("无法发送状态消息");
+
+    // Snapshot peerId+msgId before any blocking operation — npm_install_project_dependencies()
+    // uses execFileSync (synchronous), which blocks the event loop and can cause the teleproto
+    // connection to drop. After that, statusMsg._client is stale and statusMsg.delete() fails
+    // silently (caught by catch(_){}). Same root cause as the plugin auto-update bug (21de22c).
+    const targetPeerId = statusMsg.peerId;
+    const targetMsgId = statusMsg.id;
 
     const branchInfo = await findMainBranch();
     if (!branchInfo) {
@@ -180,8 +188,9 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
     await execFileAsync("git", ["pull", remote, branch, "--no-rebase"]);
     await npm_install_project_dependencies();
 
-    // Success — delete status message, then restart silently
-    try { await statusMsg!.delete(); } catch (_) {}
+    // Success — delete status message using a fresh client, then restart silently.
+    // statusMsg.delete() may fail because the client connection died during npm install.
+    await deleteStatusMessage(targetPeerId, targetMsgId);
     await executeAutoExit();
   } catch (error: any) {
     const errDetail = getErrorMessage(error);
@@ -191,6 +200,32 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
       } catch (_) {}
     } else {
       try { await githubMsg.reply({ message: `❌ 自动更新失败：${errDetail}` }); } catch (_) {}
+    }
+  }
+}
+
+/**
+ * Delete a status message using a fresh client from getGlobalClient().
+ * The original message object's _client may be stale after a long blocking
+ * operation (e.g. npm_install_project_dependencies uses execFileSync).
+ * Includes a 2s-delayed retry — the client may need a moment to reconnect.
+ */
+async function deleteStatusMessage(peerId: any, msgId: number): Promise<void> {
+  try {
+    const freshClient = await getGlobalClient();
+    await (freshClient as any).deleteMessages(peerId, [msgId], { revoke: true });
+    console.log("[auto-update] 状态消息已删除");
+  } catch (err: any) {
+    console.error("[auto-update] 删除状态消息失败:", err?.message || err);
+    // Retry once after a short delay — the client may need a moment to reconnect
+    // after the long synchronous npm install blocked the event loop.
+    try {
+      await new Promise((r) => setTimeout(r, 2000));
+      const freshClient = await getGlobalClient();
+      await (freshClient as any).deleteMessages(peerId, [msgId], { revoke: true });
+      console.log("[auto-update] 状态消息删除重试成功");
+    } catch (retryErr: any) {
+      console.error("[auto-update] 状态消息删除重试失败:", retryErr?.message || retryErr);
     }
   }
 }
