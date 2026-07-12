@@ -6,7 +6,16 @@ interface TelegramAPI {
   api_id?: number;
   api_hash?: string;
   session?: string;
-  proxy?: any;
+  proxy?: {
+    socksType: 4 | 5;
+    ip: string;
+    port: number;
+    username?: string;
+    password?: string;
+    timeout?: number;
+    keepalive?: boolean;
+    keepaliveInterval?: number;
+  };
   connectionRetries?: number;
 }
 

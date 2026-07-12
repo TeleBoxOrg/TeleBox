@@ -53,6 +53,52 @@ import { initializeClientSession } from "./loginManager";
     // teleproto not available — skip patch
   }
 })();
+
+// ── SOCKS5 proxy keepalive & timeout patch ────────────────────────────────
+// teleproto's PromisedNetSockets creates raw sockets without keepalive.
+// This causes Telegram servers to silently drop idle proxy connections.
+// We inject a custom networkSocket class that enables TCP keepalive and
+// applies the user-configured SOCKS connection timeout.
+// ───────────────────────────────────────────────────────────────────────────
+let CustomPromisedNetSockets: typeof import("teleproto/extensions").PromisedNetSockets;
+(function patchPromisedNetSockets() {
+  try {
+    const { PromisedNetSockets } = require("teleproto/extensions/PromisedNetSockets");
+
+    // Use a global to pass keepalive config from createClient to the socket class
+    (globalThis as any).__telebox_keepalive_interval = 30_000;
+
+    // Create a subclass that adds keepalive support
+    CustomPromisedNetSockets = class extends PromisedNetSockets {
+      private _keepaliveInterval: number;
+
+      constructor(proxy?: import("teleproto/network/connection/TCPMTProxy").ProxyInterface) {
+        super(proxy);
+        this._keepaliveInterval = (globalThis as any).__telebox_keepalive_interval ?? 30_000;
+      }
+
+      async connect(port: number, ip: string): Promise<this> {
+        const result = await super.connect(port, ip);
+        // Enable TCP keepalive on the underlying socket (works for both direct and SOCKS)
+        if (this.client && typeof this.client.setKeepAlive === "function") {
+          this.client.setKeepAlive(true, this._keepaliveInterval);
+          // Also disable Nagle for lower latency on small packets
+          this.client.setNoDelay(true);
+        }
+        return result;
+      }
+    } as new (proxy?: import("teleproto/network/connection/TCPMTProxy").ProxyInterface) => InstanceType<typeof PromisedNetSockets>;
+
+    // Export the setter for createClient to use
+    (globalThis as any).__telebox_set_keepalive = (ms: number) => {
+      (globalThis as any).__telebox_keepalive_interval = ms;
+    };
+  } catch (_) {
+    // teleproto not available — skip patch
+    CustomPromisedNetSockets = require("teleproto/extensions/PromisedNetSockets").PromisedNetSockets;
+    (globalThis as any).__telebox_set_keepalive = () => {};
+  }
+})();
 import {
   loadPluginsForRuntime,
   unloadPluginsForRuntime,
@@ -128,6 +174,14 @@ async function createClient(): Promise<TelegramClient> {
     console.log("使用代理连接 Telegram:", proxy);
   }
 
+  const keepaliveInterval = proxy?.keepaliveInterval ?? 30_000;
+  const connectionTimeout = proxy?.timeout ?? 10; // seconds
+
+  // Set global keepalive interval for our patched PromisedNetSockets
+  if ((globalThis as any).__telebox_set_keepalive) {
+    (globalThis as any).__telebox_set_keepalive(keepaliveInterval);
+  }
+
   const client = new TelegramClient(
     new StringSession(api.session),
     api.api_id!,
@@ -138,8 +192,13 @@ async function createClient(): Promise<TelegramClient> {
       autoReconnect: true,
       deviceModel: readAppName(),
       proxy,
+      networkSocket: CustomPromisedNetSockets,
     }
   );
+  // Ensure proxy timeout is set for SOCKS connection
+  if (proxy && !proxy.timeout) {
+    proxy.timeout = connectionTimeout;
+  }
   client.setLogLevel(logger.getGramJSLogLevel() as never);
   return client;
 }
