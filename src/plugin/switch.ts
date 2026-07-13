@@ -18,9 +18,12 @@ import {
   DEFAULT_SWITCH_HOME,
 } from "@utils/versionSwitchState";
 import type { TeleBoxVersion } from "@utils/versionSwitchState";
-import { spawn } from "child_process";
-import path from "path";
 import fs from "fs";
+import path from "path";
+import {
+  resolveRepoRoot,
+  spawnTsxDetached,
+} from "@utils/versionSwitchPaths";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -40,9 +43,10 @@ function detectCurrentVersion(): TeleBoxVersion {
 
 function hasTeleprotoNativeSession(): boolean {
   try {
-    const config = JSON.parse(
-      fs.readFileSync("/root/telebox/config.json", "utf8"),
-    ) as { session?: string };
+    const configPath = path.join(resolveRepoRoot("teleproto"), "config.json");
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as {
+      session?: string;
+    };
     return Boolean(config.session && String(config.session).trim().length > 10);
   } catch {
     return false;
@@ -127,17 +131,17 @@ const T = {
 };
 
 function spawnController(source: TeleBoxVersion, target: TeleBoxVersion): void {
-  const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
-  const child = spawn(
-    "npx",
-    ["tsx", path.join(repoRoot, "src", "utils", "versionSwitchController.ts")],
+  // Target repo must have scripts/run-tsx.cjs. Never spawn bare "npx" (ENOENT under PM2).
+  const repoRoot = resolveRepoRoot(target);
+  const child = spawnTsxDetached(
+    repoRoot,
+    path.join(repoRoot, "src", "utils", "versionSwitchController.ts"),
     {
       cwd: repoRoot,
       detached: true,
       stdio: "ignore",
       env: {
         ...process.env,
-        // Always convert from the live session on go
         SWITCH_SKIP_LOGIN: "0",
         SWITCH_SOURCE: source,
         SWITCH_TARGET: target,
@@ -202,7 +206,20 @@ const plugin = new (class extends Plugin {
     state.pendingLogin = null;
     state.stagedSecrets = {};
     saveSwitchState(state, DEFAULT_SWITCH_HOME);
-    spawnController(current, target);
+    try {
+      spawnController(current, target);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      await msg.edit({
+        text: [
+          `❌ **无法启动切换**`,
+          ``,
+          message,
+          ``,
+          `常见原因：PATH 里没有 npx（已应避免）、或未配置 TELEBOX_TELEPROTO_ROOT / TELEBOX_MTCUTE_ROOT。`,
+        ].join("\n"),
+      });
+    }
   }
 })();
 

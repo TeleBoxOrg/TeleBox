@@ -1,15 +1,17 @@
-#!/usr/bin/env npx tsx
 /**
  * Thin launcher: session conversion always runs under the mtcute repo
  * (needs @mtcute/convert + @mtcute/node).
  *
- * Teleproto controller/plugin spawn this file; it re-execs the mtcute
- * implementation with the same env.
+ * Teleproto controller may re-exec this file; it delegates to mtcute via
+ * process.execPath + scripts/run-tsx.cjs (never bare npx).
  */
-import { spawnSync } from "child_process";
 import path from "path";
+import {
+  resolveRepoRoot,
+  spawnTsxSync,
+} from "./versionSwitchPaths";
 
-const MTCUTE_ROOT = "/root/telebox_mtcute";
+const MTCUTE_ROOT = resolveRepoRoot("mtcute");
 const SCRIPT = path.join(
   MTCUTE_ROOT,
   "src",
@@ -17,15 +19,11 @@ const SCRIPT = path.join(
   "versionSwitchSessionConvert.ts",
 );
 
-const result = spawnSync(
-  "npx",
-  ["tsx", SCRIPT],
-  {
-    cwd: MTCUTE_ROOT,
-    stdio: "inherit",
-    env: process.env,
-    timeout: 120_000,
-  },
-);
+const result = spawnTsxSync(MTCUTE_ROOT, SCRIPT, {
+  cwd: MTCUTE_ROOT,
+  stdio: "inherit",
+  env: process.env,
+  timeout: 120_000,
+});
 
 process.exit(result.status ?? 1);

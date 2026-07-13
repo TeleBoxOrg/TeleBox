@@ -37,24 +37,26 @@ import {
   type PluginDataJournal,
 } from "./versionSwitchFs";
 import { execSync, spawnSync } from "child_process";
+import {
+  resolveRepoRoots,
+  resolvePluginIndexPath,
+  spawnTsxSync,
+} from "./versionSwitchPaths";
 import fs from "fs";
 import path from "path";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-const REPO_ROOTS: Record<"teleproto" | "mtcute", string> = {
-  teleproto: "/root/telebox",
-  mtcute: "/root/telebox_mtcute",
+// Resolved lazily so env overrides work and hardcoded /root paths are avoided.
+const REPO_ROOTS = resolveRepoRoots();
+const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string> = {
+  teleproto: resolvePluginIndexPath("teleproto"),
+  mtcute: resolvePluginIndexPath("mtcute"),
 };
 
 const PM2_NAMES: Record<"teleproto" | "mtcute", string> = {
   teleproto: "telebox",
   mtcute: "telebox-mtcute",
-};
-
-const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string> = {
-  teleproto: "/root/TeleBox_Plugins/plugins.json",
-  mtcute: "/root/TeleBox_M_Plugins/plugins.json",
 };
 
 const READY_TIMEOUT_MS = 60_000;
@@ -169,25 +171,21 @@ function listTargetNativePluginNames(pluginRepo: string): string[] {
 }
 
 function runSessionConvert(source: "teleproto" | "mtcute", target: "teleproto" | "mtcute"): void {
-  // Always run conversion under mtcute repo (has @mtcute/convert). Teleproto tree
-  // only ships a thin launcher that re-execs the mtcute implementation.
+  // Always run conversion under mtcute repo (has @mtcute/convert).
+  // Use process.execPath + scripts/run-tsx.cjs — never bare "npx" (PATH may be empty under PM2).
   const script = path.join(REPO_ROOTS.mtcute, "src", "utils", "versionSwitchSessionConvert.ts");
   console.log(`[controller] Converting session ${source} → ${target} via ${script}`);
-  const result = spawnSync(
-    "npx",
-    ["tsx", script],
-    {
-      cwd: REPO_ROOTS.mtcute,
-      stdio: "inherit",
-      timeout: 120_000,
-      env: {
-        ...process.env,
-        SWITCH_SOURCE: source,
-        SWITCH_TARGET: target,
-        SWITCH_HOME: DEFAULT_SWITCH_HOME,
-      },
+  const result = spawnTsxSync(REPO_ROOTS.mtcute, script, {
+    cwd: REPO_ROOTS.mtcute,
+    stdio: "inherit",
+    timeout: 120_000,
+    env: {
+      ...process.env,
+      SWITCH_SOURCE: source,
+      SWITCH_TARGET: target,
+      SWITCH_HOME: DEFAULT_SWITCH_HOME,
     },
-  );
+  });
   if (result.status !== 0) {
     throw new Error(`Session convert ${source}→${target} failed with status ${result.status}`);
   }
