@@ -13,8 +13,6 @@ interface TelegramAPI {
     username?: string;
     password?: string;
     timeout?: number;
-    keepalive?: boolean;
-    keepaliveInterval?: number;
   };
   connectionRetries?: number;
 }
