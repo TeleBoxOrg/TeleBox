@@ -4,10 +4,12 @@
  * Never spawn bare "npx"/"tsx" from PATH — PM2 often has a minimal PATH that
  * yields `spawn npx ENOENT`. Always use process.execPath + scripts/run-tsx.cjs.
  *
- * Repo discovery is automatic for non-expert installs:
- *   env override (optional) → path cache → current install → sibling dirs →
- *   home common layouts → PM2 process cwd → auto-clone peer next to current.
- * Users should never need to set TELEBOX_*_ROOT manually.
+ * Zero-config for typical users (only one edition installed):
+ *   1. optional env / path cache / existing sibling / PM2 cwd
+ *   2. if peer still missing → create **parentDir/telebox-mtcute** or
+ *      **parentDir/telebox-teleproto** (one level above current install),
+ *      git clone + npm install, then use that directory.
+ * Users never need to set TELEBOX_*_ROOT manually.
  */
 import {
   spawn,
@@ -22,17 +24,23 @@ import path from "path";
 import type { TeleBoxVersion } from "./versionSwitchCore";
 import { DEFAULT_SWITCH_HOME } from "./versionSwitchState";
 
+/** Canonical peer folder names created by .switch go when missing. */
+export const PEER_DIR_NAME: Record<TeleBoxVersion, string> = {
+  teleproto: "telebox-teleproto",
+  mtcute: "telebox-mtcute",
+};
+
 const TELEPROTO_DIR_NAMES = [
+  PEER_DIR_NAME.teleproto,
   "telebox",
   "TeleBox",
   "Telebox",
   "TELEBOX",
-  "telebox-teleproto",
   "TeleBox-teleproto",
 ];
 const MTCUTE_DIR_NAMES = [
+  PEER_DIR_NAME.mtcute,
   "telebox_mtcute",
-  "telebox-mtcute",
   "TeleBox_M",
   "TeleBox_mtcute",
   "TeleBox-mtcute",
@@ -315,18 +323,60 @@ export function resolveRepoRoot(version: TeleBoxVersion): string {
     }
   }
 
-  // 4) Auto-clone peer next to current install (小白 zero-config)
-  const cloneParent =
-    (current && path.dirname(current)) ||
-    path.dirname(process.cwd()) ||
-    os.homedir();
-  const defaultName = version === "teleproto" ? "telebox" : "telebox_mtcute";
-  const cloneTarget = path.join(cloneParent, defaultName);
-  if (!fs.existsSync(cloneTarget)) {
+  // 4) Typical user only has one edition — create peer one level up:
+  //    <parent>/telebox-mtcute  or  <parent>/telebox-teleproto
+  return ensurePeerRepo(version, current);
+}
+
+/**
+ * Parent directory for auto-created peer: always one level above the
+ * currently running install (fallback: cwd parent → home).
+ */
+function resolvePeerParent(current: string | null): string {
+  if (current) return path.dirname(path.resolve(current));
+  const cwdEdition = detectEdition(process.cwd());
+  if (cwdEdition) return path.dirname(path.resolve(process.cwd()));
+  return path.dirname(path.resolve(process.cwd())) || os.homedir();
+}
+
+/**
+ * Ensure peer edition exists at `<parent>/telebox-mtcute|telebox-teleproto`.
+ * Creates the directory, clones official repo, runs npm install as needed.
+ */
+export function ensurePeerRepo(
+  version: TeleBoxVersion,
+  current: string | null = findCurrentInstallRoot(),
+): string {
+  const parent = resolvePeerParent(current);
+  const dirName = PEER_DIR_NAME[version];
+  const cloneTarget = path.join(parent, dirName);
+  const url = version === "teleproto" ? TELEPROTO_CLONE_URL : MTCUTE_CLONE_URL;
+
+  // Reuse if already a valid checkout
+  if (isValidRepo(cloneTarget, version)) {
+    savePathCache({ [version]: cloneTarget });
+    return cloneTarget;
+  }
+
+  fs.mkdirSync(parent, { recursive: true });
+
+  const gitDir = path.join(cloneTarget, ".git");
+  const pkg = path.join(cloneTarget, "package.json");
+
+  if (!fs.existsSync(gitDir) && !fs.existsSync(pkg)) {
+    // Fresh: remove empty/broken stub then clone into telebox-xx
+    if (fs.existsSync(cloneTarget)) {
+      try {
+        const entries = fs.readdirSync(cloneTarget);
+        if (entries.length === 0) fs.rmdirSync(cloneTarget);
+      } catch {
+        /* keep and try clone into it */
+      }
+    }
     console.log(
-      `[versionSwitch] 未找到 ${version} 仓库，正在自动克隆到 ${cloneTarget} …`,
+      `[versionSwitch] 本机没有 ${version}，正在上级目录创建 ${dirName} 并下载…`,
     );
-    const url = version === "teleproto" ? TELEPROTO_CLONE_URL : MTCUTE_CLONE_URL;
+    console.log(`[versionSwitch] → ${cloneTarget}`);
     const clone = spawnSync(
       "git",
       ["clone", "--depth", "1", url, cloneTarget],
@@ -334,37 +384,35 @@ export function resolveRepoRoot(version: TeleBoxVersion): string {
     );
     if (clone.status !== 0) {
       throw new Error(
-        `自动下载 ${version} 失败（git clone ${url}）。请确认本机可访问 GitHub 后重试 .switch go。`,
+        `自动创建 ${dirName} 失败（git clone）。请确认本机可访问 GitHub 后重试 .switch go。\n目标: ${cloneTarget}`,
       );
     }
-  }
-
-  if (!isValidRepo(cloneTarget, version) && fs.existsSync(cloneTarget)) {
-    // Partial/wrong dir: try detect after npm install
+  } else if (!fs.existsSync(pkg)) {
+    throw new Error(
+      `目录已存在但不是有效 TeleBox 仓库: ${cloneTarget}\n请删除该目录后重试 .switch go，或换成正确的 ${version} 代码。`,
+    );
   }
 
   // npm install so run-tsx + deps exist
-  if (fs.existsSync(path.join(cloneTarget, "package.json"))) {
-    const nodeModules = path.join(cloneTarget, "node_modules");
-    if (!fs.existsSync(nodeModules)) {
-      console.log(`[versionSwitch] 正在安装 ${version} 依赖（npm install）…`);
-      const install = spawnSync("npm", ["install", "--omit=dev"], {
-        cwd: cloneTarget,
-        stdio: "inherit",
-        timeout: 600_000,
-        env: process.env,
-      });
-      if (install.status !== 0) {
-        throw new Error(
-          `自动安装 ${version} 依赖失败。请进入 ${cloneTarget} 手动执行 npm install 后重试。`,
-        );
-      }
+  const nodeModules = path.join(cloneTarget, "node_modules");
+  if (fs.existsSync(pkg) && !fs.existsSync(nodeModules)) {
+    console.log(`[versionSwitch] 正在为 ${dirName} 安装依赖（npm install）…`);
+    const install = spawnSync("npm", ["install", "--omit=dev"], {
+      cwd: cloneTarget,
+      stdio: "inherit",
+      timeout: 600_000,
+      env: process.env,
+    });
+    if (install.status !== 0) {
+      throw new Error(
+        `自动安装 ${dirName} 依赖失败。可稍后进入 ${cloneTarget} 执行 npm install 再 .switch go。`,
+      );
     }
   }
 
   if (!isValidRepo(cloneTarget, version)) {
     throw new Error(
-      `无法准备 ${version} 仓库（${cloneTarget}）。请检查 git/npm 是否可用，或把另一版本放在当前安装目录的同级文件夹中。`,
+      `无法准备 ${version}（${cloneTarget}）。请检查 git / npm 是否可用后重试。`,
     );
   }
 

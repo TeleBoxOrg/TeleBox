@@ -60,6 +60,7 @@ const T = {
       ``,
       `在 **teleproto** 和 **mtcute** 之间切换。`,
       `session 直接转换，**不用重新登录**。`,
+      `没有另一版时会在上级目录自动创建 telebox-mtcute / telebox-teleproto。`,
       ``,
       `**两个子命令：**`,
       ``,
@@ -216,8 +217,8 @@ const plugin = new (class extends Plugin {
           ``,
           message,
           ``,
-          `一般不用改配置：把两个版本放在同一父目录下（如 ~/telebox 与 ~/telebox_mtcute），`,
-          `或保持能访问 GitHub，系统会自动下载缺失的那一版。`,
+          `一般不用改配置：若本机没有另一版，会在当前安装的上级目录自动创建`,
+          `telebox-mtcute 或 telebox-teleproto 并下载代码。`,
         ].join("\n"),
       });
     }
