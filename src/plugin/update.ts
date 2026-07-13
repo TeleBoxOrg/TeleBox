@@ -45,9 +45,22 @@ function saveAutoUpdateState(state: AutoUpdateState): void {
 }
 
 // ── Git helpers ────────────────────────────────────────────────────────
+const GIT_USER_NAME = "TeleBox Auto-Update";
+const GIT_USER_EMAIL = "telebox@users.noreply.github.com";
+
+async function gitExec(args: string[]): Promise<{ stdout: string; stderr: string }> {
+  // Inject identity so git pull (which may create merge commits) doesn't fail
+  // on machines without global git config.
+  return execFileAsync("git", [
+    "-c", `user.name=${GIT_USER_NAME}`,
+    "-c", `user.email=${GIT_USER_EMAIL}`,
+    ...args,
+  ]);
+}
+
 async function getRemotes(): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["remote"]);
+    const { stdout } = await gitExec(["remote"]);
     return stdout.trim().split("\n").filter((r) => r.trim());
   } catch {
     return [];
@@ -56,7 +69,7 @@ async function getRemotes(): Promise<string[]> {
 
 async function getBranches(): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["branch", "-r"]);
+    const { stdout } = await gitExec(["branch", "-r"]);
     const branches = stdout
       .trim()
       .split("\n")
@@ -113,16 +126,16 @@ async function update(force = false, msg: Api.Message) {
     const { remote, branch } = branchInfo;
     const fullBranch = `${remote}/${branch}`;
 
-    await execFileAsync("git", ["fetch", "--all"]);
+    await gitExec(["fetch", "--all"]);
     await msg.edit({ text: "🔄 正在拉取最新代码..." });
 
     if (force) {
       console.log(`⚠️ 强制回滚到 ${fullBranch}...`);
-      await execFileAsync("git", ["reset", "--hard", fullBranch]);
+      await gitExec(["reset", "--hard", fullBranch]);
       await msg.edit({ text: "🔄 强制更新中..." });
     }
 
-    await execFileAsync("git", ["pull", remote, branch, "--no-rebase"]);
+    await gitExec(["pull", remote, branch, "--no-rebase"]);
     await msg.edit({ text: "🔄 正在合并最新代码..." });
 
     console.log("\n📦 安装依赖...");
@@ -184,8 +197,8 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
     }
     const { remote, branch } = branchInfo;
 
-    await execFileAsync("git", ["fetch", "--all"]);
-    await execFileAsync("git", ["pull", remote, branch, "--no-rebase"]);
+    await gitExec(["fetch", "--all"]);
+    await gitExec(["pull", remote, branch, "--no-rebase"]);
     await npm_install_project_dependencies();
 
     // Success — delete status message using a fresh client, then restart silently.
