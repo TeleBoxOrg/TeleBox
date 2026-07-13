@@ -327,7 +327,8 @@ run();
 
 **特殊功能**：
 - 在 `index.ts` 中通过 `import "./hook/patches/telegram.patch"` 加载
-- 包含对 teleproto 运行时的补丁（如 MediaScheduler、Network.onSenderBreak 等）
+- `telegram.patch.ts` 仅含 HTML 实体保护 + Message 原型扩展（`deleteWithDelay` / `safeDelete`）
+- teleproto 运行时补丁在 `runtimeManager.ts`：`MediaScheduler.prototype.savePart`（main-DC 上传走主 sender）。TCP keepalive 已由 teleproto ≥1.228.0 原生提供，不再需要 CustomPromisedNetSockets
 
 ### 目录组织
 
