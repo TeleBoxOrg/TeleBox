@@ -82,7 +82,7 @@ const HOME_RESERVED = new Set([
   PEER_DIR_NAME.teleproto,
   PEER_DIR_NAME.mtcute,
   "TeleBox_Plugins",
-  "TeleBox_M_Plugins",
+  "TeleBox-Next_Plugins",
   "TeleBox-Next_Plugins",
   "telebox_plugins",
   "telebox_m_plugins",
@@ -583,7 +583,7 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
   const names =
     version === "teleproto"
       ? ["TeleBox_Plugins", "telebox_plugins"]
-      : ["TeleBox-Next_Plugins", "TeleBox_M_Plugins", "telebox_m_plugins", "telebox-next_plugins"];
+      : ["TeleBox-Next_Plugins", "TeleBox-Next_Plugins", "telebox_m_plugins", "telebox-next_plugins"];
 
   const candidates = [
     ...names.map((n) => path.join(home, n, "plugins.json")),

@@ -1010,7 +1010,7 @@ async function search(msg: Api.Message) {
       `• <code>${mainPrefix}tpm rm [名称]</code> 卸载\n` +
       `• <code>${mainPrefix}tpm rm all</code> 清空`;
 
-    const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxDev/TeleBox_Plugins">TeleBox_Plugins</a>`;
+    const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxOrg/TeleBox_Plugins">TeleBox_Plugins</a>`;
 
     const title = keyword ? `🔍 搜索 "${htmlEscape(keyword)}" 结果` : `🔍 远程插件列表`;
     const fullMessage = [

@@ -169,7 +169,7 @@ class HelpPlugin extends Plugin {
         const basic = formatBasicCommands(commands, mainPlanner);
         const prefixLine = `❕ <b>指令前缀：</b> ${prefixes.map(p => `<code>${htmlEscape(p)}</code>`).join(" • ")}`;
         const helpTip = `💡 <code>${mainPrefix}help [命令]</code> 查看详情 | <code>${mainPrefix}tpm search</code> 显示远程插件列表`;
-        const links = `🔗 <a href='https://github.com/TeleBoxDev/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxDev/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a> | <a href='https://telegra.ph/TeleBox-插件列表-03-03'>📚插件列表</a>`;
+        const links = `🔗 <a href='https://github.com/TeleBoxOrg/TeleBox'>📦仓库</a> | <a href='https://github.com/TeleBoxOrg/TeleBox_Plugins'>🔌插件</a> | <a href='https://t.me/teleboxdevgroup'>👥群组</a> | <a href='https://t.me/teleboxdev'>📣频道</a> | <a href='https://telegra.ph/TeleBox-插件列表-03-03'>📚插件列表</a>`;
 
         await msg.edit({
           text: [header, "", basic.text, "", prefixLine, helpTip, links].join("\n"),
@@ -270,7 +270,7 @@ class HelpPlugin extends Plugin {
           "• 检查插件配置是否正确",
           "• 查看控制台获取详细日志",
           "",
-          "🆘 <a href='https://github.com/TeleBoxDev/TeleBox/issues'>反馈问题</a>",
+          "🆘 <a href='https://github.com/TeleBoxOrg/TeleBox/issues'>反馈问题</a>",
         ].join("\n"),
         parseMode: "html",
       });
