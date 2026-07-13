@@ -54,30 +54,42 @@ const T = {
     [
       `**🔄 版本切换**`,
       ``,
-      `在 teleproto 和 mtcute 之间切换。`,
-      `账号 session 直接转换，**不用重新登录**。`,
+      `在 **teleproto** 和 **mtcute** 之间切换。`,
+      `session 直接转换，**不用重新登录**。`,
       ``,
-      `**命令**`,
-      `\`${mainPrefix}switch go\` — 切到另一个版本`,
-      `\`${mainPrefix}switch status\` — 查看当前状态`,
+      `**两个子命令：**`,
       ``,
-      `**切换时会做这些事**`,
-      `• 转换账号 session`,
-      `• 同步两边都有的插件，并合并配置`,
-      `• 另一边没有的插件 → 保存到本机归档，不会丢`,
+      `**1. \`${mainPrefix}switch go\`**`,
+      `• 立刻切到**另一个**版本`,
+      `• 自动：转换 session → 同步插件/配置 → 重启目标版本`,
+      `• 另一边没有的插件会归档到本机，不会丢`,
+      `• bot 会短暂离线几秒，完成后本条消息会更新`,
+      ``,
+      `**2. \`${mainPrefix}switch status\`**`,
+      `• 查看当前运行的是哪个版本`,
+      `• 显示另一边版本名称`,
+      `• 不切换，只看状态`,
+      ``,
+      `再切回去：再发一次 \`${mainPrefix}switch go\` 即可。`,
     ].join("\n"),
 
   status: (state: ReturnType<typeof loadSwitchState>) => {
     const current = detectCurrentVersion();
     const other: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
     const lines = [
-      `**当前：${EMOJI[current]} ${label(current)}**`,
-      `**另一边：${EMOJI[other]} ${label(other)}**`,
+      `**📊 版本状态**`,
       ``,
-      `发 \`${mainPrefix}switch go\` 即可切过去。`,
+      `**当前运行：** ${EMOJI[current]} ${label(current)}`,
+      `**另一边：** ${EMOJI[other]} ${label(other)}`,
+      ``,
+      `切过去：\`${mainPrefix}switch go\``,
+      `再看状态：\`${mainPrefix}switch status\``,
     ];
     if (state.activeVersion) {
-      lines.push(``, `上次切换到：${EMOJI[state.activeVersion]} ${label(state.activeVersion)}`);
+      lines.push(
+        ``,
+        `上次切换到：${EMOJI[state.activeVersion]} ${label(state.activeVersion)}`,
+      );
     }
     return lines.join("\n");
   },
@@ -86,9 +98,9 @@ const T = {
     [
       `🚀 **正在切换到 ${EMOJI[target]} ${label(target)}**`,
       ``,
-      `• 转换 session（不重新登录）`,
-      `• 同步插件与配置`,
-      `• 另一边没有的插件会归档保存`,
+      `1. 转换 session（不重新登录）`,
+      `2. 同步插件与配置`,
+      `3. 另一边没有的插件归档保存`,
       ``,
       `bot 会短暂离线几秒，完成后这条消息会更新。`,
     ].join("\n"),
@@ -102,9 +114,9 @@ const T = {
 
   legacyRemoved: () =>
     [
-      `ℹ️ 现在只需要：`,
+      `ℹ️ 现在只有两个命令：`,
       ``,
-      `\`${mainPrefix}switch go\` — 直接切到另一个版本`,
+      `\`${mainPrefix}switch go\` — 切到另一个版本`,
       `\`${mainPrefix}switch status\` — 查看状态`,
       ``,
       `不用 login / code / pwd / revert。`,
