@@ -1268,7 +1268,9 @@ export async function updateAllPlugins(msg: Api.Message): Promise<{ failedCount:
     // Snapshot peerId+msgId BEFORE reloadAndFinalize — loadPlugins() inside will
     // destroy the old client, invalidating statusMsg._client. The snapshot lets
     // the caller delete the correct message after reload.
-    const statusPeerId = statusMsg.peerId;
+    // Marked chat id string survives entity-cache wipe after reload
+    const statusPeerId =
+      statusMsg.chatId != null ? String(statusMsg.chatId) : statusMsg.peerId;
     const statusMsgId = statusMsg.id;
     await reloadAndFinalize(statusMsg, finalText, { parseMode: "html" });
     console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);

@@ -68,6 +68,7 @@ import {
 } from "./generationContext";
 import { withTimeout } from "./asyncHelpers";
 import { registerRuntimeAccess } from "./runtimeAccess";
+import { flushPendingStatusDeletes } from "./postReloadMessage";
 
 export type { GenerationContext };
 
@@ -243,6 +244,7 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
     await loadPluginsForRuntime(runtime);
     // 切换后上线后，编辑之前留下的"正在切换…"通知消息
     await resolvePendingSwitchNotification(runtime.client, "teleproto");
+    void flushPendingStatusDeletes().catch((e) => console.warn("[RUNTIME] pending status deletes:", e));
     runtime.state = "running";
     return runtime;
   } catch (error) {
