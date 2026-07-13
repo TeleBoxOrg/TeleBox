@@ -8,9 +8,10 @@
  *
  * Flow:
  *   1. Read ~/.telebox-switch/state.json (created by the source plugin).
- *   2. Run the target version's login helper (consumes staged secrets).
- *   3. If login succeeds: stop source PM2 → migrate plugins/data →
- *      start target PM2 → wait for ready → rollback on failure.
+ *   2. Offline session convert (teleproto StringSession ↔ mtcute SQLite)
+ *      via versionSwitchSessionConvert.ts — NO re-login / SMS.
+ *   3. stop source PM2 → migrate plugins/data → start target PM2 →
+ *      wait for ready → rollback on failure.
  */
 
 import {
@@ -154,17 +155,28 @@ function listInstalledPlugins(version: "teleproto" | "mtcute"): string[] {
   return fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
 }
 
-function runLoginHelper(version: "teleproto" | "mtcute"): void {
-  const repo = REPO_ROOTS[version];
-  const script = path.join(repo, "src", "utils", "versionSwitchLogin.ts");
-  console.log(`[controller] Running login helper: ${script}`);
+function runSessionConvert(source: "teleproto" | "mtcute", target: "teleproto" | "mtcute"): void {
+  // Always run conversion under mtcute repo (has @mtcute/convert). Teleproto tree
+  // only ships a thin launcher that re-execs the mtcute implementation.
+  const script = path.join(REPO_ROOTS.mtcute, "src", "utils", "versionSwitchSessionConvert.ts");
+  console.log(`[controller] Converting session ${source} → ${target} via ${script}`);
   const result = spawnSync(
     "npx",
     ["tsx", script],
-    { cwd: repo, stdio: "inherit", timeout: 120_000 },
+    {
+      cwd: REPO_ROOTS.mtcute,
+      stdio: "inherit",
+      timeout: 120_000,
+      env: {
+        ...process.env,
+        SWITCH_SOURCE: source,
+        SWITCH_TARGET: target,
+        SWITCH_HOME: DEFAULT_SWITCH_HOME,
+      },
+    },
   );
   if (result.status !== 0) {
-    throw new Error(`Login helper for ${version} failed with status ${result.status}`);
+    throw new Error(`Session convert ${source}→${target} failed with status ${result.status}`);
   }
 }
 
@@ -197,22 +209,17 @@ async function main(): Promise<void> {
     } else {
       console.log(`[controller] Using existing external session: ${extPath}`);
     }
-  } else {
-    // Slow path: login required
-    const pendingLogin = state.pendingLogin;
-    if (!pendingLogin) {
-      throw new Error("Pending transaction without pending login");
-    }
-    source = pendingLogin.target === "teleproto" ? "mtcute" : "teleproto";
-    target = pendingLogin.target;
-    console.log(`[controller] Switching ${source} → ${target} (login required)`);
+  } else if (envSource && envTarget) {
+    // Convert path: offline session conversion (no re-login / no SMS)
+    source = envSource;
+    target = envTarget;
+    console.log(`[controller] Converting session then switching ${source} → ${target}`);
 
-    // Step 1: Login
-    console.log("[controller] Step 1: Logging in to target version...");
+    console.log("[controller] Step 1: Converting session offline...");
     try {
-      runLoginHelper(target);
+      runSessionConvert(source, target);
     } catch (err) {
-      console.error("[controller] Login failed:", err);
+      console.error("[controller] Session convert failed:", err);
       state.pendingTransaction = null;
       state.pendingLogin = null;
       state.stagedSecrets = {};
@@ -220,12 +227,16 @@ async function main(): Promise<void> {
       process.exit(1);
     }
 
-    const reloaded = loadSwitchState(DEFAULT_SWITCH_HOME);
     extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME) ?? "";
     if (!extPath) {
-      throw new Error("Login succeeded but external session path is missing");
+      throw new Error("Session convert succeeded but external session path is missing");
     }
-    console.log(`[controller] External session ready: ${extPath}`);
+    console.log(`[controller] Converted session ready: ${extPath}`);
+  } else {
+    throw new Error(
+      "Controller requires SWITCH_SOURCE + SWITCH_TARGET (session convert). " +
+      "Re-login helpers are no longer used.",
+    );
   }
 
   // ── Step 2: Match and install plugins ────────────────────────────────
@@ -280,10 +291,12 @@ async function main(): Promise<void> {
     preSwitchState.pendingTransaction = null;
     saveSwitchState(preSwitchState, DEFAULT_SWITCH_HOME);
 
-    // Inject external session into target version's config (only if external)
-    const targetSession = state.sessions[target];
-    if (targetSession.kind === "external") {
-      injectSessionConfig(target, extPath);
+    // Inject external session into target version's config (only if external).
+    // Re-read state: convert path updates sessions[target] on disk after `state` was loaded.
+    const latestState = loadSwitchState(DEFAULT_SWITCH_HOME);
+    const targetSession = latestState.sessions[target];
+    if (targetSession.kind === "external" && (extPath || targetSession.path)) {
+      injectSessionConfig(target, extPath || targetSession.path);
     } else {
       console.log(`[controller] Target ${target} uses native session — skipping injection`);
       if (target === "mtcute") clearSwitchSessionMarker(target);
