@@ -2,12 +2,12 @@
  * 版本切换插件 (teleproto/gramjs)
  *
  * 命令：
- *   .switch go       — 转换 session 并切换到另一个版本（无需重新登录）
+ *   .switch go       — 切到另一个版本（session 直转，不重新登录）
  *   .switch status   — 查看状态
- *   .switch revert   — 回到上一个版本
  *
- * Session 通过 @mtcute/convert 离线互转（teleproto StringSession ↔ mtcute SQLite），
- * 不再走 .switch login / code / pwd 重新登录。
+ * 两边互切都用 go；不需要 revert。
+ * Session：@mtcute/convert 离线互转。
+ * 插件：目标版本有的会安装并合并配置；没有的会归档保存。
  */
 import { Plugin } from "@utils/pluginBase";
 import { Api } from "teleproto";
@@ -30,77 +30,8 @@ const EMOJI: Record<string, string> = {
   mtcute: "🟧",
 };
 
-const T = {
-  help: () =>
-    [
-      `**🔄 版本切换**\n`,
-      `在 **teleproto** 和 **mtcute** 之间切换。`,
-      `会把当前账号的 session **直接转换**过去，**不用重新登录 / 收验证码**。\n`,
-      `**命令：**`,
-      `\`${mainPrefix}switch go\` — 🚀 转换 session 并切换到另一个版本`,
-      `\`${mainPrefix}switch status\` — 📊 查看当前状态`,
-      `\`${mainPrefix}switch revert\` — ⏪ 回到上一个版本`,
-    ].join("\n"),
-
-  status: (state: ReturnType<typeof loadSwitchState>) => {
-    const lines: string[] = [];
-    const active = state.activeVersion;
-    if (active) {
-      lines.push(`**🟢 当前运行：${EMOJI[active]} ${label(active)}**`);
-    } else {
-      lines.push("**⚪ 尚未切换过**（当前进程是 teleproto）");
-    }
-
-    lines.push("");
-    for (const v of ["teleproto", "mtcute"] as TeleBoxVersion[]) {
-      const sess = state.sessions[v];
-      const icon = active === v ? "🟢" : "⚪";
-      let badge: string;
-      let detail: string;
-      if (sess.kind === "external") {
-        badge = "🔑 已转换";
-        detail = `(uid ${sess.userId})`;
-      } else if (v === "teleproto" && hasTeleprotoNativeSession()) {
-        badge = "📦 本地 session";
-        detail = "config.json";
-      } else if (v === "mtcute" && hasMtcuteNativeSession()) {
-        badge = "📦 本地 session";
-        detail = "session.db";
-      } else {
-        badge = "⚡ 切换时自动转换";
-        detail = "从当前版本导出";
-      }
-      lines.push(`${icon} ${EMOJI[v]} **${label(v)}** — ${badge} ${detail}`);
-    }
-
-    return lines.join("\n");
-  },
-
-  goSwitching: (target: TeleBoxVersion) =>
-    [
-      `🚀 **开始切换！** → ${EMOJI[target]} ${label(target)}`,
-      ``,
-      `正在把当前 session 转换成目标格式（不重新登录）…`,
-      `bot 会短暂离线几秒。`,
-    ].join("\n"),
-
-  goNoSourceSession: () =>
-    [
-      `❌ 当前 teleproto 没有可用的 session（config.json.session 为空）`,
-      ``,
-      `请先正常登录 teleproto，再执行 \`${mainPrefix}switch go\`。`,
-    ].join("\n"),
-
-  revertNoNeed: () => "ℹ️ 已经在上一个版本了，不需要撤回～",
-
-  revertStarted: () => "⏪ 正在撤回… 稍等一下哦",
-
-  unknownSub: (sub: string) =>
-    `🤔 \`${sub}\` 是啥？没这个命令…\n\n` + T.help(),
-};
-
 function label(v: TeleBoxVersion): string {
-  return v === "teleproto" ? "teleproto (gramjs)" : "mtcute (native)";
+  return v === "teleproto" ? "teleproto" : "mtcute";
 }
 
 function detectCurrentVersion(): TeleBoxVersion {
@@ -118,16 +49,72 @@ function hasTeleprotoNativeSession(): boolean {
   }
 }
 
-function hasMtcuteNativeSession(): boolean {
-  return fs.existsSync("/root/telebox_mtcute/session.db");
-}
+const T = {
+  help: () =>
+    [
+      `**🔄 版本切换**`,
+      ``,
+      `在 teleproto 和 mtcute 之间切换。`,
+      `账号 session 直接转换，**不用重新登录**。`,
+      ``,
+      `**命令**`,
+      `\`${mainPrefix}switch go\` — 切到另一个版本`,
+      `\`${mainPrefix}switch status\` — 查看当前状态`,
+      ``,
+      `**切换时会做这些事**`,
+      `• 转换账号 session`,
+      `• 同步两边都有的插件，并合并配置`,
+      `• 另一边没有的插件 → 保存到本机归档，不会丢`,
+    ].join("\n"),
 
-function spawnController(
-  source: TeleBoxVersion,
-  target: TeleBoxVersion,
-  forceConvert: boolean,
-): void {
-  // Always run controller from target repo (same as before)
+  status: (state: ReturnType<typeof loadSwitchState>) => {
+    const current = detectCurrentVersion();
+    const other: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
+    const lines = [
+      `**当前：${EMOJI[current]} ${label(current)}**`,
+      `**另一边：${EMOJI[other]} ${label(other)}**`,
+      ``,
+      `发 \`${mainPrefix}switch go\` 即可切过去。`,
+    ];
+    if (state.activeVersion) {
+      lines.push(``, `上次切换到：${EMOJI[state.activeVersion]} ${label(state.activeVersion)}`);
+    }
+    return lines.join("\n");
+  },
+
+  goSwitching: (target: TeleBoxVersion) =>
+    [
+      `🚀 **正在切换到 ${EMOJI[target]} ${label(target)}**`,
+      ``,
+      `• 转换 session（不重新登录）`,
+      `• 同步插件与配置`,
+      `• 另一边没有的插件会归档保存`,
+      ``,
+      `bot 会短暂离线几秒，完成后这条消息会更新。`,
+    ].join("\n"),
+
+  goNoSourceSession: () =>
+    [
+      `❌ 当前没有可用的 session`,
+      ``,
+      `请先正常登录 teleproto，再发 \`${mainPrefix}switch go\`。`,
+    ].join("\n"),
+
+  legacyRemoved: () =>
+    [
+      `ℹ️ 现在只需要：`,
+      ``,
+      `\`${mainPrefix}switch go\` — 直接切到另一个版本`,
+      `\`${mainPrefix}switch status\` — 查看状态`,
+      ``,
+      `不用 login / code / pwd / revert。`,
+    ].join("\n"),
+
+  unknownSub: (sub: string) =>
+    `不知道 \`${sub}\` 是什么命令。\n\n` + T.help(),
+};
+
+function spawnController(source: TeleBoxVersion, target: TeleBoxVersion): void {
   const repoRoot = target === "mtcute" ? "/root/telebox_mtcute" : "/root/telebox";
   const child = spawn(
     "npx",
@@ -138,8 +125,8 @@ function spawnController(
       stdio: "ignore",
       env: {
         ...process.env,
-        // skipLogin=1 means "don't wait for pendingLogin"; convert still runs when needed
-        SWITCH_SKIP_LOGIN: forceConvert ? "0" : "1",
+        // Always convert from the live session on go
+        SWITCH_SKIP_LOGIN: "0",
         SWITCH_SOURCE: source,
         SWITCH_TARGET: target,
       },
@@ -150,7 +137,7 @@ function spawnController(
 
 const plugin = new (class extends Plugin {
   name = "switch";
-  description = "版本切换 (teleproto ↔ mtcute，session 直转)";
+  description = "版本切换：.switch go 直切另一版本（session 转换，插件配置迁移）";
 
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     switch: async (msg) => {
@@ -166,23 +153,18 @@ const plugin = new (class extends Plugin {
         await msg.edit({ text: T.status(loadSwitchState(DEFAULT_SWITCH_HOME)) });
         return;
       }
-      // Legacy commands: point users to the new flow
-      if (sub === "login" || sub === "code" || sub === "pwd" || sub === "password") {
-        await msg.edit({
-          text: [
-            `ℹ️ 已改为 **session 直接转换**，不再需要重新登录。`,
-            ``,
-            `直接发 \`${mainPrefix}switch go\` 即可。`,
-          ].join("\n"),
-        });
+      if (
+        sub === "login" ||
+        sub === "code" ||
+        sub === "pwd" ||
+        sub === "password" ||
+        sub === "revert"
+      ) {
+        await msg.edit({ text: T.legacyRemoved() });
         return;
       }
       if (sub === "go") {
         await this.handleGo(msg);
-        return;
-      }
-      if (sub === "revert") {
-        await this.handleRevert(msg);
         return;
       }
       await msg.edit({ text: T.unknownSub(sub) });
@@ -194,7 +176,7 @@ const plugin = new (class extends Plugin {
     const target: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
 
-    if (current === "teleproto" && !hasTeleprotoNativeSession()) {
+    if (!hasTeleprotoNativeSession()) {
       await msg.edit({ text: T.goNoSourceSession() });
       return;
     }
@@ -205,48 +187,10 @@ const plugin = new (class extends Plugin {
       msgId: msg.id,
       target,
     };
-    // Clear any stale pending login from old flow
     state.pendingLogin = null;
     state.stagedSecrets = {};
     saveSwitchState(state, DEFAULT_SWITCH_HOME);
-
-    // Force convert unless target already has a registered external session file
-    const targetSess = state.sessions[target];
-    const hasExternal =
-      targetSess.kind === "external" &&
-      typeof targetSess.path === "string" &&
-      fs.existsSync(targetSess.path);
-    // Always convert from current live session so switch picks up latest auth keys
-    const forceConvert = true;
-    void hasExternal; // reserved for future cache optimization
-
-    spawnController(current, target, forceConvert);
-  }
-
-  private async handleRevert(msg: Api.Message): Promise<void> {
-    const state = loadSwitchState(DEFAULT_SWITCH_HOME);
-    const current = detectCurrentVersion();
-
-    if (!state.activeVersion || state.activeVersion === current) {
-      await msg.edit({ text: T.revertNoNeed() });
-      return;
-    }
-
-    await msg.edit({ text: T.revertStarted() });
-
-    const revertTarget: TeleBoxVersion =
-      state.activeVersion === "teleproto" ? "mtcute" : "teleproto";
-    state.pendingNotification = {
-      chatId: Number(msg.chatId),
-      msgId: msg.id,
-      target: revertTarget,
-    };
-    state.pendingLogin = null;
-    state.stagedSecrets = {};
-    saveSwitchState(state, DEFAULT_SWITCH_HOME);
-
-    // Revert also re-converts from current → previous to keep sessions fresh
-    spawnController(current, revertTarget, true);
+    spawnController(current, target);
   }
 })();
 

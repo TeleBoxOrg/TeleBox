@@ -27,6 +27,8 @@ export interface SwitchNotification {
   chatId: number;
   msgId: number;
   target: TeleBoxVersion;
+  /** Optional human-readable migration summary shown after switch completes. */
+  summary?: string;
 }
 
 export interface VersionSwitchState {
@@ -108,7 +110,8 @@ function isSwitchNotification(value: unknown): value is SwitchNotification | nul
   const candidate = value as Record<string, unknown>;
   return typeof candidate.chatId === "number"
     && typeof candidate.msgId === "number"
-    && (candidate.target === "teleproto" || candidate.target === "mtcute");
+    && (candidate.target === "teleproto" || candidate.target === "mtcute")
+    && (candidate.summary === undefined || typeof candidate.summary === "string");
 }
 
 function isState(value: unknown): value is VersionSwitchState {

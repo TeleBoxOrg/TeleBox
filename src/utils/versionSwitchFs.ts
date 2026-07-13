@@ -184,3 +184,78 @@ export function restorePluginDataMigration(journal: PluginDataJournal): void {
     }
   }
 }
+
+export interface ArchivedPluginEntry {
+  name: string;
+  reason: string;
+  pluginFile?: string;
+  assetsDir?: string;
+}
+
+export interface UnmatchedArchiveReport {
+  sourceVersion: string;
+  targetVersion: string;
+  archivedAt: string;
+  archiveRoot: string;
+  entries: ArchivedPluginEntry[];
+}
+
+/**
+ * Save plugins that exist on the source version but have no counterpart on the
+ * target version. Keeps both the plugin source file and assets/<plugin>/ so
+ * configs are not lost when switching.
+ */
+export function archiveUnmatchedPlugins(options: {
+  names: string[];
+  sourceVersion: string;
+  targetVersion: string;
+  sourcePluginsDir: string;
+  sourceAssetsRoot: string;
+  archiveRoot: string;
+  reason?: string;
+}): UnmatchedArchiveReport {
+  const reason = options.reason ?? "target_version_has_no_matching_plugin";
+  const entries: ArchivedPluginEntry[] = [];
+  fs.mkdirSync(options.archiveRoot, { recursive: true, mode: 0o700 });
+
+  for (const name of [...new Set(options.names)].sort()) {
+    assertPluginName(name);
+    const entry: ArchivedPluginEntry = { name, reason };
+    const srcPlugin = path.join(options.sourcePluginsDir, `${name}.ts`);
+    const srcAssets = path.join(options.sourceAssetsRoot, name);
+    const destDir = path.join(options.archiveRoot, name);
+    fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
+
+    if (fs.existsSync(srcPlugin) && fs.lstatSync(srcPlugin).isFile()) {
+      const destPlugin = path.join(destDir, `${name}.ts`);
+      atomicCopy(srcPlugin, destPlugin);
+      entry.pluginFile = destPlugin;
+    }
+
+    if (fs.existsSync(srcAssets)) {
+      ensureRegularTree(srcAssets);
+      const destAssets = path.join(destDir, "assets");
+      fs.rmSync(destAssets, { recursive: true, force: true });
+      fs.cpSync(srcAssets, destAssets, { recursive: true, errorOnExist: false });
+      entry.assetsDir = destAssets;
+    }
+
+    // Only record if we actually saved something
+    if (entry.pluginFile || entry.assetsDir) {
+      entries.push(entry);
+    }
+  }
+
+  const report: UnmatchedArchiveReport = {
+    sourceVersion: options.sourceVersion,
+    targetVersion: options.targetVersion,
+    archivedAt: new Date().toISOString(),
+    archiveRoot: options.archiveRoot,
+    entries,
+  };
+  atomicWrite(
+    path.join(options.archiveRoot, "manifest.json"),
+    `${JSON.stringify(report, null, 2)}\n`,
+  );
+  return report;
+}

@@ -205,8 +205,14 @@ async function resolvePendingSwitchNotification(
     if (!notification || notification.target !== currentVersion) return;
 
     const icon = currentVersion === "teleproto" ? "🟦" : "🟧";
-    const label = currentVersion === "teleproto" ? "teleproto (gramjs)" : "mtcute (native)";
-    const text = `🎉 **切换完成！** 现在运行的是 ${icon} ${label}\n\n想切回去？发 \`.switch revert\` 就行。`;
+    const label = currentVersion === "teleproto" ? "teleproto" : "mtcute";
+    const other = currentVersion === "teleproto" ? "mtcute" : "teleproto";
+    const summary = notification.summary ? `\n\n${notification.summary}` : "";
+    const text =
+      `🎉 **切换完成**\n\n` +
+      `现在运行：${icon} **${label}**` +
+      summary +
+      `\n\n再切回去：发 \`.switch go\`（会切到 ${other}）。`;
 
     await client.editMessage(notification.chatId, {
       message: notification.msgId,

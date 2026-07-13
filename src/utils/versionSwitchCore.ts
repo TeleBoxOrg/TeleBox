@@ -87,16 +87,26 @@ export function matchPlugins(
   sourceInstalledFiles: string[],
   sourceIndex: Record<string, PluginIndexEntry>,
   targetIndex: Record<string, PluginIndexEntry>,
+  /**
+   * Optional: plugin names that exist as target-native implementations on disk
+   * (targetPluginRepo/<name>/<name>.ts) even if missing from plugins.json.
+   */
+  targetAvailableNames: Iterable<string> = [],
 ): { install: MatchedPlugin[]; unavailable: string[] } {
   const installed = normalizedPluginNames(sourceInstalledFiles);
+  const targetAvailable = new Set(targetAvailableNames);
   const install: MatchedPlugin[] = [];
   const unavailable: string[] = [];
 
   for (const name of installed) {
     const source = sourceIndex[name];
     const target = targetIndex[name];
-    if (source?.url && target?.url) {
-      install.push({ name, url: target.url });
+    // Prefer index URL when present; otherwise allow filesystem-native target plugin.
+    if (target?.url || targetAvailable.has(name)) {
+      install.push({
+        name,
+        url: target?.url || source?.url || `local:${name}`,
+      });
     } else {
       unavailable.push(name);
     }

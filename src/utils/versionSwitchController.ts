@@ -25,7 +25,6 @@ import {
 import {
   buildCompatibilityReport,
   matchPlugins,
-  planPluginDataMigration,
   type PluginIndexEntry,
 } from "./versionSwitchCore";
 import {
@@ -33,6 +32,7 @@ import {
   restoreInstalledPlugins,
   executePluginDataMigration,
   restorePluginDataMigration,
+  archiveUnmatchedPlugins,
   type InstalledPluginJournal,
   type PluginDataJournal,
 } from "./versionSwitchFs";
@@ -155,6 +155,19 @@ function listInstalledPlugins(version: "teleproto" | "mtcute"): string[] {
   return fs.readdirSync(dir).filter((f) => f.endsWith(".ts"));
 }
 
+
+function listTargetNativePluginNames(pluginRepo: string): string[] {
+  if (!fs.existsSync(pluginRepo)) return [];
+  const names: string[] = [];
+  for (const entry of fs.readdirSync(pluginRepo, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "outdated" || entry.name === "scripts" || entry.name.startsWith(".")) continue;
+    const impl = path.join(pluginRepo, entry.name, `${entry.name}.ts`);
+    if (fs.existsSync(impl)) names.push(entry.name);
+  }
+  return names;
+}
+
 function runSessionConvert(source: "teleproto" | "mtcute", target: "teleproto" | "mtcute"): void {
   // Always run conversion under mtcute repo (has @mtcute/convert). Teleproto tree
   // only ships a thin launcher that re-execs the mtcute implementation.
@@ -244,44 +257,67 @@ async function main(): Promise<void> {
   const sourceIndex = loadPluginIndex(source);
   const targetIndex = loadPluginIndex(target);
   const sourceInstalled = listInstalledPlugins(source);
-  const { install } = matchPlugins(sourceInstalled, sourceIndex, targetIndex);
+  const targetPluginRepo = PLUGIN_INDEX_PATHS[target].replace(/\/plugins\.json$/, "");
+  const targetAvailable = listTargetNativePluginNames(targetPluginRepo);
+  const { install, unavailable } = matchPlugins(
+    sourceInstalled,
+    sourceIndex,
+    targetIndex,
+    targetAvailable,
+  );
 
-  console.log(`[controller] Installing ${install.length} matched plugins to ${target}...`);
   const txId = state.pendingTransaction ?? String(Date.now());
   const backupRoot = path.join(DEFAULT_SWITCH_HOME, "backups", txId);
+  const archiveRoot = path.join(DEFAULT_SWITCH_HOME, "archives", `${source}-to-${target}`, txId);
   let pluginJournal: InstalledPluginJournal | null = null;
   let dataJournal: PluginDataJournal | null = null;
+  let archivedCount = 0;
+
+  console.log(
+    `[controller] Plugins: ${install.length} install, ${unavailable.length} unavailable (archive)`,
+  );
 
   try {
+    // Archive plugins that have no counterpart on the target version
+    // (source file + assets/<plugin>/ configs) so nothing is silently lost.
+    if (unavailable.length > 0) {
+      console.log(`[controller] Archiving ${unavailable.length} unmatched plugins → ${archiveRoot}`);
+      const report = archiveUnmatchedPlugins({
+        names: unavailable,
+        sourceVersion: source,
+        targetVersion: target,
+        sourcePluginsDir: path.join(REPO_ROOTS[source], "plugins"),
+        sourceAssetsRoot: path.join(REPO_ROOTS[source], "assets"),
+        archiveRoot,
+      });
+      archivedCount = report.entries.length;
+      console.log(`[controller] Archived ${archivedCount} plugins (see ${archiveRoot}/manifest.json)`);
+    }
+
     if (install.length > 0) {
       pluginJournal = await installMatchedPlugins({
         matches: install,
-        targetPluginRepo: PLUGIN_INDEX_PATHS[target].replace(
-          /\/plugins\.json$/,
-          "",
-        ),
+        targetPluginRepo,
         targetPluginsDir: path.join(REPO_ROOTS[target], "plugins"),
         backupRoot: path.join(backupRoot, "plugins"),
       });
+    }
 
-      // ── Step 3: Migrate plugin data ──────────────────────────────────
-      console.log("[controller] Step 3: Migrating plugin data...");
-      const stepPlan = planPluginDataMigration({
-        plugins: install.map((m) => m.name),
+    // ── Step 3: Migrate plugin data / configs for ALL installed plugins ──
+    // Always attempt assets migration for matched plugins so configs aren't dropped
+    // even when the target already had a plugin file.
+    console.log("[controller] Step 3: Migrating plugin data/configs...");
+    const migrateNames = install.map((m) => m.name);
+    if (migrateNames.length > 0) {
+      dataJournal = executePluginDataMigration({
+        plugins: migrateNames,
         sourceAssetsRoot: path.join(REPO_ROOTS[source], "assets"),
         targetAssetsRoot: path.join(REPO_ROOTS[target], "assets"),
         backupRoot: path.join(backupRoot, "assets"),
       });
-
-      if (stepPlan.length > 0) {
-        const pluginNames = [...new Set(stepPlan.map((s) => s.plugin))];
-        dataJournal = executePluginDataMigration({
-          plugins: pluginNames,
-          sourceAssetsRoot: path.join(REPO_ROOTS[source], "assets"),
-          targetAssetsRoot: path.join(REPO_ROOTS[target], "assets"),
-          backupRoot: path.join(backupRoot, "assets"),
-        });
-      }
+      console.log(
+        `[controller] Migrated configs for ${dataJournal.entries.length} plugins with assets`,
+      );
     }
 
     // ── Step 4: Mark state and stop source ─────────────────────────────
@@ -289,6 +325,20 @@ async function main(): Promise<void> {
     const preSwitchState = loadSwitchState(DEFAULT_SWITCH_HOME);
     preSwitchState.activeVersion = target;
     preSwitchState.pendingTransaction = null;
+    // Attach migration summary for the post-switch notification
+    if (preSwitchState.pendingNotification) {
+      const lines = [
+        `插件：已同步 ${install.length} 个`,
+        archivedCount > 0
+          ? `仅当前版本有的插件：已保存 ${archivedCount} 个 → ~/.telebox-switch/archives/`
+          : "仅当前版本有的插件：无",
+        "配置：已把 assets 里的插件配置合并到目标版本",
+      ];
+      preSwitchState.pendingNotification = {
+        ...preSwitchState.pendingNotification,
+        summary: lines.join("\n"),
+      };
+    }
     saveSwitchState(preSwitchState, DEFAULT_SWITCH_HOME);
 
     // Inject external session into target version's config (only if external).
