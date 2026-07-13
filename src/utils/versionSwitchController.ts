@@ -41,14 +41,20 @@ import {
   resolveRepoRoots,
   resolvePluginIndexPath,
   spawnTsxSync,
+  ensureNestedLayout,
+  completePendingNest,
+  pm2StartEdition,
+  PEER_DIR_NAME,
 } from "./versionSwitchPaths";
 import fs from "fs";
 import path from "path";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
-// Resolved lazily so env overrides work and hardcoded /root paths are avoided.
-const REPO_ROOTS = resolveRepoRoots();
+// Nested layout under original runtime home (telebox-teleproto / telebox-mtcute).
+let REPO_ROOTS = resolveRepoRoots();
+const NESTED = ensureNestedLayout();
+REPO_ROOTS = NESTED.roots;
 const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string> = {
   teleproto: resolvePluginIndexPath("teleproto"),
   mtcute: resolvePluginIndexPath("mtcute"),
@@ -99,24 +105,10 @@ function pm2Stop(name: string): void {
 }
 
 function pm2StartVersion(version: "teleproto" | "mtcute"): void {
-  const name = PM2_NAMES[version];
+  // Always --cwd = edition subdir under runtime home (not the home itself).
   const repo = REPO_ROOTS[version];
-
-  if (getPm2Process(name)) {
-    // Recreate the PM2 process so stale ecosystem/launcher definitions are not reused.
-    runPm2(["delete", name], `delete stale ${name}`);
-  }
-
-  const command = "exec node scripts/run-tsx.cjs ./src/index.ts";
-  runPm2([
-    "start", "bash",
-    "--name", name,
-    "--cwd", repo,
-    "--time",
-    "--max-memory-restart", "512M",
-    "--restart-delay", "5000",
-    "--", "-lc", command,
-  ], `start ${name} via bash command`);
+  console.log(`[controller] PM2 start ${version} cwd=${repo} (${PEER_DIR_NAME[version]})`);
+  pm2StartEdition(version, repo, runPm2, getPm2Process);
 }
 
 function pm2(action: "stop" | "start" | "restart", name: string): void {
@@ -353,8 +345,36 @@ async function main(): Promise<void> {
     pm2("stop", PM2_NAMES[source]);
     console.log(`[controller] Stopped ${source} (${PM2_NAMES[source]})`);
 
-    // ── Step 5: Start target ───────────────────────────────────────────
+    // Flatten → nested: move live edition into home/telebox-xx after process stopped
+    const nestState = ensureNestedLayout();
+    if (nestState.pendingNest) {
+      console.log(
+        `[controller] Nesting flat install into ${PEER_DIR_NAME[nestState.pendingNest.version]}…`,
+      );
+      completePendingNest(nestState.pendingNest, nestState.home);
+      REPO_ROOTS = resolveRepoRoots();
+      console.log(
+        `[controller] Nested layout ready: teleproto=${REPO_ROOTS.teleproto} mtcute=${REPO_ROOTS.mtcute}`,
+      );
+      // Re-inject session into (possibly moved) target path
+      const afterNest = loadSwitchState(DEFAULT_SWITCH_HOME);
+      const sess = afterNest.sessions[target];
+      if (sess.kind === "external" && sess.path) {
+        injectSessionConfig(target, sess.path);
+      }
+    } else {
+      REPO_ROOTS = resolveRepoRoots();
+    }
+
+    // ── Step 5: Start target (PM2 --cwd = nested edition dir) ─────────
     console.log("[controller] Step 5: Starting target...");
+    // Drop any leftover process still pointing at flat home
+    for (const name of Object.values(PM2_NAMES)) {
+      const proc = getPm2Process(name);
+      if (proc) {
+        /* start path deletes+recreates target; source already stopped */
+      }
+    }
     pm2("start", PM2_NAMES[target]);
 
     // ── Step 6: Wait for ready ─────────────────────────────────────────
