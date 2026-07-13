@@ -24,6 +24,11 @@ import {
   resolveRepoRoot,
   spawnTsxDetached,
 } from "@utils/versionSwitchPaths";
+import {
+  resolveTeleprotoChatId,
+  readProgressSnapshot,
+  clearProgressSnapshot,
+} from "@utils/versionSwitchProgress";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -103,11 +108,12 @@ const T = {
     [
       `🚀 **正在切换到 ${EMOJI[target]} ${label(target)}**`,
       ``,
-      `1. 转换 session（不重新登录）`,
-      `2. 同步插件与配置`,
-      `3. 另一边没有的插件归档保存`,
+      `本条消息会**实时更新**每一步进度：`,
+      `• 准备目标版本（首次会下载依赖，可能较久）`,
+      `• 转换 session / 同步插件 / 合并配置`,
+      `• 停止当前版本 → 启动目标版本`,
       ``,
-      `bot 会短暂离线几秒，完成后这条消息会更新。`,
+      `切换过程中 bot 会短暂离线，进度会尽量实时更新。`,
     ].join("\n"),
 
   goNoSourceSession: () =>
@@ -132,15 +138,25 @@ const T = {
 };
 
 function spawnController(source: TeleBoxVersion, target: TeleBoxVersion): void {
-  // Target repo must have scripts/run-tsx.cjs. Never spawn bare "npx" (ENOENT under PM2).
-  const repoRoot = resolveRepoRoot(target);
+  // Run controller from SOURCE edition (always installed + deps ready).
+  // Target may not exist yet — controller prepares it with live progress.
+  // Never spawn bare "npx" (ENOENT under PM2).
+  const repoRoot = resolveRepoRoot(source);
+  const logDir = DEFAULT_SWITCH_HOME;
+  fs.mkdirSync(logDir, { recursive: true, mode: 0o700 });
+  const logPath = path.join(logDir, "controller.log");
+  const logFd = fs.openSync(logPath, "a");
+  fs.writeSync(
+    logFd,
+    `\n==== switch ${source} → ${target} @ ${new Date().toISOString()} ====\n`,
+  );
   const child = spawnTsxDetached(
     repoRoot,
     path.join(repoRoot, "src", "utils", "versionSwitchController.ts"),
     {
       cwd: repoRoot,
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", logFd, logFd],
       env: {
         ...process.env,
         SWITCH_SKIP_LOGIN: "0",
@@ -149,7 +165,15 @@ function spawnController(source: TeleBoxVersion, target: TeleBoxVersion): void {
       },
     },
   );
+  child.on("exit", () => {
+    try {
+      fs.closeSync(logFd);
+    } catch {
+      /* ignore */
+    }
+  });
   child.unref();
+  console.log(`[switch] controller spawned pid=${child.pid} log=${logPath}`);
 }
 
 const plugin = new (class extends Plugin {
@@ -199,8 +223,17 @@ const plugin = new (class extends Plugin {
     }
 
     await msg.edit({ text: T.goSwitching(target) });
+    // msg.peerId is an Api.TypePeer object — never Number(peerId).
+    const chatId = resolveTeleprotoChatId(msg);
+    if (chatId == null || Math.abs(chatId) === 777000) {
+      await msg.edit({
+        text: "❌ 无法识别当前对话，请在私聊中对账号发 `.switch go` 重试。",
+      });
+      return;
+    }
+    clearProgressSnapshot(DEFAULT_SWITCH_HOME);
     state.pendingNotification = {
-      chatId: Number(msg.chatId),
+      chatId,
       msgId: msg.id,
       target,
     };
@@ -221,8 +254,52 @@ const plugin = new (class extends Plugin {
           `没有的那一版会自动创建并下载。`,
         ].join("\n"),
       });
+      return;
     }
+    // Live progress: poll controller's progress.json and edit this message
+    void pollSwitchProgress(msg, chatId, msg.id);
   }
+
+  /**
+   * Poll ~/.telebox-switch/progress.json until done/fail or source process stops.
+   * Controller never opens a second MTProto session — avoids AUTH_KEY conflict.
+   */
 })();
+
+
+async function pollSwitchProgress(
+  msg: Api.Message,
+  chatId: number,
+  msgId: number,
+): Promise<void> {
+  const started = Date.now();
+  const MAX_MS = 25 * 60 * 1000; // 25 min (clone+npm can be slow)
+  const INTERVAL_MS = 1500;
+  let lastText = "";
+  let idleTicks = 0;
+
+  while (Date.now() - started < MAX_MS) {
+    await new Promise((r) => setTimeout(r, INTERVAL_MS));
+    const snap = readProgressSnapshot(DEFAULT_SWITCH_HOME);
+    if (!snap) {
+      idleTicks += 1;
+      // Controller may take a moment to write first snapshot
+      if (idleTicks > 20) break;
+      continue;
+    }
+    idleTicks = 0;
+    if (snap.text && snap.text !== lastText) {
+      lastText = snap.text;
+      try {
+        await msg.edit({ text: snap.text });
+      } catch (err) {
+        // Message deleted / FLOOD / client dying during stop — stop polling
+        console.warn("[switch] progress edit failed:", err);
+        break;
+      }
+    }
+    if (snap.failed || snap.done) break;
+  }
+}
 
 export default plugin;

@@ -203,6 +203,32 @@ function isValidRepo(repo: string, version: TeleBoxVersion): boolean {
   return detectEdition(repo) === version;
 }
 
+/** True when node_modules has real packages (not a placeholder .gitkeep). */
+export function hasUsableNodeModules(repo: string): boolean {
+  const nm = path.join(repo, "node_modules");
+  if (!fs.existsSync(nm)) return false;
+  try {
+    const entries = fs.readdirSync(nm).filter(
+      (e) => e !== ".gitkeep" && e !== ".package-lock.json" && !e.startsWith("."),
+    );
+    // Need at least one real package dir
+    return entries.some((e) => {
+      try {
+        return fs.statSync(path.join(nm, e)).isDirectory();
+      } catch {
+        return false;
+      }
+    });
+  } catch {
+    return false;
+  }
+}
+
+/** Repo is cloned AND dependencies installed — safe to run. */
+export function isRunnableRepo(repo: string, version: TeleBoxVersion): boolean {
+  return isValidRepo(repo, version) && hasUsableNodeModules(repo);
+}
+
 function uniqueDirs(dirs: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -313,10 +339,18 @@ function cloneEdition(version: TeleBoxVersion, targetDir: string): void {
 
 function ensureNpmInstall(repo: string, label: string): void {
   const pkg = path.join(repo, "package.json");
+  if (!fs.existsSync(pkg)) {
+    throw new Error(`缺少 package.json: ${repo}`);
+  }
   const nodeModules = path.join(repo, "node_modules");
-  if (!fs.existsSync(pkg) || fs.existsSync(nodeModules)) return;
+  // Placeholder node_modules (e.g. only .gitkeep) blocks install — remove it
+  if (fs.existsSync(nodeModules) && !hasUsableNodeModules(repo)) {
+    console.log(`[versionSwitch] 清理无效 node_modules (${label})`);
+    fs.rmSync(nodeModules, { recursive: true, force: true });
+  }
+  if (hasUsableNodeModules(repo)) return;
   console.log(`[versionSwitch] npm install (${label})…`);
-  const install = spawnSync("npm", ["install", "--omit=dev"], {
+  const install = spawnSync("npm", ["install"], {
     cwd: repo,
     stdio: "inherit",
     timeout: 600_000,
@@ -324,6 +358,9 @@ function ensureNpmInstall(repo: string, label: string): void {
   });
   if (install.status !== 0) {
     throw new Error(`npm install 失败: ${repo}`);
+  }
+  if (!hasUsableNodeModules(repo)) {
+    throw new Error(`npm install 后仍无可用依赖: ${repo}`);
   }
 }
 
@@ -391,7 +428,10 @@ export function completePendingNest(
  * Ensure dual-edition nested layout under original runtime home.
  * Does NOT move a live flat install until completePendingNest (after pm2 stop).
  */
-export function ensureNestedLayout(): NestedLayout {
+export function ensureNestedLayout(
+  options: { prepareMissing?: boolean } = {},
+): NestedLayout {
+  const prepareMissing = options.prepareMissing === true;
   const home = resolveRuntimeHome();
   const cache = loadPathCache();
   let pendingNest: PathCache["pendingNest"] | null = cache.pendingNest ?? null;
@@ -445,6 +485,14 @@ export function ensureNestedLayout(): NestedLayout {
     if (cached && isValidRepo(cached, version) && cached !== dest) {
       // Prefer nested under home: if dest empty/missing, we could leave external
       // but user asked for everything under runtime home — clone into dest
+    }
+
+    if (!prepareMissing) {
+      // Plugin path: never block the bot on git clone / npm install
+      if (isValidRepo(dest, version)) {
+        savePathCache({ [version]: dest, runtimeHome: home });
+      }
+      continue;
     }
 
     if (!fs.existsSync(dest) || fs.readdirSync(dest).length === 0) {
@@ -516,7 +564,10 @@ export function ensureNestedLayout(): NestedLayout {
 /**
  * Resolve absolute path to a TeleBox edition checkout under runtime home.
  */
-export function resolveRepoRoot(version: TeleBoxVersion): string {
+export function resolveRepoRoot(
+  version: TeleBoxVersion,
+  options: { prepare?: boolean } = {},
+): string {
   const envKey =
     version === "teleproto" ? "TELEBOX_TELEPROTO_ROOT" : "TELEBOX_MTCUTE_ROOT";
   const fromEnv = process.env[envKey]?.trim();
@@ -525,22 +576,88 @@ export function resolveRepoRoot(version: TeleBoxVersion): string {
     if (!isValidRepo(resolved, version)) {
       throw new Error(`${envKey}=${fromEnv} 不是有效的 ${version} 仓库`);
     }
+    if (options.prepare) ensureNpmInstall(resolved, path.basename(resolved));
     savePathCache({ [version]: resolved });
     return resolved;
   }
 
-  const layout = ensureNestedLayout();
-  const root = layout.roots[version];
-  if (!isValidRepo(root, version)) {
-    throw new Error(
-      `无法准备 ${version}（期望 ${path.join(layout.home, PEER_DIR_NAME[version])}）`,
-    );
+  if (options.prepare) {
+    return prepareEdition(version);
   }
-  return root;
+
+  const layout = ensureNestedLayout({ prepareMissing: false });
+  const root = layout.roots[version];
+  // Source edition is usually the flat home or nested — must already exist
+  if (isValidRepo(root, version)) return root;
+  // Target may not exist yet — return expected nested path (controller prepares)
+  return path.join(layout.home, PEER_DIR_NAME[version]);
 }
 
-export function resolveRepoRoots(): Record<TeleBoxVersion, string> {
-  return ensureNestedLayout().roots;
+/**
+ * Clone (if needed) + npm install edition under runtime home.
+ * Safe to call from controller with progress; never from the live bot hot path.
+ */
+export function prepareEdition(version: TeleBoxVersion): string {
+  const home = resolveRuntimeHome();
+  const dest = path.join(home, PEER_DIR_NAME[version]);
+  const cache = loadPathCache();
+  const pending = cache.pendingNest;
+  const isPendingFlat =
+    pending?.version === version &&
+    path.resolve(pending.from) === path.resolve(home);
+
+  if (isPendingFlat) {
+    // Still flat at home until nest after pm2 stop
+    if (isValidRepo(home, version)) {
+      ensureNpmInstall(home, PEER_DIR_NAME[version]);
+      savePathCache({ [version]: home, runtimeHome: home });
+      return home;
+    }
+  }
+
+  if (isRunnableRepo(dest, version)) {
+    savePathCache({ [version]: dest, runtimeHome: home });
+    return dest;
+  }
+
+  if (isValidRepo(dest, version)) {
+    ensureNpmInstall(dest, PEER_DIR_NAME[version]);
+    savePathCache({ [version]: dest, runtimeHome: home });
+    return dest;
+  }
+
+  // Incomplete / empty dir from a previous failed clone
+  if (fs.existsSync(dest)) {
+    const hasPkg = fs.existsSync(path.join(dest, "package.json"));
+    const hasGit = fs.existsSync(path.join(dest, ".git"));
+    if (!hasPkg) {
+      console.log(`[versionSwitch] 删除不完整目录 ${dest}`);
+      fs.rmSync(dest, { recursive: true, force: true });
+    } else if (hasGit && !hasUsableNodeModules(dest)) {
+      ensureNpmInstall(dest, PEER_DIR_NAME[version]);
+      if (isRunnableRepo(dest, version)) {
+        savePathCache({ [version]: dest, runtimeHome: home });
+        return dest;
+      }
+    }
+  }
+
+  console.log(`[versionSwitch] 准备 ${PEER_DIR_NAME[version]} → ${dest}`);
+  cloneEdition(version, dest);
+  ensureNpmInstall(dest, PEER_DIR_NAME[version]);
+  if (!isRunnableRepo(dest, version)) {
+    throw new Error(`准备 ${version} 失败: ${dest}`);
+  }
+  savePathCache({ [version]: dest, runtimeHome: home });
+  return dest;
+}
+
+export function resolveRepoRoots(
+  options: { prepareMissing?: boolean } = {},
+): Record<TeleBoxVersion, string> {
+  return ensureNestedLayout({
+    prepareMissing: options.prepareMissing === true,
+  }).roots;
 }
 
 function isPluginIndex(file: string): boolean {
@@ -704,8 +821,8 @@ export function pm2StartEdition(
   getPm2Process: (name: string) => unknown,
 ): void {
   const name = PM2_PROCESS_NAMES[version];
-  if (!isValidRepo(repoRoot, version)) {
-    throw new Error(`PM2 start: 无效仓库 ${repoRoot} (${version})`);
+  if (!isRunnableRepo(repoRoot, version)) {
+    throw new Error(`PM2 start: 仓库未就绪（缺依赖） ${repoRoot} (${version})`);
   }
   if (getPm2Process(name)) {
     runPm2(["delete", name], `delete stale ${name}`);

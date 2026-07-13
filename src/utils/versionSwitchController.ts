@@ -44,16 +44,19 @@ import {
   ensureNestedLayout,
   completePendingNest,
   pm2StartEdition,
+  prepareEdition,
   PEER_DIR_NAME,
+  isRunnableRepo,
 } from "./versionSwitchPaths";
+import { SwitchProgressReporter } from "./versionSwitchProgress";
 import fs from "fs";
 import path from "path";
 
 // ─── Config ────────────────────────────────────────────────────────────────
 
 // Nested layout under original runtime home (telebox-classic / telebox-next).
-let REPO_ROOTS = resolveRepoRoots();
-const NESTED = ensureNestedLayout();
+let REPO_ROOTS = resolveRepoRoots({ prepareMissing: false });
+const NESTED = ensureNestedLayout({ prepareMissing: false });
 REPO_ROOTS = NESTED.roots;
 const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string> = {
   teleproto: resolvePluginIndexPath("teleproto"),
@@ -194,6 +197,7 @@ async function main(): Promise<void> {
   let source: "teleproto" | "mtcute";
   let target: "teleproto" | "mtcute";
   let extPath: string;
+  let progress: SwitchProgressReporter | null = null;
 
   if (skipLogin && envSource && envTarget) {
     // Fast path: session already exists (native or external)
@@ -217,24 +221,7 @@ async function main(): Promise<void> {
     source = envSource;
     target = envTarget;
     console.log(`[controller] Converting session then switching ${source} → ${target}`);
-
-    console.log("[controller] Step 1: Converting session offline...");
-    try {
-      runSessionConvert(source, target);
-    } catch (err) {
-      console.error("[controller] Session convert failed:", err);
-      state.pendingTransaction = null;
-      state.pendingLogin = null;
-      state.stagedSecrets = {};
-      saveSwitchState(state, DEFAULT_SWITCH_HOME);
-      process.exit(1);
-    }
-
-    extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME) ?? "";
-    if (!extPath) {
-      throw new Error("Session convert succeeded but external session path is missing");
-    }
-    console.log(`[controller] Converted session ready: ${extPath}`);
+    extPath = "";
   } else {
     throw new Error(
       "Controller requires SWITCH_SOURCE + SWITCH_TARGET (session convert). " +
@@ -242,8 +229,68 @@ async function main(): Promise<void> {
     );
   }
 
+  // Live progress on the original .switch go message (works after PM2 stop)
+  progress = new SwitchProgressReporter(source, target);
+  await progress.init();
+  await progress.set("layout", "running", `准备 ${PEER_DIR_NAME[target]}…`);
+
+  // Prepare target edition (clone + npm install) — may take minutes first time
+  try {
+    const targetRoot = prepareEdition(target);
+    REPO_ROOTS = { ...REPO_ROOTS, [target]: targetRoot };
+    // Source must remain resolvable
+    try {
+      const srcRoot = prepareEdition(source);
+      REPO_ROOTS = { ...REPO_ROOTS, [source]: srcRoot };
+    } catch (e) {
+      // Source is current running install — resolve without full prepare
+      REPO_ROOTS = resolveRepoRoots({ prepareMissing: false });
+      REPO_ROOTS[target] = targetRoot;
+    }
+    if (!isRunnableRepo(REPO_ROOTS[target], target)) {
+      throw new Error(`目标版本未就绪: ${REPO_ROOTS[target]}`);
+    }
+    await progress.set("layout", "done", PEER_DIR_NAME[target]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[controller] prepare target failed:", err);
+    await progress.fail(msg);
+    await progress.close();
+    process.exit(1);
+  }
+
+  // ── Step 1: Session convert (unless skip) ──────────────────────────
+  if (skipLogin) {
+    await progress.set("convert", "skip", "已有 session");
+  } else {
+    await progress.set("convert", "running");
+    console.log("[controller] Step 1: Converting session offline...");
+    try {
+      runSessionConvert(source, target);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[controller] Session convert failed:", err);
+      await progress.fail(msg);
+      state.pendingTransaction = null;
+      state.pendingLogin = null;
+      state.stagedSecrets = {};
+      saveSwitchState(state, DEFAULT_SWITCH_HOME);
+      await progress.close();
+      process.exit(1);
+    }
+    extPath = resolveExternalSessionPath(target, DEFAULT_SWITCH_HOME) ?? "";
+    if (!extPath) {
+      await progress.fail("Session convert succeeded but external session path is missing");
+      await progress.close();
+      throw new Error("Session convert succeeded but external session path is missing");
+    }
+    console.log(`[controller] Converted session ready: ${extPath}`);
+    await progress.set("convert", "done");
+  }
+
   // ── Step 2: Match and install plugins ────────────────────────────────
   console.log("[controller] Step 2: Matching plugins...");
+  await progress.set("plugins", "running");
   const sourceIndex = loadPluginIndex(source);
   const targetIndex = loadPluginIndex(target);
   const sourceInstalled = listInstalledPlugins(source);
@@ -266,11 +313,17 @@ async function main(): Promise<void> {
   console.log(
     `[controller] Plugins: ${install.length} install, ${unavailable.length} unavailable (archive)`,
   );
+  await progress.set(
+    "plugins",
+    install.length > 0 ? "running" : "done",
+    install.length > 0 ? `安装 ${install.length} 个` : "无需安装",
+  );
 
   try {
     // Archive plugins that have no counterpart on the target version
     // (source file + assets/<plugin>/ configs) so nothing is silently lost.
     if (unavailable.length > 0) {
+      await progress.set("archive", "running", `${unavailable.length} 个`);
       console.log(`[controller] Archiving ${unavailable.length} unmatched plugins → ${archiveRoot}`);
       const report = archiveUnmatchedPlugins({
         names: unavailable,
@@ -282,9 +335,13 @@ async function main(): Promise<void> {
       });
       archivedCount = report.entries.length;
       console.log(`[controller] Archived ${archivedCount} plugins (see ${archiveRoot}/manifest.json)`);
+      await progress.set("archive", "done", `已保存 ${archivedCount} 个`);
+    } else {
+      await progress.set("archive", "skip", "无");
     }
 
     if (install.length > 0) {
+      await progress.set("plugins", "running", `安装 ${install.length} 个…`);
       pluginJournal = await installMatchedPlugins({
         matches: install,
         targetPluginRepo,
@@ -293,10 +350,17 @@ async function main(): Promise<void> {
       });
     }
 
+    await progress.set(
+      "plugins",
+      "done",
+      install.length > 0 ? `已同步 ${install.length} 个` : "无需安装",
+    );
+
     // ── Step 3: Migrate plugin data / configs for ALL installed plugins ──
     // Always attempt assets migration for matched plugins so configs aren't dropped
     // even when the target already had a plugin file.
     console.log("[controller] Step 3: Migrating plugin data/configs...");
+    await progress.set("configs", "running");
     const migrateNames = install.map((m) => m.name);
     if (migrateNames.length > 0) {
       dataJournal = executePluginDataMigration({
@@ -308,10 +372,14 @@ async function main(): Promise<void> {
       console.log(
         `[controller] Migrated configs for ${dataJournal.entries.length} plugins with assets`,
       );
+      await progress.set("configs", "done", `${dataJournal.entries.length} 项`);
+    } else {
+      await progress.set("configs", "skip", "无配置可合并");
     }
 
     // ── Step 4: Mark state and stop source ─────────────────────────────
     console.log("[controller] Step 4: Marking state and stopping source...");
+    await progress.set("stop", "running", "即将离线…");
     const preSwitchState = loadSwitchState(DEFAULT_SWITCH_HOME);
     preSwitchState.activeVersion = target;
     preSwitchState.pendingTransaction = null;
@@ -344,10 +412,12 @@ async function main(): Promise<void> {
 
     pm2("stop", PM2_NAMES[source]);
     console.log(`[controller] Stopped ${source} (${PM2_NAMES[source]})`);
+    await progress.set("stop", "done", "源 bot 已离线，后续由目标版完成通知");
 
     // Flatten → nested: move live edition into home/telebox-xx after process stopped
     const nestState = ensureNestedLayout();
     if (nestState.pendingNest) {
+      await progress.set("nest", "running");
       console.log(
         `[controller] Nesting flat install into ${PEER_DIR_NAME[nestState.pendingNest.version]}…`,
       );
@@ -362,12 +432,15 @@ async function main(): Promise<void> {
       if (sess.kind === "external" && sess.path) {
         injectSessionConfig(target, sess.path);
       }
+      await progress.set("nest", "done");
     } else {
       REPO_ROOTS = resolveRepoRoots();
+      await progress.set("nest", "skip", "已是嵌套布局");
     }
 
     // ── Step 5: Start target (PM2 --cwd = nested edition dir) ─────────
     console.log("[controller] Step 5: Starting target...");
+    await progress.set("start", "running", PM2_NAMES[target]);
     // Drop any leftover process still pointing at flat home
     for (const name of Object.values(PM2_NAMES)) {
       const proc = getPm2Process(name);
@@ -377,8 +450,11 @@ async function main(): Promise<void> {
     }
     pm2("start", PM2_NAMES[target]);
 
+    await progress.set("start", "done");
+
     // ── Step 6: Wait for ready ─────────────────────────────────────────
     console.log("[controller] Step 6: Waiting for target to come online...");
+    await progress.set("ready", "running", "等待上线…");
     const deadline = Date.now() + READY_TIMEOUT_MS;
     let ready = false;
     while (Date.now() < deadline) {
@@ -394,8 +470,15 @@ async function main(): Promise<void> {
     }
 
     console.log(`[controller] ✅ Switch complete: ${source} → ${target}`);
+    await progress.set("ready", "done", "已上线");
+    await progress.done("目标版本已上线，正在完成最终通知…");
+    await progress.close();
   } catch (err) {
     console.error("[controller] Switch failed, rolling back...", err);
+    const msg = err instanceof Error ? err.message : String(err);
+    try {
+      await progress?.fail(msg);
+    } catch { /* ignore */ }
 
     // Rollback: restore plugin data, restore plugins, restart source
     try {
@@ -421,6 +504,9 @@ async function main(): Promise<void> {
     failState.sessions[target] = { kind: "native" }; // revert to native
     saveSwitchState(failState, DEFAULT_SWITCH_HOME);
 
+    try {
+      await progress?.close();
+    } catch { /* ignore */ }
     process.exit(1);
   }
 }
