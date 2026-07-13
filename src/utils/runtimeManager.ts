@@ -205,8 +205,8 @@ async function resolvePendingSwitchNotification(
     if (!notification || notification.target !== currentVersion) return;
 
     const icon = currentVersion === "teleproto" ? "🟦" : "🟧";
-    const label = currentVersion === "teleproto" ? "teleproto" : "mtcute";
-    const other = currentVersion === "teleproto" ? "mtcute" : "teleproto";
+    const label = currentVersion === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
+    const other = currentVersion === "teleproto" ? "TeleBox-Next" : "TeleBox Classic";
     const summary = notification.summary ? `\n\n${notification.summary}` : "";
     const text =
       `🎉 **切换完成**\n\n` +

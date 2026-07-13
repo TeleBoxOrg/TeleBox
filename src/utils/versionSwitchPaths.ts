@@ -3,11 +3,11 @@
  *
  * Layout (after first .switch go):
  *   <runtimeHome>/                 e.g. ~/telebox  (original install path)
- *     telebox-teleproto/           teleproto edition
- *     telebox-mtcute/              mtcute edition
+ *     telebox-classic/             TeleBox Classic (teleproto)
+ *     telebox-next/                TeleBox-Next (mtcute)
  *
  * Flat installs (code at runtimeHome root) are restructured on first switch:
- * current edition moves into telebox-teleproto|telebox-mtcute; peer is cloned
+ * current edition moves into telebox-classic|telebox-next; peer is cloned
  * as the sibling. PM2 --cwd always points at the edition subdir, not home.
  *
  * Never spawn bare "npx"/"tsx" from PATH — use process.execPath + run-tsx.cjs.
@@ -27,16 +27,53 @@ import { DEFAULT_SWITCH_HOME } from "./versionSwitchState";
 
 /** Canonical edition folder names under runtime home. */
 export const PEER_DIR_NAME: Record<TeleBoxVersion, string> = {
-  teleproto: "telebox-teleproto",
-  mtcute: "telebox-mtcute",
+  teleproto: "telebox-classic",
+  mtcute: "telebox-next",
 };
 
+/** Legacy folder names still accepted when resolving existing installs. */
+const LEGACY_PEER_DIR_NAMES: Record<TeleBoxVersion, string[]> = {
+  teleproto: ["telebox-teleproto", "telebox-classic"],
+  mtcute: ["telebox-mtcute", "telebox_mtcute", "TeleBox_M", "telebox-next"],
+};
+
+function isEditionSubdirName(base: string): boolean {
+  return (
+    base === PEER_DIR_NAME.teleproto ||
+    base === PEER_DIR_NAME.mtcute ||
+    LEGACY_PEER_DIR_NAMES.teleproto.includes(base) ||
+    LEGACY_PEER_DIR_NAMES.mtcute.includes(base)
+  );
+}
+
+function nestedCandidates(home: string, version: TeleBoxVersion): string[] {
+  const names = [
+    PEER_DIR_NAME[version],
+    ...LEGACY_PEER_DIR_NAMES[version],
+  ];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    out.push(path.join(home, name));
+  }
+  return out;
+}
+
+function findNestedEdition(home: string, version: TeleBoxVersion): string | null {
+  for (const candidate of nestedCandidates(home, version)) {
+    if (isValidRepo(candidate, version)) return candidate;
+  }
+  return null;
+}
+
 const TELEPROTO_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox.git";
-const MTCUTE_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox_M.git";
+const MTCUTE_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox-Next.git";
 const TELEPROTO_PLUGIN_CLONE_URL =
   "https://github.com/TeleBoxOrg/TeleBox_Plugins.git";
 const MTCUTE_PLUGIN_CLONE_URL =
-  "https://github.com/TeleBoxOrg/TeleBox_M_Plugins.git";
+  "https://github.com/TeleBoxOrg/TeleBox-Next_Plugins.git";
 
 const PATH_CACHE_FILE = path.join(DEFAULT_SWITCH_HOME, "paths.json");
 
@@ -46,8 +83,10 @@ const HOME_RESERVED = new Set([
   PEER_DIR_NAME.mtcute,
   "TeleBox_Plugins",
   "TeleBox_M_Plugins",
+  "TeleBox-Next_Plugins",
   "telebox_plugins",
   "telebox_m_plugins",
+  "telebox-next_plugins",
 ]);
 
 interface PathCache {
@@ -209,7 +248,7 @@ function listPm2Cwds(): string[] {
 
 /**
  * Runtime home = original user install directory that owns both editions.
- * Example: ~/telebox containing telebox-teleproto + telebox-mtcute.
+ * Example: ~/telebox containing telebox-classic + telebox-next.
  */
 export function resolveRuntimeHome(): string {
   const cache = loadPathCache();
@@ -220,7 +259,7 @@ export function resolveRuntimeHome(): string {
   const current = findCurrentInstallRoot();
   if (current) {
     const base = path.basename(current);
-    if (base === PEER_DIR_NAME.teleproto || base === PEER_DIR_NAME.mtcute) {
+    if (isEditionSubdirName(base)) {
       const home = path.dirname(current);
       savePathCache({ runtimeHome: home });
       return home;
@@ -234,7 +273,7 @@ export function resolveRuntimeHome(): string {
     const edition = detectEdition(cwd);
     if (!edition) continue;
     const base = path.basename(cwd);
-    if (base === PEER_DIR_NAME.teleproto || base === PEER_DIR_NAME.mtcute) {
+    if (isEditionSubdirName(base)) {
       const home = path.dirname(cwd);
       savePathCache({ runtimeHome: home });
       return home;
@@ -357,8 +396,11 @@ export function ensureNestedLayout(): NestedLayout {
   const cache = loadPathCache();
   let pendingNest: PathCache["pendingNest"] | null = cache.pendingNest ?? null;
 
-  const nestedTele = path.join(home, PEER_DIR_NAME.teleproto);
-  const nestedMtcute = path.join(home, PEER_DIR_NAME.mtcute);
+  const nestedTele =
+    findNestedEdition(home, "teleproto") ??
+    path.join(home, PEER_DIR_NAME.teleproto);
+  const nestedMtcute =
+    findNestedEdition(home, "mtcute") ?? path.join(home, PEER_DIR_NAME.mtcute);
 
   const homeEdition = detectEdition(home);
   const teleReady = isValidRepo(nestedTele, "teleproto");
@@ -541,7 +583,7 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
   const names =
     version === "teleproto"
       ? ["TeleBox_Plugins", "telebox_plugins"]
-      : ["TeleBox_M_Plugins", "telebox_m_plugins"];
+      : ["TeleBox-Next_Plugins", "TeleBox_M_Plugins", "telebox_m_plugins", "telebox-next_plugins"];
 
   const candidates = [
     ...names.map((n) => path.join(home, n, "plugins.json")),
@@ -555,7 +597,7 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
   }
 
   const defaultName =
-    version === "teleproto" ? "TeleBox_Plugins" : "TeleBox_M_Plugins";
+    version === "teleproto" ? "TeleBox_Plugins" : "TeleBox-Next_Plugins";
   const cloneTarget = path.join(home, defaultName);
   if (!fs.existsSync(cloneTarget)) {
     console.log(`[versionSwitch] 克隆插件索引 → ${cloneTarget}`);
@@ -649,7 +691,7 @@ export function spawnTsxDetached(
  */
 export const PM2_PROCESS_NAMES: Record<TeleBoxVersion, string> = {
   teleproto: "telebox",
-  mtcute: "telebox-mtcute",
+  mtcute: "telebox-next",
 };
 
 /**
