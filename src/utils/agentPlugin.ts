@@ -55,7 +55,7 @@ function parseTimeout(value: unknown) {
   const factor = unit === "ms" || unit === "\u6BEB\u79D2" ? 1 : ["s", "sec", "\u79D2"].includes(unit) ? 1e3 : ["h", "hr", "\u5C0F\u65F6"].includes(unit) ? 36e5 : 6e4;
   return Math.min(864e5, Math.max(1e4, Math.round(amount * factor)));
 }
-function formatDuration(ms: any) {
+function formatDuration(ms: number) {
   const minutes = ms / 6e4;
   return Number.isInteger(minutes) ? `${minutes} \u5206\u949F` : `${minutes.toFixed(1)} \u5206\u949F`;
 }
@@ -65,19 +65,19 @@ function scopeName(scope: AgentScope) {
 function scopeCommand(scope: AgentScope) {
   return `${mainPrefix}${scope === "system" ? "sysagent" : "agent"}`;
 }
-function menuSection(title: string, rows: any) {
+function menuSection(title: string, rows: Array<[string, string]>) {
   return [
     tgBold(title),
     ...rows.map(
-      ([command, description]: any) => `${tgCode(command)} ${tgEscape(description)}`
+      ([command, description]: [string, string]) => `${tgCode(command)} ${tgEscape(description)}`
     )
   ].join("\n");
 }
-function infoCard(title: string, rows: any) {
+function infoCard(title: string, rows: Array<[string, string]>) {
   return [
     tgBold(title),
     tgHtmlBlockquote(
-      rows.map(([label, value]: any) => `${tgEscape(label)}\uFF1A${tgCode(value)}`).join("\n")
+      rows.map(([label, value]: [string, string]) => `${tgEscape(label)}\uFF1A${tgCode(value)}`).join("\n")
     )
   ].join("\n");
 }
@@ -90,7 +90,7 @@ function errorCard(message: string) {
 function helpText(scope: AgentScope, displayName = "") {
   const prefix = scopeCommand(scope);
   const other = scope === "system" ? `${mainPrefix}agent` : `${mainPrefix}sysagent`;
-  const alias = (en: any, cn: any) => `${en} / ${tgEscape(cn)}`;
+  const alias = (en: string, cn: string) => `${en} / ${tgEscape(cn)}`;
   return [
     displayName ? `<b>${tgEscape(displayName)}</b> \u00B7 ${tgEscape(scopeName(scope))}\u667A\u80FD\u4F53` : `<b>${tgEscape(scopeName(scope))}\u667A\u80FD\u4F53</b>`,
     tgBlockquote("\u8BF7\u6C42\u4E00\u822C\u8BDD\u3001\u53EF\u6307\u4EE4\u3002\u547D\u4EE4\u4E3A\u82F1\u6587\u5173\u952E\u8BCD\uFF0C\u539F\u62FC\u97F3/\u4E2D\u6587\u522B\u540D\u4ECD\u517C\u5BB9\u3002"),
@@ -141,7 +141,7 @@ function helpText(scope: AgentScope, displayName = "") {
     )
   ].join("\n\n");
 }
-function formatWorkspaceList(root: string, current: string, entries: any) {
+function formatWorkspaceList(root: string, current: string, entries: string[]) {
   return [
     infoCard("\u5DE5\u4F5C\u533A\u6587\u4EF6", [
       ["\u76EE\u5F55", root],
@@ -152,7 +152,7 @@ function formatWorkspaceList(root: string, current: string, entries: any) {
     tgBlockquote(entries.join("\n") || "\u6682\u65E0\u6587\u4EF6\u3002", true)
   ].join("\n\n");
 }
-async function collectWorkspaceEntries(root: string, current: string, output: any[] = []) {
+async function collectWorkspaceEntries(root: string, current: string, output: string[] = []) {
   if (output.length >= MAX_WORKSPACE_LIST) return output;
   const items = await import_fs4.promises.readdir(current, { withFileTypes: true });
   items.sort((left, right) => left.name.localeCompare(right.name));
@@ -208,7 +208,7 @@ const AgentPlugin = class extends Plugin {
   cleanup() {
     this.abortSignal = void 0;
   }
-  async handle(msg: any, scope: AgentScope, planFirst: any) {
+  async handle(msg: any, scope: AgentScope, planFirst: boolean) {
     try {
       const body = splitBody(msg.message || msg.text || "");
       const config = await readConfig();
@@ -268,7 +268,7 @@ const AgentPlugin = class extends Plugin {
       await showHtmlMessage(msg, errorCard(formatProviderError(error)));
     }
   }
-  async run(msg: any, prompt: any, options: AgentOptions) {
+  async run(msg: any, prompt: string, options: AgentOptions) {
     const scope = options.scope ?? "private";
     const session = await getSession(msg, scope);
     const provider = getProvider(session.config);
@@ -324,8 +324,8 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
       planFirst: Boolean(options.planFirst),
       dispatchPlugin: async (command: string) => { await dispatchPluginCaptured(msg, command); },
       onPlanChange: async (plan: any) => await status.setPlan(plan),
-      onToolStart: async (name: string, args: any) => await status.toolStart(name, args),
-      onToolFinish: async (name: string, args: any, result: ToolResult) => await status.toolFinish(name, args, result)
+      onToolStart: async (name: string, args: Record<string, unknown>) => await status.toolStart(name, args),
+      onToolFinish: async (name: string, args: Record<string, unknown>, result: ToolResult) => await status.toolFinish(name, args, result)
     };
     try {
       const result = await runAgent({
@@ -334,7 +334,7 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
         history: conversationToMessages(session.conversation),
         userMessage: { role: "user", content: userContent, images: reply.images },
         displayName,
-        onStep: async (step: any) => {
+        onStep: async (step: number) => {
           if (this.abortSignal?.aborted) {
             status.markAborted();
             throw new Error("\u63D2\u4EF6\u5DF2\u91CD\u8F7D\uFF0C\u672C\u8F6E\u4EFB\u52A1\u5DF2\u505C\u6B62");
@@ -418,7 +418,7 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
         if (!name) throw new Error(`\u7528\u6CD5\uFF1A${prefix} config use <\u540D\u79F0>`);
         const config = await readConfig();
         if (!config.providers?.[name]) throw new Error(`\u627E\u4E0D\u5230\u4F9B\u5E94\u5546\uFF1A${name}\uFF08${prefix} config list \u67E5\u770B\u5168\u90E8\uFF09`);
-        await updateConfig((c: any) => { c.default_provider = name; });
+        await updateConfig((c) => { c.default_provider = name; });
         await showHtmlMessage(msg, successCard("\u5DF2\u5207\u6362\u4F9B\u5E94\u5546", `${name} \u00B7 ${config.providers[name].model}`));
         return;
       }

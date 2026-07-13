@@ -8,7 +8,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
 function trimBase(url: string | undefined | null) {
   return String(url || "").trim().replace(/\/+$/g, "");
 }
-function stripKnownEndpoint(url: any) {
+function stripKnownEndpoint(url: string) {
   let base = trimBase(String(url || "").split(/[?#]/, 1)[0] || "");
   const patterns = [
     /\/models\/[^/]+:(?:generateContent|streamGenerateContent)$/i,
@@ -27,7 +27,7 @@ function stripKnownEndpoint(url: any) {
   }
   return base;
 }
-function hasVersionPath(url: any) {
+function hasVersionPath(url: string) {
   try {
     const parsed = new URL(url.includes("://") ? url : `https://${url}`);
     return /\/v\d+(?:beta|alpha)?(?:\/|$)/i.test(parsed.pathname);
@@ -35,7 +35,7 @@ function hasVersionPath(url: any) {
     return /\/v\d+(?:beta|alpha)?(?:\/|$)/i.test(url);
   }
 }
-function endpoint(provider: AIProvider, kind: any) {
+function endpoint(provider: AIProvider, kind: string) {
   const base = stripKnownEndpoint(provider.base_url);
   if (kind === "gemini") {
     const model = encodeURIComponent(provider.model.replace(/^models\//, ""));
@@ -58,8 +58,8 @@ function providerInterface(provider: AIProvider) {
   return "openai";
 }
 function requestAuth(provider: AIProvider) {
-  const headers: any = { "Content-Type": "application/json" };
-  const params: any = {};
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const params: Record<string, string> = {};
   if (provider.type === "gemini") {
     if (provider.auth_method === "api_key_header") headers["x-goog-api-key"] = provider.api_key;
     else params.key = provider.api_key;
@@ -73,9 +73,9 @@ function requestAuth(provider: AIProvider) {
 function systemPrompt(messages: ChatMessage[]) {
   return messages.filter((message: ChatMessage) => message.role === "system").map((message: ChatMessage) => message.content).join("\n\n");
 }
-function parseArguments(value: unknown): any {
+function parseArguments(value: unknown): Record<string, unknown> {
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value;
+    return value as Record<string, unknown>;
   }
   const text = String(value || "").trim();
   if (!text) return {};

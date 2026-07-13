@@ -132,7 +132,7 @@ function legacyToolCall(text: string) {
   if (parsed.action === "answer" && typeof parsed.content === "string") {
     return { answer: parsed.content };
   }
-  const actionMap: any = {
+  const actionMap: Record<string, string> = {
     run_system: "run_command",
     execute_command: "run_command",
     exec: "run_command",
@@ -145,7 +145,7 @@ function legacyToolCall(text: string) {
   };
   const tool = typeof parsed.action === "string" ? actionMap[parsed.action] : "";
   if (!tool) return null;
-  const args: any = {};
+  const args: Record<string, string> = {};
   if (typeof parsed.command === "string") args.command = parsed.command;
   if (typeof parsed.path === "string") args.path = parsed.path;
   if (typeof parsed.content === "string") args.content = parsed.content;
@@ -155,7 +155,7 @@ function legacyToolCall(text: string) {
   if (typeof parsed.new_text === "string") args.new_text = parsed.new_text;
   return { call: { id: `legacy_${Date.now()}`, name: tool, arguments: args } };
 }
-function toolResultMessage(call: ToolCall, ok: any, content: any) {
+function toolResultMessage(call: ToolCall, ok: boolean, content: unknown) {
   return {
     role: "tool",
     toolCallId: call.id,
@@ -269,7 +269,7 @@ function tgBold(text: string) {
 function tgBlockquote(text: string, expandable = false) {
   return `<blockquote${expandable ? " expandable" : ""}>${tgEscape(text || " ")}</blockquote>`;
 }
-function tgHtmlBlockquote(html: any, expandable = false) {
+function tgHtmlBlockquote(html: string, expandable = false) {
   return `<blockquote${expandable ? " expandable" : ""}>${html || " "}</blockquote>`;
 }
 function renderSharedAiIcon(icon: any) {
@@ -380,7 +380,7 @@ function usageTotal(usage: Usage) {
   const total = (usage?.prompt || 0) + (usage?.completion || 0);
   return total ? String(total) : "\u672A\u77E5";
 }
-function elapsed(startedAt: any) {
+function elapsed(startedAt: number) {
   const seconds = Math.max(0, Math.round((Date.now() - startedAt) / 1e3));
   if (seconds < 60) return `${seconds}\u79D2`;
   const minutes = Math.floor(seconds / 60);
@@ -399,9 +399,9 @@ function toolLabel(name: string) {
     list_plugins: "\u5217\u51FA\u63D2\u4EF6",
     run_plugin: "\u8C03\u7528\u63D2\u4EF6",
     send_file: "\u53D1\u9001\u6587\u4EF6"
-  } as any)[name] || name;
+  } as Record<string, string>)[name] || name;
 }
-function summarizeArgs(args: any) {
+function summarizeArgs(args: Record<string, unknown>) {
   for (const key of ["command", "path", "file", "target", "query", "url", "caption"]) {
     if (args[key] !== void 0) return truncate2(String(args[key]).replace(/\s+/g, " "), 180);
   }
@@ -445,7 +445,7 @@ const AgentStatus = class {
     this.icon = input.icon;
     this.request = String(input.request || "").trim();
   }
-  setStep(step: any) {
+  setStep(step: number) {
     this.step = step;
   }
   setUsage(usage?: Usage) {
@@ -460,12 +460,12 @@ const AgentStatus = class {
     this.state = "\u6B63\u5728\u5206\u6790\u5F53\u524D\u60C5\u51B5\uFF0C\u51B3\u5B9A\u4E0B\u4E00\u6B65\u2026";
     await this.render();
   }
-  async toolStart(name: string, args: any) {
+  async toolStart(name: string, args: Record<string, unknown>) {
     this.state = `${toolLabel(name)}\uFF1A${summarizeArgs(args)}`;
     await this.render(true);
   }
-  async toolFinish(name: string, args: any, result: ToolResult) {
-    const firstLine = result.content.split(/\r?\n/).find((line: any) => line.trim()) || "\u65E0\u8F93\u51FA";
+  async toolFinish(name: string, args: Record<string, unknown>, result: ToolResult) {
+    const firstLine = result.content.split(/\r?\n/).find((line: string) => line.trim()) || "\u65E0\u8F93\u51FA";
     this.latest = `${result.ok ? "\u2713" : "\u2717"} ${toolLabel(name)}\uFF1A${summarizeArgs(args)}
 ${truncate2(firstLine, 220)}`;
     this.state = result.ok ? "\u5DF2\u62FF\u5230\u7ED3\u679C\uFF0C\u6B63\u5728\u63A8\u8FDB\u2026" : "\u8FD9\u6B65\u51FA\u4E86\u70B9\u72B6\u51B5\uFF0C\u6B63\u5728\u67E5\u539F\u56E0\u2026";
@@ -655,14 +655,14 @@ function cloneForCapture(msg: any, commandLine: string, outputs: any) {
 function looksPending(text: string) {
   return /正在|处理中|运行中|稍后|后台|已启动|请等待|please wait|running|pending/i.test(text);
 }
-async function wait(ms: any) {
+async function wait(ms: number) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 async function dispatchPluginCaptured(msg: any, commandLine: string) {
   const normalized = stripCommandPrefix(commandLine);
   const command = findCommand(normalized);
   if (!command) throw new Error(`\u672A\u77E5 TeleBox \u63D2\u4EF6\u547D\u4EE4\uFF1A${normalized}`);
-  const outputs: any[] = [];
+  const outputs: string[] = [];
   const captured = cloneForCapture(msg, normalized, outputs);
   await (0, import_pluginManager2.dealCommandPluginWithMessage)({ cmd: command, msg: captured, trigger: msg });
   await wait(800);

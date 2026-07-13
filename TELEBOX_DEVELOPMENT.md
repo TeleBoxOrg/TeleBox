@@ -1756,6 +1756,26 @@ TeleBox内置19个系统插件，位于 `src/plugin/` 目录。
 
 ## 📝 插件开发框架
 
+### 公共 HTML 转义（`@utils/htmlEscape`）
+
+**所有系统插件与运行时插件必须使用共享实现**，不要在插件文件内再定义 `htmlEscape`：
+
+```typescript
+import { htmlEscape } from "@utils/htmlEscape";
+
+// 用户输入 / 动态文本插入 HTML 消息前一律转义
+await msg.edit({
+  text: `❌ <b>错误:</b> ${htmlEscape(errorMsg)}`,
+  parseMode: "html",
+});
+```
+
+- 实现位置：`src/utils/htmlEscape.ts`
+- 转义字符：`& < > " '`
+- 接受 `string | number | unknown`；`null`/`undefined` 返回空串
+- 热重载安全：纯函数，无状态
+
+
 ### 常用工具函数
 
 ```typescript
@@ -1763,11 +1783,7 @@ import { getPrefixes } from "@utils/pluginManager";
 import { Api } from "teleproto";
 
 // HTML转义（必需）
-const htmlEscape = (text: string): string => 
-  text.replace(/[&<>"']/g, m => ({ 
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', 
-    '"': '&quot;', "'": '&#x27;' 
-  }[m] || m));
+import { htmlEscape } from "@utils/htmlEscape"; // 共享实现，见 src/utils/htmlEscape.ts
 
 // 获取前缀
 const prefixes = getPrefixes();
@@ -1911,11 +1927,7 @@ import { getPrefixes } from "@utils/pluginManager";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
-const htmlEscape = (text: string): string =>
-  text.replace(/[&<>"']/g, m => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;',
-    '"': '&quot;', "'": '&#x27;'
-  }[m] || m));
+import { htmlEscape } from "@utils/htmlEscape"; // 共享实现，见 src/utils/htmlEscape.ts
 
 class StandardPlugin extends Plugin {
   // 插件配置
@@ -2271,7 +2283,7 @@ const caption = MessageFormatter.buildHtml([
 
 2. **错误处理**
    - 始终捕获异常
-   - 使用 htmlEscape 处理用户输入
+   - 使用 `import { htmlEscape } from "@utils/htmlEscape"` 处理用户输入（禁止本地再定义）
    - 提供友好的错误提示
 
 3. **性能优化**
@@ -2299,11 +2311,7 @@ import { Api } from "teleproto";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
-const htmlEscape = (text: string): string => 
-  text.replace(/[&<>"']/g, m => ({ 
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', 
-    '"': '&quot;', "'": '&#x27;' 
-  }[m] || m));
+import { htmlEscape } from "@utils/htmlEscape"; // 共享实现，见 src/utils/htmlEscape.ts
 
 class MyPlugin extends Plugin {
   description = `我的插件说明\n\n使用 ${mainPrefix}mycommand 触发`;
