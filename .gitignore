@@ -44,3 +44,11 @@ pnpm-debug.log*
 # Mis-emitted source artifacts
 src/**/*.js
 src/**/*.js.map
+
+# Nested dual-edition layout (switch runtime peers under runtime home)
+/telebox-classic/
+/telebox-next/
+/telebox-mtcute/
+/telebox_mtcute/
+/TeleBox_M/
+/telebox-teleproto/
