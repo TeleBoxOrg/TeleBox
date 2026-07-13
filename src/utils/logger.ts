@@ -383,7 +383,8 @@ class Logger {
       msg.includes('difference too long') ||
       (msg.includes('fetchChannelDifference ') && (
         msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
-        msg.includes('HISTORY_GET_FAILED')
+        msg.includes('HISTORY_GET_FAILED') ||
+        msg.includes('ChannelInvalidError')
       )) ||
       (msg.includes('Could not find a matching Constructor') && msg.includes('recover'))
     );
