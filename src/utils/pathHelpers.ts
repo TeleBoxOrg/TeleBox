@@ -7,7 +7,7 @@ const TEMP_PATH = path.join(process.cwd(), "temp");
 function createDirectoryInDirectory(name: string, basePath: string): string {
     const filePath = path.join(basePath, name);
     if (!fs.existsSync(filePath)) {
-        fs.mkdirSync(filePath);
+        fs.mkdirSync(filePath, { recursive: true });
         return filePath;
     }
     return filePath;
