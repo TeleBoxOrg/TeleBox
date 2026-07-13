@@ -138,7 +138,8 @@ export async function initializeClientSession(
 }
 
 export async function login(): Promise<void> {
-  const { startRuntime }: typeof import("./runtimeManager") = require("./runtimeManager");
+  // Via runtimeAccess so loginManager never imports runtimeManager (cycle).
+  const { startRuntime } = require("./runtimeAccess") as typeof import("./runtimeAccess");
   await startRuntime();
 }
 

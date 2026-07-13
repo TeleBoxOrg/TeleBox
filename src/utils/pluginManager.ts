@@ -10,6 +10,11 @@ import {
   EditedMessageEvent,
 } from "teleproto/events/EditedMessage";
 import type { TeleBoxRuntime } from "./runtimeManager";
+import {
+  getCurrentGeneration,
+  getGlobalClient,
+  reloadRuntime,
+} from "./runtimeAccess";
 
 type ClientEventBuilder = NonNullable<Parameters<TeleBoxRuntime["client"]["removeEventHandler"]>[1]>;
 
@@ -38,8 +43,6 @@ const USER_PLUGIN_PATH = path.join(process.cwd(), "plugins");
 const DEFAUTL_PLUGIN_PATH = path.join(process.cwd(), "src", "plugin");
 const PROJECT_ROOT = process.cwd();
 const CACHE_PURGE_EXCLUDE = new Set<string>([
-  path.resolve(PROJECT_ROOT, "src/utils/globalClient.ts"),
-  path.resolve(PROJECT_ROOT, "src/utils/globalClient.js"),
   path.resolve(PROJECT_ROOT, "src/utils/pluginManager.ts"),
   path.resolve(PROJECT_ROOT, "src/utils/pluginManager.js"),
   path.resolve(PROJECT_ROOT, "src/utils/pluginBase.ts"),
@@ -48,6 +51,8 @@ const CACHE_PURGE_EXCLUDE = new Set<string>([
   path.resolve(PROJECT_ROOT, "src/utils/cronManager.js"),
   path.resolve(PROJECT_ROOT, "src/utils/runtimeManager.ts"),
   path.resolve(PROJECT_ROOT, "src/utils/runtimeManager.js"),
+  path.resolve(PROJECT_ROOT, "src/utils/runtimeAccess.ts"),
+  path.resolve(PROJECT_ROOT, "src/utils/runtimeAccess.js"),
   // Logger overrides console.* once at startup. Purging it on reload caused
   // the new Logger class to capture the already-wrapped console.log as
   // "original", stacking another wrapper every reload (visible as nested
@@ -384,7 +389,6 @@ function trackClientEventHandler<TEvent>(
     (trackedHandler) => client.addEventHandler(trackedHandler, eventBuilder),
     (trackedHandler) => client.removeEventHandler(trackedHandler, eventBuilder),
     (event) => {
-      const { getCurrentGeneration } = require("./runtimeManager") as typeof import("./runtimeManager");
       if (runtime.generation !== getCurrentGeneration()) return;
       return handler(event);
     },
@@ -456,10 +460,9 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
       for (const key of keys) {
         const cronTask = cronTasks[key];
         cronManager.set(key, cronTask.cron, async () => {
-          const { getCurrentGeneration, getGlobalClient } = require("./runtimeManager") as typeof import("./runtimeManager");
           if (runtime.signal.aborted || runtime.generation !== getCurrentGeneration()) return;
           const client = await getGlobalClient();
-          await cronTask.handler(client);
+          await cronTask.handler(client as never);
         }, runtime.context);
       }
     }
@@ -546,8 +549,6 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
 }
 
 async function loadPlugins(): Promise<boolean> {
-  const { reloadRuntime }: typeof import("./runtimeManager") = require("./runtimeManager");
-
   if (isPluginLoadInProgress()) {
     console.warn(
       "[RELOAD] Skip nested plugin reload while plugins are still being required. Move loadPlugins() out of module top-level initialization."
@@ -566,6 +567,7 @@ async function loadPlugins(): Promise<boolean> {
     // the same aborted runtime) caused all runTask/trackDisposable calls in
     // the new load phase to immediately reject because the context was
     // already aborted, breaking plugin setup, event handlers, and cron tasks.
+    // Access via runtimeAccess (registered by runtimeManager) — no cycle.
     await reloadRuntime();
     return true;
   } catch (error) {

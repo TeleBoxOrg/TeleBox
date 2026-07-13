@@ -7,6 +7,7 @@ import { npm_install_project_dependencies } from "@utils/npm_install";
 import { getGlobalClient } from "@utils/runtimeManager";
 import { executeExit } from "./reload";
 import { updateAllPlugins } from "./tpm";
+import { deleteStatusMessage } from "@utils/postReloadMessage";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -218,30 +219,9 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
 }
 
 /**
- * Delete a status message using a fresh client from getGlobalClient().
- * The original message object's _client may be stale after:
- *   - npm_install_project_dependencies() (execFileSync, blocks event loop)
- *   - reloadRuntime() (destroys old client, creates new one)
- * Uses exponential backoff retry — the new client may need several seconds
- * to fully establish its connection and entity cache.
+ * Delete a status message using a fresh client — see
+ * @utils/postReloadMessage.deleteStatusMessage.
  */
-async function deleteStatusMessage(peerId: any, msgId: number): Promise<void> {
-  const delays = [0, 2000, 4000, 8000]; // exponential backoff
-  for (let attempt = 0; attempt < delays.length; attempt++) {
-    if (delays[attempt] > 0) {
-      await new Promise((r) => setTimeout(r, delays[attempt]));
-    }
-    try {
-      const freshClient = await getGlobalClient();
-      await (freshClient as any).deleteMessages(peerId, [msgId], { revoke: true });
-      console.log(`[auto-update] 状态消息已删除 (attempt ${attempt + 1})`);
-      return;
-    } catch (err: any) {
-      console.error(`[auto-update] 删除状态消息失败 (attempt ${attempt + 1}):`, err?.message || err);
-    }
-  }
-  console.error("[auto-update] 状态消息删除最终失败，已重试4次");
-}
 
 async function executeAutoExit(): Promise<void> {
   // Minimal restart: just exit the process. pm2 will restart it.

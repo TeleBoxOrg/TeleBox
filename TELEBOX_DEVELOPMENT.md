@@ -337,10 +337,14 @@ run();
 ```
 src/
 ├── index.ts              # 程序入口
-├── utils/                # 工具模块 (36个文件)
+├── utils/                # 工具模块
 │   ├── pluginBase.ts
 │   ├── pluginManager.ts
 │   ├── runtimeManager.ts
+│   ├── runtimeAccess.ts  # late-bound runtime API（打断 pluginManager 循环）
+│   ├── asyncHelpers.ts   # sleep / withTimeout / safeJsonParse
+│   ├── postReloadMessage.ts  # reload 后状态消息（teleproto）
+│   ├── htmlEscape.ts
 │   ├── generationContext.ts
 │   ├── agent*.ts         # Agent AI 7文件
 │   ├── versionSwitch*.ts # 版本切换 5文件

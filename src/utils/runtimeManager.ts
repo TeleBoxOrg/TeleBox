@@ -66,6 +66,8 @@ import {
   type DrainResult,
   type GenerationContext,
 } from "./generationContext";
+import { withTimeout } from "./asyncHelpers";
+import { registerRuntimeAccess } from "./runtimeAccess";
 
 export type { GenerationContext };
 
@@ -98,28 +100,6 @@ function logDrainResult(runtime: TeleBoxRuntime, reason: string, result: DrainRe
   console.log(
     `[RUNTIME] Gen${runtime.generation} ${reason}: completed=${result.completed} timedOut=${result.timedOut} pendingTasks=${result.pendingTasks} pendingDisposables=${result.pendingDisposables} errors=${result.errors.length}`
   );
-}
-
-async function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error(`${label} timed out after ${ms}ms`));
-        }, ms);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  }
 }
 
 async function createClient(): Promise<TelegramClient> {
@@ -449,3 +429,13 @@ export async function shutdownRuntime(): Promise<void> {
   await unloadPluginsForRuntime(runtime);
   await disposeRuntime(runtime, "Runtime shutdown");
 }
+
+// Register late-bound accessors so pluginManager / channelGapBreaker /
+// loginManager never need to import this module (breaks the cycle).
+registerRuntimeAccess({
+  getCurrentGeneration,
+  tryGetCurrentRuntime,
+  getGlobalClient,
+  reloadRuntime,
+  startRuntime,
+});

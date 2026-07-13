@@ -3,11 +3,8 @@ import { Api } from "teleproto";
 import { getPrefixes, loadPlugins } from "@utils/pluginManager";
 import fs from "fs";
 import path from "path";
+import { htmlEscape } from "@utils/htmlEscape";
 
-const htmlEscape = (t: string) =>
-  t.replace(/[&<>"']/g, (m) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#x27;" } as any)[m] || m
-  );
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const help_text = `🛠 <b>前缀管理</b>

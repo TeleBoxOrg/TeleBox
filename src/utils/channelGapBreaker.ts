@@ -345,7 +345,8 @@ function tryGetClient(): any | null {
   try {
     // Sync access required; getGlobalClient() is async and unsuitable here.
     // tryGetCurrentRuntime returns the live runtime synchronously when set.
-    const { tryGetCurrentRuntime } = require("./runtimeManager") as typeof import("./runtimeManager");
+    // Via runtimeAccess to avoid importing runtimeManager (cycle).
+    const { tryGetCurrentRuntime } = require("./runtimeAccess") as typeof import("./runtimeAccess");
     const runtime = tryGetCurrentRuntime();
     if (runtime?.client) {
       return runtime.client;

@@ -11,6 +11,7 @@ import { PromisedNetSockets } from "teleproto/extensions";
 import * as dns from "dns";
 
 import { safeGetMe } from "../utils/authGuards";
+import { htmlEscape } from "@utils/htmlEscape";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
@@ -25,16 +26,6 @@ const DCs = {
   4: "149.154.167.91", // DC4 Amsterdam
   5: "91.108.56.130", // DC5 Singapore (PagerMaid IP)
 };
-
-// HTML转义函数
-function htmlEscape(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;");
-}
 
 /**
  * 使用Telegram网络栈的TCP连接测试

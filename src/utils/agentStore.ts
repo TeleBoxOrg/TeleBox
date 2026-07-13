@@ -1,4 +1,4 @@
-import type { AgentConfig, ChatMessage, AgentScope } from "./agentTypes";
+import type { AgentConfig, AIProvider, ChatMessage, AgentScope, ProviderType } from "./agentTypes";
 
 // plugins/agent/store.ts
 import import_fs2 = require("fs");
@@ -104,10 +104,10 @@ function normalizeDisplayName(value: unknown) {
   if (!name || LEGACY_NAME_PATTERNS.some((pattern) => pattern.test(name))) return "";
   return name;
 }
-function clamp(value: unknown, min: any, max: any) {
+function clamp(value: unknown, min: number, max: number) {
   return Math.min(max, Math.max(min, value as number));
 }
-function positiveInt(value: unknown, fallback: any) {
+function positiveInt(value: unknown, fallback: number) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
@@ -125,12 +125,12 @@ function sanitizePart(text: string) {
 function createConversationId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
-function compactContent(content: any) {
+function compactContent(content: unknown) {
   const text = String(content || "").trim();
   return text.length <= 6e3 ? text : `${text.slice(0, 5970)}
 \u2026\uFF08\u8BB0\u5FC6\u5DF2\u622A\u65AD\uFF09`;
 }
-function normalizeConversation(value: unknown, limit: any) {
+function normalizeConversation(value: unknown, limit: number) {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, any>;
   const messages = Array.isArray(raw.messages) ? raw.messages.filter(
     (item: any) => Boolean(item) && typeof item === "object" && (item.role === "user" || item.role === "assistant") && typeof item.content === "string"
@@ -189,7 +189,7 @@ async function readConfig(): Promise<any> {
   }
   return data;
 }
-async function updateConfig(mutator: any) {
+async function updateConfig(mutator: (config: AgentConfig) => void) {
   let result;
   const operation = writeQueue.then(async () => {
     const db = await (0, import_node.JSONFilePreset)(ZN_CONFIG_PATH, DEFAULT_CONFIG);
@@ -232,12 +232,14 @@ function getProviders(config: AgentConfig) {
   const map = config.providers || {};
   return Object.keys(map).map((name) => ({ ...map[name], name }));
 }
-function detectProviderInterface(input: any) {
+function detectProviderInterface(input: Partial<AIProvider> & Record<string, unknown>): ProviderType {
   const hint = String(input?.base_url || input?.model || "").toLowerCase();
   if (/anthropic\.com|claude/.test(hint)) return "anthropic";
   if (/googleapis\.com|gemini/.test(hint)) return "gemini";
   if (/openai\.com|gpt-|chatgpt|o1|o3/.test(hint)) return "openai";
-  return String(input?.type || input?.api_interface || "openai").toLowerCase();
+  const raw = String(input?.type || input?.api_interface || "openai").toLowerCase();
+  const allowed: ProviderType[] = ["openai", "gemini", "anthropic", "responses", "deepseek", "xai", "custom"];
+  return (allowed.includes(raw as ProviderType) ? raw : "openai") as ProviderType;
 }
 async function setProvider(name: string, fields: any) {
   name = String(name || "").trim();

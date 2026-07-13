@@ -1,5 +1,4 @@
 import { Plugin, isValidPlugin } from "@utils/pluginBase";
-import { loadPlugins } from "@utils/pluginManager";
 import {
   createDirectoryInTemp,
   createDirectoryInAssets,
@@ -11,8 +10,12 @@ import { Api } from "teleproto";
 import { safeGetReplyMessage } from "@utils/safeGetMessages";
 import { JSONFilePreset } from "lowdb/node";
 import { getPrefixes } from "@utils/pluginManager";
-import { tryGetCurrentGenerationContext, getGlobalClient } from "@utils/runtimeManager";
+import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 import { htmlEscape } from "@utils/htmlEscape";
+import {
+  sendOrEditMessage,
+  reloadAndFinalize,
+} from "@utils/postReloadMessage";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -68,82 +71,15 @@ function codeTag(value: string): string {
   return `<code>${htmlEscape(value)}</code>`;
 }
 
-async function sendOrEditMessage(
-  msg: Api.Message, 
-  text: string, 
-  options?: { parseMode?: string; linkPreview?: boolean }
-): Promise<Api.Message> {
-  const messageOptions = {
-    text,
-    parseMode: options?.parseMode || undefined,
-    linkPreview: options?.linkPreview !== false,
-  };
-
-  try {
-    await msg.edit(messageOptions);
-    return msg;
-  } catch (error) {
-    console.log(`[TPM] 编辑消息失败，尝试发送新消息: ${error}`);
-  }
-
-  const sendOptions: any = {
-    message: text,
-    parseMode: options?.parseMode || undefined,
-    linkPreview: options?.linkPreview !== false,
-  };
-
-  if (msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId) {
-    sendOptions.replyTo = msg.replyTo?.replyToTopId || msg.replyTo?.replyToMsgId;
-  }
-
-  const newMsg = await msg.client?.sendMessage(msg.peerId, sendOptions);
-  return newMsg || msg;
-}
-
 /**
  * 在调用 loadPlugins() 之后写最终状态消息。
- *
- * loadPlugins() 内部会触发 reloadRuntime()，它会 abort 当前 GenerationContext
- * 并销毁旧 TelegramClient。statusMsg 对象绑定的是已销毁的 client，
- * 此后 statusMsg.edit / statusMsg.delete / sendOrEditMessage 都会静默失败
- * （报 "Cannot send requests while disconnected"，被 try/catch 吞掉），
- * 用户最终看到的就是 "正在更新..." 这种中间态卡住。
- *
- * 这个 helper 在 reload 前快照 peerId+msgId，reload 后从新 runtime 拿活的
- * client，按 id 重新编辑消息。所有需要在 reload 之后显示最终状态的命令
- * （install / installAll / installMultiple / uninstall / uninstallMultiple
- * / uninstallAll / update）都应通过它走。
+ * 委托 @utils/postReloadMessage.reloadAndFinalize：
+ * snapshot peerId+msgId → reload → 用新 client 编辑最终文案。
  */
-async function reloadAndFinalize(
-  statusMsg: Api.Message,
-  finalText: string,
-  options?: { parseMode?: string; linkPreview?: boolean }
-): Promise<void> {
-  const targetPeerId = statusMsg.peerId;
-  const targetMsgId = statusMsg.id;
-
-  try {
-    await loadPlugins();
-  } catch (error) {
-    console.error("[TPM] 重新加载插件失败:", error);
-  }
-
-  try {
-    const freshClient = await getGlobalClient();
-    await freshClient.editMessage(targetPeerId, {
-      message: targetMsgId,
-      text: finalText,
-      parseMode: options?.parseMode,
-      linkPreview: options?.linkPreview !== false,
-    });
-  } catch (error) {
-    console.log(`[TPM] 最终状态消息编辑失败 (reload 后): ${error}`);
-  }
-}
 
 async function updateProgressMessage(
-  msg: Api.Message, 
-  text: string, 
+  msg: Api.Message,
+  text: string,
   options?: { parseMode?: string; linkPreview?: boolean }
 ): Promise<boolean> {
   const messageOptions = {

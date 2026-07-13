@@ -1,4 +1,4 @@
-import type { RuntimeContext, CommandResult, ToolResult, AgentScope, WorkspaceEntry } from "./agentTypes";
+import type { RuntimeContext, CommandResult, ToolResult, AgentScope } from "./agentTypes";
 import { getPlatform } from "./agentTypes";
 
 // plugins/agent/tools.ts
@@ -15,7 +15,7 @@ const MAX_LIST_ENTRIES = 300;
 const MAX_TOOL_CALLS_PER_TURN = 8;
 const BLOCKED_PLUGIN_COMMANDS = /* @__PURE__ */ new Set(["agent", "plan", "sysagent", "sysplan", "ai", "exec"]);
 const OBJECT_SCHEMA = "object";
-function schema(properties: any, required: any[] = []) {
+function schema(properties: Record<string, unknown>, required: string[] = []) {
   return {
     type: OBJECT_SCHEMA,
     properties,
@@ -156,7 +156,7 @@ function truncate(text: string, max = MAX_TOOL_OUTPUT) {
 function asString(value: unknown, fallback = "") {
   return typeof value === "string" ? value : value === void 0 ? fallback : String(value);
 }
-function asInt(value: unknown, fallback: any, min: any, max: any) {
+function asInt(value: unknown, fallback: number, min: number, max: number) {
   const parsed = Number.parseInt(String(value ?? ""), 10);
   return Math.min(max, Math.max(min, Number.isFinite(parsed) ? parsed : fallback));
 }
@@ -170,7 +170,7 @@ function workspaceDir(context: RuntimeContext): string {
 function defaultRoot(context: RuntimeContext) {
   return context.scope === "telebox" ? context.projectRoot ?? "." : workspaceDir(context);
 }
-function resolveAgentPath(context: RuntimeContext, rawPath: any, fallback = ".") {
+function resolveAgentPath(context: RuntimeContext, rawPath: unknown, fallback = ".") {
   let requested = asString(rawPath, fallback).trim().replace(/^['"]|['"]$/g, "") || fallback;
   let base = defaultRoot(context);
   if (/^(?:\$workspace|workspace:)(?:[\\/]|$)/i.test(requested)) {
@@ -195,9 +195,9 @@ function relativeDisplay(context: RuntimeContext, target: string) {
   }
   return target;
 }
-async function collectFiles(context: RuntimeContext, root: string, recursive: any, limit: any) {
-  const output: any[] = [];
-  const visit = async (directory: any) => {
+async function collectFiles(context: RuntimeContext, root: string, recursive: boolean, limit: number) {
+  const output: string[] = [];
+  const visit = async (directory: string) => {
     if (output.length >= limit) return;
     const entries = await import_fs.promises.readdir(directory, { withFileTypes: true });
     entries.sort((left, right) => left.name.localeCompare(right.name));
@@ -246,7 +246,7 @@ function runProcess(command: string, cwd: string, timeoutMs: number): Promise<Co
     );
   });
 }
-function runRg(args: any, cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
+function runRg(args: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     (0, import_child_process.execFile)(
       "rg",
@@ -297,7 +297,7 @@ ${result.stderr.trim() || "(empty)"}`
     ].join("\n")
   );
 }
-function validatePlan(args: any) {
+function validatePlan(args: Record<string, any>) {
   if (!Array.isArray(args.items) || !args.items.length) {
     throw new Error("\u8BA1\u5212 items \u4E0D\u80FD\u4E3A\u7A7A");
   }
@@ -316,7 +316,7 @@ function validatePlan(args: any) {
   }
   return { explanation: asString(args.explanation).trim() || void 0, items };
 }
-async function executeTool(context: RuntimeContext, name: string, args: any) {
+async function executeTool(context: RuntimeContext, name: string, args: Record<string, any>) {
   if (name === "update_plan") {
     const plan = validatePlan(args);
     await context.onPlanChange(plan);
@@ -442,7 +442,7 @@ size: ${stat.size} bytes`
     const cwd = resolveAgentPath(context, args.cwd, defaultRoot(context));
     const stat = await import_fs.promises.stat(cwd);
     if (!stat.isDirectory()) throw new Error("cwd \u4E0D\u662F\u76EE\u5F55");
-    const timeoutMs = asInt(args.timeout_ms, context.commandTimeoutMs, 1e3, 864e5);
+    const timeoutMs = asInt(args.timeout_ms, context.commandTimeoutMs ?? 12e4, 1e3, 864e5);
     const result: CommandResult = await runProcess(command, cwd, timeoutMs);
     return {
       ok: result.exitCode === 0,
@@ -492,7 +492,7 @@ function createToolRuntime(runtime: RuntimeContext) {
   return {
     definitions: runtime.answerOnly ? [] : TOOL_DEFINITIONS,
     maxCallsPerTurn: MAX_TOOL_CALLS_PER_TURN,
-    execute: async (name: string, args: any) => {
+    execute: async (name: string, args: Record<string, any>) => {
       await runtime.onToolStart(name, args);
       let result;
       try {
