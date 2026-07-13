@@ -216,7 +216,8 @@ const plugin = new (class extends Plugin {
           ``,
           message,
           ``,
-          `常见原因：PATH 里没有 npx（已应避免）、或未配置 TELEBOX_TELEPROTO_ROOT / TELEBOX_MTCUTE_ROOT。`,
+          `一般不用改配置：把两个版本放在同一父目录下（如 ~/telebox 与 ~/telebox_mtcute），`,
+          `或保持能访问 GitHub，系统会自动下载缺失的那一版。`,
         ].join("\n"),
       });
     }
