@@ -7,7 +7,6 @@ import { promisify } from "util";
 import { createConnection } from "net";
 import * as http from "http";
 import * as https from "https";
-import { PromisedNetSockets } from "teleproto/extensions";
 import * as dns from "dns";
 
 import { safeGetMe } from "../utils/authGuards";
@@ -17,6 +16,356 @@ const mainPrefix = prefixes[0];
 
 
 const execFileAsync = promisify(execFile);
+
+type PingProxy =
+  | {
+      kind: "socks";
+      host: string;
+      port: number;
+      version: 4 | 5;
+      user?: string;
+      password?: string;
+    }
+  | {
+      kind: "http";
+      host: string;
+      port: number;
+      user?: string;
+      password?: string;
+    };
+
+function parseProxyUrl(raw: string): PingProxy | null {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname;
+    const port = Number(u.port || (u.protocol.startsWith("socks") ? 1080 : 8080));
+    if (!host || !port) return null;
+    const user = u.username ? decodeURIComponent(u.username) : undefined;
+    const password = u.password ? decodeURIComponent(u.password) : undefined;
+    const proto = u.protocol.replace(":", "").toLowerCase();
+    if (proto === "socks5" || proto === "socks5h" || proto === "socks") {
+      return { kind: "socks", host, port, version: 5, user, password };
+    }
+    if (proto === "socks4" || proto === "socks4a") {
+      return { kind: "socks", host, port, version: 4, user, password };
+    }
+    if (proto === "http" || proto === "https") {
+      return { kind: "http", host, port, user, password };
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+/**
+ * 解析代理：优先 config.json（与 Telegram 客户端一致），
+ * 其次 PM2/进程环境变量 ALL_PROXY / HTTPS_PROXY / HTTP_PROXY。
+ */
+async function resolvePingProxy(): Promise<PingProxy | null> {
+  try {
+    const { getApiConfig } = await import("@utils/apiConfig");
+    const api = await getApiConfig();
+    const p = api?.proxy as
+      | {
+          ip?: string;
+          host?: string;
+          hostname?: string;
+          port?: number | string;
+          socksType?: 4 | 5;
+          type?: string;
+          http?: boolean;
+          MTProxy?: boolean;
+          secret?: string;
+          username?: string;
+          user?: string;
+          password?: string;
+        }
+      | undefined;
+    if (p && !p.MTProxy && !p.secret) {
+      const host = p.ip ?? p.host ?? p.hostname;
+      const port = Number(p.port);
+      if (host && port) {
+        const user = p.username ?? p.user;
+        const password = p.password;
+        if (p.type === "http" || p.http) {
+          return { kind: "http", host, port, user, password };
+        }
+        return {
+          kind: "socks",
+          host,
+          port,
+          version: p.socksType === 4 ? 4 : 5,
+          user,
+          password,
+        };
+      }
+    }
+  } catch {
+    /* config 不可用时走环境变量 */
+  }
+
+  const envRaw =
+    process.env.ALL_PROXY ||
+    process.env.all_proxy ||
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy;
+  if (envRaw) return parseProxyUrl(envRaw);
+  return null;
+}
+
+function isIPv4(host: string): boolean {
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+}
+
+/**
+ * 经 SOCKS5 建立到目标的 TCP 连接（纯 Node，无额外依赖）
+ */
+function socks5Connect(
+  proxy: Extract<PingProxy, { kind: "socks" }>,
+  destHost: string,
+  destPort: number,
+  timeout: number,
+): Promise<import("net").Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(proxy.port, proxy.host);
+    let stage: "greeting" | "auth" | "reply" | "done" = "greeting";
+    let buf = Buffer.alloc(0);
+    let settled = false;
+
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(err);
+    };
+    const ok = () => {
+      if (settled) return;
+      settled = true;
+      socket.setTimeout(0);
+      socket.removeAllListeners("data");
+      resolve(socket);
+    };
+
+    socket.setTimeout(timeout);
+    socket.on("timeout", () => fail(new Error("proxy timeout")));
+    socket.on("error", (e) => fail(e));
+    socket.on("connect", () => {
+      if (proxy.user) {
+        socket.write(Buffer.from([0x05, 0x02, 0x00, 0x02]));
+      } else {
+        socket.write(Buffer.from([0x05, 0x01, 0x00]));
+      }
+    });
+
+    socket.on("data", (chunk: Buffer) => {
+      buf = Buffer.concat([buf, chunk]);
+      try {
+        if (stage === "greeting") {
+          if (buf.length < 2) return;
+          if (buf[0] !== 0x05) return fail(new Error("bad socks5 version"));
+          const method = buf[1];
+          buf = buf.subarray(2);
+          if (method === 0x02) {
+            const user = Buffer.from(proxy.user || "", "utf8");
+            const pass = Buffer.from(proxy.password || "", "utf8");
+            const auth = Buffer.alloc(3 + user.length + pass.length);
+            auth[0] = 0x01;
+            auth[1] = user.length;
+            user.copy(auth, 2);
+            auth[2 + user.length] = pass.length;
+            pass.copy(auth, 3 + user.length);
+            stage = "auth";
+            socket.write(auth);
+            return;
+          }
+          if (method !== 0x00) return fail(new Error(`socks5 auth method ${method}`));
+          stage = "reply";
+          writeSocks5Request();
+          return;
+        }
+        if (stage === "auth") {
+          if (buf.length < 2) return;
+          if (buf[1] !== 0x00) return fail(new Error("socks5 auth failed"));
+          buf = buf.subarray(2);
+          stage = "reply";
+          writeSocks5Request();
+          return;
+        }
+        if (stage === "reply") {
+          if (buf.length < 5) return;
+          if (buf[0] !== 0x05) return fail(new Error("bad socks5 reply"));
+          if (buf[1] !== 0x00) return fail(new Error(`socks5 connect status ${buf[1]}`));
+          const atyp = buf[3];
+          let need = 4;
+          if (atyp === 0x01) need = 4 + 4 + 2;
+          else if (atyp === 0x03) {
+            if (buf.length < 5) return;
+            need = 4 + 1 + buf[4] + 2;
+          } else if (atyp === 0x04) need = 4 + 16 + 2;
+          else return fail(new Error(`socks5 atyp ${atyp}`));
+          if (buf.length < need) return;
+          stage = "done";
+          ok();
+        }
+      } catch (e) {
+        fail(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+
+    function writeSocks5Request() {
+      let req: Buffer;
+      if (isIPv4(destHost)) {
+        const parts = destHost.split(".").map((x) => Number(x));
+        req = Buffer.alloc(10);
+        req[0] = 0x05;
+        req[1] = 0x01;
+        req[2] = 0x00;
+        req[3] = 0x01;
+        req[4] = parts[0];
+        req[5] = parts[1];
+        req[6] = parts[2];
+        req[7] = parts[3];
+        req.writeUInt16BE(destPort, 8);
+      } else {
+        const hostBuf = Buffer.from(destHost, "utf8");
+        req = Buffer.alloc(7 + hostBuf.length);
+        req[0] = 0x05;
+        req[1] = 0x01;
+        req[2] = 0x00;
+        req[3] = 0x03;
+        req[4] = hostBuf.length;
+        hostBuf.copy(req, 5);
+        req.writeUInt16BE(destPort, 5 + hostBuf.length);
+      }
+      socket.write(req);
+    }
+  });
+}
+
+/**
+ * 经 HTTP CONNECT 建立到目标的 TCP 连接
+ */
+function httpConnect(
+  proxy: Extract<PingProxy, { kind: "http" }>,
+  destHost: string,
+  destPort: number,
+  timeout: number,
+): Promise<import("net").Socket> {
+  return new Promise((resolve, reject) => {
+    const socket = createConnection(proxy.port, proxy.host);
+    let buf = "";
+    let settled = false;
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      reject(err);
+    };
+    const ok = () => {
+      if (settled) return;
+      settled = true;
+      socket.setTimeout(0);
+      socket.removeAllListeners("data");
+      resolve(socket);
+    };
+
+    socket.setTimeout(timeout);
+    socket.on("timeout", () => fail(new Error("proxy timeout")));
+    socket.on("error", (e) => fail(e));
+    socket.on("connect", () => {
+      let req =
+        `CONNECT ${destHost}:${destPort} HTTP/1.1\r\n` +
+        `Host: ${destHost}:${destPort}\r\n`;
+      if (proxy.user) {
+        const token = Buffer.from(
+          `${proxy.user}:${proxy.password || ""}`,
+          "utf8",
+        ).toString("base64");
+        req += `Proxy-Authorization: Basic ${token}\r\n`;
+      }
+      req += `Proxy-Connection: keep-alive\r\n\r\n`;
+      socket.write(req);
+    });
+    socket.on("data", (chunk: Buffer) => {
+      buf += chunk.toString("binary");
+      const idx = buf.indexOf("\r\n\r\n");
+      if (idx < 0) return;
+      const head = buf.slice(0, idx);
+      const m = head.match(/^HTTP\/\d\.\d\s+(\d+)/);
+      if (!m) return fail(new Error("bad http proxy response"));
+      const code = Number(m[1]);
+      if (code < 200 || code >= 300) {
+        return fail(new Error(`http proxy CONNECT ${code}`));
+      }
+      ok();
+    });
+  });
+}
+
+async function connectViaProxy(
+  proxy: PingProxy,
+  destHost: string,
+  destPort: number,
+  timeout: number,
+): Promise<import("net").Socket> {
+  if (proxy.kind === "socks") {
+    if (proxy.version === 4) {
+      // SOCKS4 简化：仅 IPv4、无用户名（或 userid）
+      return new Promise((resolve, reject) => {
+        if (!isIPv4(destHost)) {
+          reject(new Error("socks4 needs IPv4"));
+          return;
+        }
+        const socket = createConnection(proxy.port, proxy.host);
+        let settled = false;
+        const fail = (e: Error) => {
+          if (settled) return;
+          settled = true;
+          socket.destroy();
+          reject(e);
+        };
+        socket.setTimeout(timeout);
+        socket.on("timeout", () => fail(new Error("proxy timeout")));
+        socket.on("error", (e) => fail(e));
+        socket.on("connect", () => {
+          const parts = destHost.split(".").map((x) => Number(x));
+          const user = Buffer.from(proxy.user || "", "utf8");
+          const req = Buffer.alloc(9 + user.length);
+          req[0] = 0x04;
+          req[1] = 0x01;
+          req.writeUInt16BE(destPort, 2);
+          req[4] = parts[0];
+          req[5] = parts[1];
+          req[6] = parts[2];
+          req[7] = parts[3];
+          user.copy(req, 8);
+          req[8 + user.length] = 0x00;
+          socket.write(req);
+        });
+        let buf = Buffer.alloc(0);
+        socket.on("data", (chunk: Buffer) => {
+          buf = Buffer.concat([buf, chunk]);
+          if (buf.length < 8) return;
+          if (buf[1] !== 0x5a) {
+            fail(new Error(`socks4 status ${buf[1]}`));
+            return;
+          }
+          if (settled) return;
+          settled = true;
+          socket.setTimeout(0);
+          socket.removeAllListeners("data");
+          resolve(socket);
+        });
+      });
+    }
+    return socks5Connect(proxy, destHost, destPort, timeout);
+  }
+  return httpConnect(proxy, destHost, destPort, timeout);
+}
+
 
 // 数据中心IP地址映射 (参考PagerMaid-Modify)
 const DCs = {
@@ -35,55 +384,50 @@ async function telegramTcpPing(
   port: number = 80,
   timeout: number = 3000
 ): Promise<number> {
-  const socket = new PromisedNetSockets();
-  try {
-    const start = performance.now();
-
-    const result = await Promise.race<number>([
-      (async () => {
-        await socket.connect(port, hostname);
-        const end = performance.now();
-        return Math.round(end - start);
-      })(),
-      new Promise<number>((resolve) => setTimeout(() => resolve(-1), timeout)),
-    ]);
-
-    return result;
-  } catch {
-    return -1;
-  } finally {
-    try { await socket.close(); } catch { /* ignore close errors */ }
-  }
+  // 与 tcpPing 相同：走 config.json / PM2 代理
+  return tcpPing(hostname, port, timeout);
 }
 
 /**
- * 传统TCP连接测试 - 备用方法
+ * TCP 连接测试：有代理时经 SOCKS/HTTP 代理（与 config.json / PM2 环境一致），否则直连。
  */
 async function tcpPing(
   hostname: string,
   port: number = 80,
   timeout: number = 3000
 ): Promise<number> {
-  return new Promise((resolve) => {
-    const start = performance.now();
-    const socket = createConnection(port, hostname);
-
-    socket.setTimeout(timeout);
-
-    socket.on("connect", () => {
+  const start = performance.now();
+  try {
+    const proxy = await resolvePingProxy();
+    if (proxy) {
+      const socket = await connectViaProxy(proxy, hostname, port, timeout);
       const end = performance.now();
-      socket.end();
-      resolve(Math.round(end - start));
-    });
-
-    function handleError() {
-      socket.destroy();
-      resolve(-1);
+      try {
+        socket.destroy();
+      } catch {
+        /* ignore */
+      }
+      return Math.round(end - start);
     }
 
-    socket.on("timeout", handleError);
-    socket.on("error", handleError);
-  });
+    return await new Promise<number>((resolve) => {
+      const socket = createConnection(port, hostname);
+      socket.setTimeout(timeout);
+      socket.on("connect", () => {
+        const end = performance.now();
+        socket.end();
+        resolve(Math.round(end - start));
+      });
+      const handleError = () => {
+        socket.destroy();
+        resolve(-1);
+      };
+      socket.on("timeout", handleError);
+      socket.on("error", handleError);
+    });
+  } catch {
+    return -1;
+  }
 }
 
 /**
@@ -384,7 +728,7 @@ class PingPlugin extends Plugin {
         // 帮助信息
         if (target === "help" || target === "h") {
           await msg.edit({
-            text: `🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>TCP(443/80) 优先，系统 ping 仅作 fallback</i>`,
+            text: `🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>TCP(443/80) 优先（走 config/PM2 代理），系统 ping 仅作 fallback</i>`,
             parseMode: "html",
           });
           return;
@@ -414,8 +758,11 @@ class PingPlugin extends Plugin {
         const tcpProbe = await tcpingProbe(testTarget, [443, 80, 22, 53], 3, 3000);
         if (tcpProbe) {
           const avgText = tcpProbe.avg === 0 ? "<1" : String(tcpProbe.avg);
+          const proxyHint = (await resolvePingProxy())
+            ? " via proxy"
+            : "";
           results.push(
-            `🏓 <b>TCP Ping:</b> <code>${avgText}ms</code> (port ${tcpProbe.port}, 丢包: ${tcpProbe.loss}%, best ${tcpProbe.best}ms)`
+            `🏓 <b>TCP Ping:</b> <code>${avgText}ms</code> (port ${tcpProbe.port}, 丢包: ${tcpProbe.loss}%, best ${tcpProbe.best}ms${proxyHint})`
           );
         } else {
           try {
