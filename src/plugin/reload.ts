@@ -378,7 +378,7 @@ const HELP_TEXT = `🔄 Reload - 插件重载与内存管理
 
 🔧 核心命令:
 • <code>${mainPrefix}reload</code> - 重新加载所有插件
-• <code>${mainPrefix}exit</code> - 退出进程
+• <code>${mainPrefix}exit</code> / <code>${mainPrefix}restart</code> - 退出进程（PM2 会自动拉起）
 • <code>${mainPrefix}pmr</code> - PM2 进程重启
 • <code>${mainPrefix}health</code> - 查看内存使用情况
 
@@ -481,6 +481,11 @@ class ReloadPlugin extends Plugin {
     },
 
     exit: async (msg) => {
+      await executeExit(msg);
+    },
+
+    // Alias of exit — process.exit(0); PM2 restarts the bot
+    restart: async (msg) => {
       await executeExit(msg);
     },
 
