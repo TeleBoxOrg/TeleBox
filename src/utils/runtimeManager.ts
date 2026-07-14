@@ -209,11 +209,12 @@ async function resolvePendingSwitchNotification(
     const label = currentVersion === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
     const other = currentVersion === "teleproto" ? "TeleBox-Next" : "TeleBox Classic";
     const summary = notification.summary ? `\n\n${notification.summary}` : "";
+    // Plain text — msg.edit often has no Markdown parseMode
     const text =
-      `🎉 **切换完成**\n\n` +
-      `现在运行：${icon} **${label}**` +
+      `🎉 切换完成\n\n` +
+      `现在运行：${icon} ${label}` +
       summary +
-      `\n\n再切回去：发 \`.switch go\`（会切到 ${other}）。`;
+      `\n\n再切回去：发 .switch go（会切到 ${other}）。`;
 
     await client.editMessage(notification.chatId, {
       message: notification.msgId,

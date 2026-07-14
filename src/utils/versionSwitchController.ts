@@ -407,16 +407,10 @@ async function main(): Promise<void> {
     preSwitchState.pendingTransaction = null;
     // Attach migration summary for the post-switch notification
     if (preSwitchState.pendingNotification) {
-      const lines = [
-        `插件：已同步 ${install.length} 个`,
-        archivedCount > 0
-          ? `仅当前版本有的插件：已保存 ${archivedCount} 个 → ~/.telebox-switch/archives/`
-          : "仅当前版本有的插件：无",
-        "配置：已把 assets 里的插件配置合并到目标版本",
-      ];
+      // Final summary (paths + unmatched plugin names) is written after nest.
       preSwitchState.pendingNotification = {
         ...preSwitchState.pendingNotification,
-        summary: lines.join("\n"),
+        summary: `插件：已同步 ${install.length} 个（详情见完成后的结果）`,
       };
     }
     saveSwitchState(preSwitchState, DEFAULT_SWITCH_HOME);
@@ -517,6 +511,52 @@ async function main(): Promise<void> {
 
     console.log(`[controller] ✅ Switch complete: ${source} → ${target}`);
     await progress.set("ready", "done", "已上线");
+
+    // Final user-facing summary: unmatched plugins + edition directories (post-nest)
+    try {
+      const finalState = loadSwitchState(DEFAULT_SWITCH_HOME);
+      if (finalState.pendingNotification) {
+        const sourceLabel = source === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
+        const targetLabel = target === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
+        const maxList = 40;
+        let unmatchedBlock: string;
+        if (unavailable.length === 0) {
+          unmatchedBlock = "无（全部已匹配迁移）";
+        } else {
+          const shown = unavailable.slice(0, maxList);
+          const more =
+            unavailable.length > maxList
+              ? `\n…另有 ${unavailable.length - maxList} 个`
+              : "";
+          unmatchedBlock =
+            shown.map((n) => `• ${n}`).join("\n") + more;
+        }
+        const lines = [
+          "—— 切换结果 ——",
+          "",
+          "1) 未迁移成功的插件（目标版无对应项，已归档）：",
+          unmatchedBlock,
+          archivedCount > 0 ? `归档目录：${archiveRoot}` : "",
+          "",
+          `2) 原版本（${sourceLabel}）目录：`,
+          REPO_ROOTS[source],
+          "",
+          `3) 现在运行（${targetLabel}）目录：`,
+          REPO_ROOTS[target],
+          "",
+          `插件已同步：${install.length} 个`,
+        ].filter((line) => line !== "");
+        finalState.pendingNotification = {
+          ...finalState.pendingNotification,
+          summary: lines.join("\n"),
+        };
+        saveSwitchState(finalState, DEFAULT_SWITCH_HOME);
+        console.log("[controller] Wrote final switch summary for notification");
+      }
+    } catch (e) {
+      console.warn("[controller] Failed to write final switch summary:", e);
+    }
+
     await progress.done("目标版本已上线，正在完成最终通知…");
     clearSwitchInProgress();
     await progress.close();
