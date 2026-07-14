@@ -163,8 +163,19 @@ function listTargetNativePluginNames(pluginRepo: string): string[] {
   for (const entry of fs.readdirSync(pluginRepo, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     if (entry.name === "outdated" || entry.name === "scripts" || entry.name.startsWith(".")) continue;
-    const impl = path.join(pluginRepo, entry.name, `${entry.name}.ts`);
-    if (fs.existsSync(impl)) names.push(entry.name);
+    const dir = path.join(pluginRepo, entry.name);
+    const impl = path.join(dir, `${entry.name}.ts`);
+    // Standard plugin package: <name>/<name>.ts
+    if (fs.existsSync(impl)) {
+      names.push(entry.name);
+      continue;
+    }
+    // Companion / helper package: directory with any .ts (e.g. sanitizeFileName)
+    // used by multi-file plugins; must be migratable even without plugins.json entry.
+    try {
+      const hasTs = fs.readdirSync(dir).some((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"));
+      if (hasTs) names.push(entry.name);
+    } catch { /* ignore */ }
   }
   return names;
 }

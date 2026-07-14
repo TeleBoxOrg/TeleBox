@@ -80,7 +80,7 @@ export function formatSwitchProgress(opts: {
   failed?: boolean;
 }): string {
   const { source, target, steps, footer, failed } = opts;
-  const header = failed ? `❌ **切换失败**` : `🔄 **正在切换**`;
+  const header = failed ? `❌ 切换失败` : `🔄 正在切换`;
   const lines = [
     header,
     ``,
@@ -102,7 +102,7 @@ export function formatSwitchProgress(opts: {
   } else if (!failed) {
     const running = steps.find((s) => s.status === "running");
     if (running) lines.push(``, `当前：${running.title}`);
-    lines.push(``, `_进度实时更新；完成后本条消息会显示结果。_`);
+    lines.push(``, `进度实时更新；完成后本条消息会显示结果。`);
   }
   return lines.join("\n");
 }
