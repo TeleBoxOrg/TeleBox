@@ -7,72 +7,60 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue.svg?style=for-the-badge&logo=typescript)](https://www.typescriptlang.org/)
 [![Version](https://img.shields.io/badge/Version-0.2.8-orange.svg?style=for-the-badge)](CHANGELOG.md)
 
-**现代化 Telegram UserBot 开发框架**
+**稳定可靠的 Telegram UserBot 框架**
 
-_基于 Node.js 和 TypeScript 构建，提供强大的插件系统与丰富的功能模块_
+_TypeScript 全栈 · 插件热加载 · 一键扩展 · 可与 TeleBox-Next 无缝切换_
 
-[📖 快速开始](#-快速开始) • [🔌 插件生态](#-插件生态) • [🛠️ 开发指南](https://github.com/TeleBoxOrg/TeleBox/blob/main/TELEBOX_DEVELOPMENT.md) • [📚 文档](#-相关链接)
+[📖 快速开始](#-快速开始) · [🔌 插件生态](#-插件生态) · [🛠️ 开发指南](https://github.com/TeleBoxOrg/TeleBox/blob/main/TELEBOX_DEVELOPMENT.md) · [📋 安装](https://github.com/TeleBoxOrg/TeleBox/blob/main/INSTALL.md)
 
 </div>
 
 ---
 
-## ✨ 核心特性
+## ✨ 为什么选择 TeleBox
 
 <table>
 <tr>
 <td width="33%">
 
-### 📦 **模块化插件架构**
+### 📦 **插件即扩展**
 
-🔄 **动态插件加载**  
-支持热重载，无需重启即可更新插件
+🔄 **动态加载**  
+安装、卸载、更新插件，按需热重载
 
-🏷️ **命令别名系统**  
-灵活的命令重定向和自定义别名
+🏷️ **别名系统**  
+把常用命令映射成你习惯的短指令
 
-🎯 **多命令支持**  
-单个插件可注册多个命令和子命令
-
-👂 **消息监听器**  
-支持全局消息监听和事件处理
+👂 **消息 / 事件监听**  
+不只是命令：可做自动回复、统计、定时任务
 
 </td>
 <td width="33%">
 
-### 🔧 **内置功能模块**
+### 🛡️ **开箱即用**
 
-⚙️ **系统管理**  
-进程管理、系统信息监控、日志查看
+🌐 **远程插件商店**  
+`.tpm` 一键搜索 / 安装 / 批量更新
 
-🛡️ **权限控制**  
-sudo 权限分配和用户管理
+👑 **权限体系**  
+sudo / sure，把能力安全分享给协作者
 
-🌐 **远程插件**  
-在线插件商店，一键安装/卸载
-
-💻 **Shell 执行**  
-安全的命令行执行环境
-
-🔍 **信息查询**  
-用户、群组、频道详细信息获取
+🔀 **版本切换**  
+`.switch go` 在 Classic 与 Next 之间直切，会话与插件配置一并迁移
 
 </td>
 <td width="33%">
 
-### ⚡ **高性能设计**
+### ⚡ **生产就绪**
 
-🔒 **TypeScript**  
-类型安全，开发体验优秀
+♻️ **Generation 生命周期**  
+重载可中止、可清理，避免资源泄漏
 
-🚀 **异步架构**  
-基于 Promise 的非阻塞设计
+⬆️ **自动更新**  
+主仓 + 插件可自动拉取，重启后补齐状态
 
-🛠️ **错误处理**  
-完善的异常捕获和恢复机制
-
-💾 **内存优化**  
-智能缓存和资源管理
+🔧 **一键修复**  
+`.autofix`：清重名插件 → 硬同步代码 → 重启 → 更新插件
 
 </td>
 </tr>
@@ -85,264 +73,101 @@ sudo 权限分配和用户管理
 
 ```
 📦 TeleBox/
-├── 🎯 src/                     # 核心源代码
-│   ├── 🚪 index.ts            # 应用入口点
-│   ├── 🔌 plugin/             # 内置插件目录
-│   │   ├── 📖 help.ts         # 帮助系统
-│   │   ├── 📦 tpm.ts          # 插件管理器
-│   │   ├── 🆔 id.ts           # 信息查询
-│   │   ├── 👑 sudo.ts         # 权限管理
-│   │   ├── 💻 exec.ts         # Shell 执行
-│   │   ├── 🏓 ping.ts         # 网络测试
-│   │   ├── 📊 status.ts       # 运行状态
-│   │   └── 🔧 ...             # 其他内置插件
-│   └── 🛠️ utils/              # 工具库
-│       ├── ⚙️ pluginManager.ts     # 插件管理核心
-│       ├── 🔗 entityHelpers.ts     # Telegram 实体处理
-│       ├── 🔐 loginManager.ts      # 登录管理
-│       ├── 💬 conversation.ts      # 对话管理
-│       └── 🧰 ...                  # 其他工具
-├── 🔌 plugins/                # 用户插件目录
-├── 📁 assets/                 # 静态资源
-├── 💾 my_session/             # 会话文件
-├── 📂 temp/                   # 临时文件
-├── ⚙️ package.json            # 项目配置
-├── 📝 tsconfig.json           # TypeScript 配置
-└── 📋 INSTALL.md              # 安装文档
+├── 🎯 src/
+│   ├── 🚪 index.ts              # 入口
+│   ├── 🔌 plugin/               # 内置系统插件（22 个）
+│   │   ├── help.ts · tpm.ts · update.ts · switch.ts · autofix.ts
+│   │   ├── status.ts · ping.ts · reload.ts · exec.ts · sudo.ts
+│   │   └── …
+│   ├── 🛠️ utils/                # 运行时 / 插件管理 / 会话 / 日志
+│   └── 🪝 hook/                 # 客户端补丁与类型增强
+├── 🔌 plugins/                  # 用户插件目录（.tpm 安装到这里）
+├── 📁 assets/                   # 运行时数据与资源
+├── 📂 temp/ · logs/
+├── ⚙️ package.json · tsconfig.json
+└── 📋 INSTALL.md · TELEBOX_DEVELOPMENT.md
 ```
 
 </details>
 
-## 🧩 核心组件
-
-<div align="center">
-
-### 🔧 **插件系统架构**
-
-</div>
+## 🧩 插件抽象（开发者）
 
 ```typescript
-// 🎨 现代化的插件抽象类设计
 abstract class Plugin {
-  // 📝 必需属性 - 插件描述（支持动态生成）
   abstract description:
     | string
     | ((...args: any[]) => string | void)
     | ((...args: any[]) => Promise<string | void>);
-    
-  // ⚡ 必需属性 - 命令处理器映射表
+
   abstract cmdHandlers: Record<
     string,
     (msg: Api.Message, trigger?: Api.Message) => Promise<void>
   >;
-  
-  // 👂 可选属性 - 消息监听器
+
   listenMessageHandler?: (msg: Api.Message) => Promise<void>;
-  
-  // 🎯 可选属性 - 事件处理器
-  eventHandlers?: Array<{
-    event?: any;
-    handler: (event: any) => Promise<void>;
-  }>;
-  
-  // ⏰ 可选属性 - 定时任务
+  eventHandlers?: Array<{ event?: any; handler: (event: any) => Promise<void> }>;
   cronTasks?: Record<string, {
     cron: string;
     description: string;
     handler: (client: TelegramClient) => Promise<void>;
   }>;
 }
-
-// 💡 trigger 参数说明：
-// 用于 sudo 用户权限传递，如 eat 插件获取 sudo 用户头像
-// 示例：.sudo eat @target -> trigger 为 sudo 用户的消息
 ```
 
-<table>
-<tr>
-<td width="50%">
-
-### 🎮 **命令系统**
-
-🔤 **多前缀支持**  
-支持 `.` `。` `$` 等多种命令前缀
-
-🧪 **开发模式**  
-开发环境使用 `!` `！` 前缀
-
-🧠 **智能解析**  
-自动识别命令和参数
-
-💬 **错误处理**  
-友好的错误提示和帮助信息
-
-</td>
-<td width="50%">
-
-### 🛡️ **权限管理**
-
-👑 **sudo 系统**  
-分级权限控制
-
-📋 **用户白名单**  
-灵活的访问控制
-
-🔒 **安全执行**  
-受限的 shell 命令执行
-
-🔐 **会话管理**  
-安全的登录和认证机制
-
-</td>
-</tr>
-</table>
+> 默认命令前缀：`.` `。` `$` · 开发模式（`npm run dev`）：`!` `！`  
+> 完整规范见 [TELEBOX_DEVELOPMENT.md](https://github.com/TeleBoxOrg/TeleBox/blob/main/TELEBOX_DEVELOPMENT.md)
 
 ## 🔌 插件生态
 
-### 🎯 **内置插件**
+### 🎯 内置插件
 
 <table>
 <thead>
 <tr>
-<th width="15%">🔌 插件</th>
-<th width="25%">⌨️ 命令</th>
-<th width="60%">📋 功能描述</th>
+<th width="14%">插件</th>
+<th width="28%">命令</th>
+<th width="58%">说明</th>
 </tr>
 </thead>
 <tbody>
-<tr>
-<td><strong>📖 help</strong></td>
-<td><code>h</code>, <code>help</code></td>
-<td>🎯 帮助系统和命令列表</td>
-</tr>
-<tr>
-<td><strong>📦 tpm</strong></td>
-<td><code>tpm</code></td>
-<td>🔧 插件管理器（安装/卸载/搜索）</td>
-</tr>
-<tr>
-<td><strong>🛠️ debug</strong></td>
-<td><code>id</code>, <code>entity</code>, <code>msg</code>, <code>echo</code></td>
-<td>🔍 调试工具：获取用户/群组/频道详细信息</td>
-</tr>
-<tr>
-<td><strong>👑 sudo</strong></td>
-<td><code>sudo</code></td>
-<td>🛡️ 权限管理和用户授权</td>
-</tr>
-<tr>
-<td><strong>💻 exec</strong></td>
-<td><code>exec</code></td>
-<td>🔒 安全的 Shell 命令执行</td>
-</tr>
-<tr>
-<td><strong>🏓 ping</strong></td>
-<td><code>ping</code></td>
-<td>🌐 网络延迟测试工具</td>
-</tr>
-<tr>
-<td><strong>📊 status</strong></td>
-<td><code>status</code></td>
-<td>📡 运行状态与 generation 信息</td>
-</tr>
-<tr>
-<td><strong>🏷️ alias</strong></td>
-<td><code>alias</code></td>
-<td>🔄 命令别名管理</td>
-</tr>
-<tr>
-<td><strong>🔄 update</strong></td>
-<td><code>update</code></td>
-<td>⬆️ 系统更新管理</td>
-</tr>
-<tr>
-<td><strong>📦 bf</strong></td>
-<td><code>bf</code></td>
-<td>💾 数据备份工具</td>
-</tr>
-<tr>
-<td><strong>🔄 reload</strong></td>
-<td><code>reload</code>, <code>exit</code></td>
-<td>♻️ 插件重新加载和进程管理</td>
-</tr>
-<tr>
-<td><strong>📜 sendlog</strong></td>
-<td><code>sendlog</code>, <code>logs</code>, <code>log</code></td>
-<td>📤 日志文件发送工具</td>
-</tr>
-<tr>
-<td><strong>🔁 re</strong></td>
-<td><code>re</code></td>
-<td>🗣️ 消息复读工具</td>
-</tr>
-<tr>
-<td><strong>✅ sure</strong></td>
-<td><code>sure</code></td>
-<td>🤔 确认操作工具</td>
-</tr>
-
-<tr>
-<td><strong>🔀 switch</strong></td>
-<td><code>switch</code></td>
-<td>🔁 Classic / Next 版本切换</td>
-</tr>
-<tr>
-<td><strong>🔧 autofix</strong></td>
-<td><code>autofix</code></td>
-<td>🛠️ 一键修复：清理重名插件、硬同步代码、重启并更新插件</td>
-</tr>
-<tr>
-<td><strong>💾 save</strong></td>
-<td><code>save</code></td>
-<td>📌 会话/配置保存相关工具</td>
-</tr>
-<tr>
-<td><strong>📥 leech</strong></td>
-<td><code>leech</code></td>
-<td>📚 历史消息抓取与归档</td>
-</tr>
-<tr>
-<td><strong>🤖 agent</strong></td>
-<td><code>agent</code></td>
-<td>🧠 内置 Agent 能力</td>
-</tr>
-<tr>
-<td><strong>🏷️ version</strong></td>
-<td><code>version</code></td>
-<td>📋 版本信息</td>
-</tr>
-<tr>
-<td><strong>🔤 prefix</strong></td>
-<td><code>prefix</code></td>
-<td>✏️ 命令前缀管理</td>
-</tr>
-<tr>
-<td><strong>🪵 loglevel</strong></td>
-<td><code>loglevel</code></td>
-<td>🎚️ 日志级别管理</td>
-</tr>
+<tr><td><strong>help</strong></td><td><code>help</code>, <code>h</code></td><td>帮助与命令列表</td></tr>
+<tr><td><strong>tpm</strong></td><td><code>tpm</code></td><td>插件管理器：搜索 / 安装 / 卸载 / 更新 / 上传</td></tr>
+<tr><td><strong>update</strong></td><td><code>update</code></td><td>拉取主仓最新代码并安装依赖</td></tr>
+<tr><td><strong>switch</strong></td><td><code>switch</code></td><td>Classic ↔ Next 版本切换（会话转换 + 配置迁移）</td></tr>
+<tr><td><strong>autofix</strong></td><td><code>autofix</code></td><td>一键修复：清重名插件 → 硬同步 → 重启 → 更新插件</td></tr>
+<tr><td><strong>reload</strong></td><td><code>reload</code>, <code>exit</code>, <code>restart</code>, <code>health</code>, <code>memory</code>…</td><td>重载 / 退出 / 健康与内存检查</td></tr>
+<tr><td><strong>status</strong></td><td><code>status</code>, <code>sysinfo</code></td><td>运行状态与系统信息</td></tr>
+<tr><td><strong>version</strong></td><td><code>version</code>, <code>ver</code></td><td>版本号与更新状态</td></tr>
+<tr><td><strong>ping</strong></td><td><code>ping</code></td><td>API / 目标 / DC 延迟探测（TCP 优先）</td></tr>
+<tr><td><strong>debug</strong></td><td><code>id</code>, <code>entity</code>, <code>msg</code>, <code>echo</code></td><td>对话 / 实体 / 消息调试</td></tr>
+<tr><td><strong>sudo</strong></td><td><code>sudo</code></td><td>管理员授权</td></tr>
+<tr><td><strong>sure</strong></td><td><code>sure</code></td><td>授权他人以 bot 身份发送（支持重定向）</td></tr>
+<tr><td><strong>exec</strong></td><td><code>exec</code></td><td>安全执行 Shell 命令</td></tr>
+<tr><td><strong>alias</strong></td><td><code>alias</code></td><td>命令别名 / 重命名</td></tr>
+<tr><td><strong>prefix</strong></td><td><code>prefix</code></td><td>命令前缀管理</td></tr>
+<tr><td><strong>bf</strong></td><td><code>bf</code>, <code>hf</code></td><td>备份工具</td></tr>
+<tr><td><strong>sendlog</strong></td><td><code>sendlog</code>, <code>logs</code>, <code>log</code></td><td>发送日志文件</td></tr>
+<tr><td><strong>loglevel</strong></td><td><code>loglevel</code></td><td>日志级别</td></tr>
+<tr><td><strong>re</strong></td><td><code>re</code></td><td>消息复读</td></tr>
+<tr><td><strong>save</strong></td><td><code>save</code></td><td>会话 / 配置保存相关</td></tr>
+<tr><td><strong>leech</strong></td><td><code>leech</code></td><td>历史消息抓取与归档</td></tr>
+<tr><td><strong>agent</strong></td><td><code>agent</code></td><td>内置 Agent 能力</td></tr>
 </tbody>
 </table>
 
-### 🌟 **扩展插件**
+### 🌟 扩展插件
 
-<div align="center">
+官方插件仓库提供 100+ 社区插件，安装、更新、卸载都走 TPM：
 
-🎪 **丰富的插件生态系统**
-
-</div>
-
-> 🔍 **查看可用插件** → `.tpm search` / `.tpm s`  
-> 📥 **安装插件** → `.tpm install <插件名>` / `.tpm i <插件名>`  
-> 📦 **批量安装** → `.tpm i <插件1> <插件2> <插件3>`  
-> 🌟 **一键安装全部** → `.tpm i all`  
-> 📁 **从文件安装** → 回复文件 + `.tpm install`  
-> 🗑️ **卸载插件** → `.tpm remove <插件名>` / `.tpm rm <插件名>`  
-> 🗂️ **批量卸载** → `.tpm rm <插件1> <插件2> <插件3>`  
-> 🔄 **一键更新全部** → `.tpm update` / `.tpm ua`  
-> 📋 **查看已安装** → `.tpm list` / `.tpm ls`  
-> 📊 **详细列表** → `.tpm list -v` / `.tpm lv`  
-> 📤 **上传插件** → `.tpm upload <插件名>` / `.tpm ul <插件名>`
+| 操作 | 命令 |
+|------|------|
+| 搜索 | `.tpm search` / `.tpm s` |
+| 安装 | `.tpm i <名>` · `.tpm i a b c` · `.tpm i all` |
+| 从文件装 | 回复 `.ts` 文件 + `.tpm install` |
+| 卸载 | `.tpm rm <名>` · `.tpm rm all` |
+| 更新 | `.tpm update` / `.tpm ua` |
+| 列表 | `.tpm ls` · `.tpm lv` |
+| 上传 | `.tpm ul <名>` |
 
 <div align="center">
 
@@ -352,99 +177,51 @@ abstract class Plugin {
 
 ## 🛠️ 技术栈
 
-<div align="center">
-
-|  🏗️ **技术领域**   |   🔧 **技术选型**    | 📊 **版本** |
-| :----------------: | :------------------: | :---------: |
-|   🚀 **运行时**    |       Node.js        |    `24.x`    |
-|  💎 **开发语言**   |      TypeScript      |   `^5.9.2`   |
-| 📡 **Telegram 库** |       Teleproto       |  `^1.228.0` |
-|   💾 **数据库**    |    better-sqlite3    |  `^12.2.0`   |
-|   💾 **数据库**    |        lowdb         |   `^7.0.1`   |
-|  ⚡ **构建工具**   | tsx + tsconfig-paths |  `^4.22.4`   |
-| 🌐 **HTTP 客户端** |        axios         |  `^1.11.0`   |
-|  🖼️ **图像处理**   |        sharp         |  `^0.34.3`   |
-|   🧰 **工具库**    |        lodash        |  `^4.17.21`  |
-|  ⏰ **任务调度**   |         cron         |   `^4.3.3`   |
-
-</div>
+| 领域 | 选型 | 版本 |
+|:----:|:----:|:----:|
+| 运行时 | Node.js | `24.x` |
+| 语言 | TypeScript | `^5.9.2` |
+| Telegram | Teleproto | `^1.228.0` |
+| 数据库 | better-sqlite3 · lowdb | `^12.2.0` · `^7.0.1` |
+| 运行 | tsx | `^4.22.4` |
+| HTTP / 图像 / 工具 | axios · sharp · lodash · cron | 见 `package.json` |
 
 ## 🚀 快速开始
 
 <div align="center">
 
-### 📥 **安装部署**
-
-[![安装指南](https://img.shields.io/badge/📋_完整安装指南-点击查看-green?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/INSTALL.md)
+[![安装指南](https://img.shields.io/badge/📋_完整安装指南-INSTALL.md-green?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/INSTALL.md)
 
 </div>
 
-### 💡 **基本命令**
-
-<table>
-<tr>
-<td width="50%">
-
-**🔍 信息查询**
-
 ```bash
-.help                    # 📖 查看所有命令
-.help <命令>             # 📝 查看特定命令帮助
-.id                      # 🆔 获取当前聊天信息
+git clone https://github.com/TeleBoxOrg/TeleBox.git ~/telebox
+cd ~/telebox && npm install && npm start
+# 生产环境建议：pm2 start "npm start" --name telebox
 ```
 
-</td>
-<td width="50%">
+### 常用命令
 
-**🔧 插件管理**
-
-```bash
-.tpm search              # 🔍 查看远程插件列表
-.tpm i <插件名>          # 📥 安装插件
-.sudo add <用户>         # 👑 添加 sudo 权限
-```
-
-</td>
-</tr>
-</table>
-
-### 🧪 **开发模式**
-
-<div align="center">
+| 场景 | 示例 |
+|------|------|
+| 帮助 | `.help` · `.help tpm` |
+| 装插件 | `.tpm i weather` |
+| 查延迟 | `.ping` · `.ping 1.1.1.1` |
+| 系统状态 | `.status` |
+| 更新主仓 | `.update` |
+| 切到 Next | `.switch go` |
+| 一键修复 | `.autofix` |
 
 ```bash
-# 🚀 启动开发模式
-npm run dev
+npm run dev   # 开发模式，前缀改为 ! / ！
 ```
 
-💡 _开发模式下使用_ `!` _和_ `！` _作为命令前缀_
+## 🔗 相关链接
 
-</div>
-
-## 📚 相关链接
-
-<div align="center">
-
-<table>
-<tr>
-<td align="center" width="20%">
-
-[![主仓库](https://img.shields.io/badge/📦_主仓库-TeleBox-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox)
-
-[![插件仓库](https://img.shields.io/badge/🔌_插件仓库-TeleBox--Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Plugins)
-
-</td>
-<td align="center" width="20%">
-
-[![安装指南](https://img.shields.io/badge/📋_安装指南-INSTALL.md-orange?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox/blob/main/INSTALL.md)
-
-[![问题反馈](https://img.shields.io/badge/🆘_问题反馈-Issues-red?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox/issues)
-
-</td>
-</tr>
-</table>
-
-</div>
+| | |
+|:--:|:--:|
+| [![TeleBox](https://img.shields.io/badge/📦_TeleBox-Classic-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox) | [![TeleBox-Next](https://img.shields.io/badge/📦_TeleBox--Next-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Next) |
+| [![Plugins](https://img.shields.io/badge/🔌_TeleBox--Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Plugins) | [![Issues](https://img.shields.io/badge/🆘_Issues-red?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox/issues) |
 
 <div align="center">
 
@@ -452,13 +229,11 @@ npm run dev
 
 [![LGPL-2.1](https://img.shields.io/badge/License-LGPL--2.1-blue?style=for-the-badge)](LICENSE)
 
-本项目采用 **LGPL-2.1** 许可证开源
+本项目采用 **LGPL-2.1** 开源
 
 ---
 
-### 🎯 **TeleBox**
-
-_让 Telegram UserBot 开发更简单、更强大_
+**TeleBox** — 把 Telegram UserBot 做成可维护的工程
 
 <sub>Made with ❤️ by TeleBox Team</sub>
 
