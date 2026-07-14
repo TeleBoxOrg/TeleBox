@@ -258,10 +258,12 @@ const GITHUB_BOT_USERNAME = "githubbot";
 
 // Classic edition only reacts to classic repos (not TeleBox-Next*).
 // Accept TeleBoxOrg / TeleBoxLabs / bare names. Plugin pattern first.
+// GitHubBot: "1 new commit to …" / "2 new commits to …" (singular or plural)
+const COMMIT_NOTICE_PATTERN = /\bnew\s+commits?\b/i;
 const MAIN_REPO_PATTERN =
-  /new commit[\s\S]*?to\s+(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox|TeleBox_M)\s*:\s*main/i;
+  /\bnew\s+commits?\b[\s\S]*?\bto\s+(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox|TeleBox_M)\s*:\s*main\b/i;
 const PLUGIN_REPO_PATTERN =
-  /new commit[\s\S]*?to\s+(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Plugins|TeleBox_Plugins|TeleBox_M_Plugins)\s*:\s*main/i;
+  /\bnew\s+commits?\b[\s\S]*?\bto\s+(?:(?:TeleBoxOrg|TeleBoxLabs)\/)?(TeleBox-Plugins|TeleBox_Plugins|TeleBox_M_Plugins)\s*:\s*main\b/i;
 
 function normalizeChatId(msg: Api.Message): string {
   if (msg.chatId != null) return String(msg.chatId);
@@ -336,7 +338,7 @@ class UpdatePlugin extends Plugin {
     if (!isGitHubBot(msg)) return;
 
     const text = msg.message || "";
-    if (!text || !/new commit/i.test(text)) return;
+    if (!text || !COMMIT_NOTICE_PATTERN.test(text)) return;
 
     // Optional log for product channel vs group
     const chatId = normalizeChatId(msg);
