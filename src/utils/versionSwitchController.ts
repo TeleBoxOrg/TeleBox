@@ -238,6 +238,12 @@ async function main(): Promise<void> {
   try {
     const targetRoot = prepareEdition(target);
     REPO_ROOTS = { ...REPO_ROOTS, [target]: targetRoot };
+    // Seed config.json onto fresh clones ASAP (api_id/hash from source) — zero-config
+    try {
+      ensureEditionConfig(target, source);
+    } catch (e) {
+      console.warn("[controller] early config seed deferred:", e);
+    }
     // Source must remain resolvable
     try {
       const srcRoot = prepareEdition(source);
@@ -511,6 +517,102 @@ async function main(): Promise<void> {
   }
 }
 
+/**
+ * Fresh clones under runtime home (e.g. telebox/telebox-next) have no config.json.
+ * Zero-config switch: seed api_id/api_hash (and optional proxy) from the source
+ * edition or any known sibling install so the user never hand-copies credentials.
+ */
+function readJsonConfig(file: string): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(file)) return null;
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as unknown;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    return raw as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function findSeedConfig(preferVersion?: "teleproto" | "mtcute"): Record<string, unknown> | null {
+  const candidates: string[] = [];
+  if (preferVersion) {
+    candidates.push(path.join(REPO_ROOTS[preferVersion], "config.json"));
+  }
+  for (const root of Object.values(REPO_ROOTS)) {
+    candidates.push(path.join(root, "config.json"));
+  }
+  // Standalone / legacy locations (before nest)
+  const home = path.dirname(REPO_ROOTS.teleproto) === path.dirname(REPO_ROOTS.mtcute)
+    ? path.dirname(REPO_ROOTS.teleproto)
+    : process.env.HOME || "/root";
+  candidates.push(
+    path.join(home, "telebox", "config.json"),
+    path.join(home, "telebox-next", "config.json"),
+    path.join(home, "telebox-classic", "config.json"),
+    path.join(home, "telebox_mtcute", "config.json"),
+    path.join("/root/telebox/config.json"),
+    path.join("/root/telebox-next/config.json"),
+  );
+
+  const seen = new Set<string>();
+  for (const file of candidates) {
+    const resolved = path.resolve(file);
+    if (seen.has(resolved)) continue;
+    seen.add(resolved);
+    const cfg = readJsonConfig(resolved);
+    if (!cfg) continue;
+    const apiId = cfg.api_id ?? cfg.apiId;
+    const apiHash = cfg.api_hash ?? cfg.apiHash;
+    if (apiId != null && apiHash) {
+      console.log(`[controller] Seed config from ${resolved}`);
+      return cfg;
+    }
+  }
+  return null;
+}
+
+/** Ensure target edition has a usable config.json (create from source if missing). */
+function ensureEditionConfig(
+  version: "teleproto" | "mtcute",
+  seedFrom?: "teleproto" | "mtcute",
+): string {
+  const repo = REPO_ROOTS[version];
+  if (!repo || !fs.existsSync(repo)) {
+    throw new Error(`目标版本目录不存在: ${repo || version}`);
+  }
+  const configPath = path.join(repo, "config.json");
+  const existing = readJsonConfig(configPath);
+  if (existing && (existing.api_id != null || existing.apiId != null) && (existing.api_hash || existing.apiHash)) {
+    return configPath;
+  }
+
+  const seed = findSeedConfig(seedFrom ?? (version === "mtcute" ? "teleproto" : "mtcute"));
+  if (!seed) {
+    throw new Error(
+      `目标版本缺少 config.json，且无法从当前版本自动生成凭证。\n` +
+        `请确认当前运行中的 TeleBox 目录里有 config.json（含 api_id / api_hash）。\n` +
+        `目标路径: ${configPath}`,
+    );
+  }
+
+  const next: Record<string, unknown> = {
+    api_id: seed.api_id ?? seed.apiId,
+    api_hash: seed.api_hash ?? seed.apiHash,
+  };
+  // Optional fields users may have customized
+  for (const key of ["proxy", "device_model", "system_version", "app_version", "lang_code", "system_lang_code"]) {
+    if (seed[key] != null) next[key] = seed[key];
+  }
+  // Keep existing session markers if any partial file existed
+  if (existing?.session) next.session = existing.session;
+  if (existing?._switchSessionPath) next._switchSessionPath = existing._switchSessionPath;
+
+  fs.mkdirSync(repo, { recursive: true });
+  fs.writeFileSync(configPath, `${JSON.stringify(next, null, 2)}\n`);
+  console.log(`[controller] Wrote ${configPath} (auto-seeded api credentials for zero-config switch)`);
+  return configPath;
+}
+
 function clearSwitchSessionMarker(version: "teleproto" | "mtcute"): void {
   const configPath = path.join(REPO_ROOTS[version], "config.json");
   if (!fs.existsSync(configPath)) return;
@@ -524,12 +626,11 @@ function clearSwitchSessionMarker(version: "teleproto" | "mtcute"): void {
 }
 
 function injectSessionConfig(version: "teleproto" | "mtcute", extPath: string): void {
-  const repo = REPO_ROOTS[version];
-  const configPath = path.join(repo, "config.json");
-
-  if (!fs.existsSync(configPath)) {
-    throw new Error(`config.json not found: ${configPath}`);
-  }
+  // Fresh nested clones never ship config.json — seed from the other edition first.
+  const configPath = ensureEditionConfig(
+    version,
+    version === "mtcute" ? "teleproto" : "mtcute",
+  );
 
   if (version === "teleproto") {
     // gramjs: config.json.session is the StringSession string
@@ -537,15 +638,16 @@ function injectSessionConfig(version: "teleproto" | "mtcute", extPath: string): 
     const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>;
     config.session = sessionStr;
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    console.log(`[controller] Injected teleproto session into ${configPath}`);
   } else {
-    // mtcute: session.db is an SQLite file — we use the external path directly.
-    // mtcuteClient.ts reads SESSION_DB_PATH from process.cwd()/session.db.
-    // For external sessions, we replace the symlink-or-copy approach:
-    // The target repo's runtimeManager reads config.json and creates the client.
-    // We write a marker in config.json so the startup path resolver picks it up.
+    // mtcute: external SQLite path via _switchSessionPath (see mtcuteClient.ts)
+    if (!fs.existsSync(extPath)) {
+      throw new Error(`外部 session 文件不存在: ${extPath}`);
+    }
     const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as Record<string, unknown>;
     config._switchSessionPath = extPath;
     fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
+    console.log(`[controller] Injected mtcute session marker → ${extPath}`);
   }
 }
 
