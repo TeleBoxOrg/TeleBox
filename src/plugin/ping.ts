@@ -149,28 +149,76 @@ async function dnsLookupTime(
 }
 
 /**
- * 系统ICMP ping命令 (Linux)
+ * 单次 TCP 连接延迟（tcping）
+ */
+async function tcpingOnce(
+  hostname: string,
+  port: number,
+  timeout: number = 3000,
+): Promise<number> {
+  return tcpPing(hostname, port, timeout);
+}
+
+/**
+ * 多端口、多样本 TCP 探测。优先 443 → 80 → 22 → 53。
+ * 不依赖系统 ping；全失败时返回 null，由调用方 fallback ICMP。
+ */
+async function tcpingProbe(
+  hostname: string,
+  ports: number[] = [443, 80, 22, 53],
+  samples: number = 3,
+  timeout: number = 3000,
+): Promise<{ avg: number; port: number; loss: number; best: number } | null> {
+  const ok: { ms: number; port: number }[] = [];
+  let rounds = 0;
+  for (let i = 0; i < samples; i++) {
+    rounds++;
+    let hit: { ms: number; port: number } | null = null;
+    for (const port of ports) {
+      const ms = await tcpingOnce(hostname, port, timeout);
+      if (ms >= 0) {
+        hit = { ms, port };
+        break;
+      }
+    }
+    if (hit) ok.push(hit);
+  }
+  if (ok.length === 0) return null;
+  const avg = Math.round(ok.reduce((s, x) => s + x.ms, 0) / ok.length);
+  const best = Math.min(...ok.map((x) => x.ms));
+  const portCount = new Map<number, number>();
+  for (const x of ok) portCount.set(x.port, (portCount.get(x.port) || 0) + 1);
+  let port = ok[0].port;
+  let maxC = 0;
+  for (const [p, c] of portCount) {
+    if (c > maxC) {
+      maxC = c;
+      port = p;
+    }
+  }
+  const loss = Math.round(((rounds - ok.length) / rounds) * 100);
+  return { avg, port, loss, best };
+}
+
+/**
+ * 系统 ICMP ping（仅 TCP 失败时 fallback）
  */
 async function systemPing(
   target: string,
   count: number = 3
 ): Promise<{ avg: number; loss: number; output: string }> {
-  // Validate before handing to the OS: target must be an IP, a plain
-  // hostname, or a dc alias (parseTarget guarantees one of these), and the
-  // count must be a small positive integer. We then exec without a shell so
-  // an attacker-supplied target like `x; rm -rf /` cannot inject commands.
+  // Validate target; exec without a shell (no injection).
   if (!/^[A-Za-z0-9.\-_:]+$/.test(target)) {
     throw new Error("无效的 ping 目标");
   }
   const safeCount = Math.min(Math.max(Math.trunc(count) || 3, 1), 10);
   try {
-    const { stdout, stderr } = await execFileAsync(
+    const { stdout } = await execFileAsync(
       "ping",
       ["-c", String(safeCount), "-W", "5", target],
       { timeout: 10000, shell: false }
     );
 
-    // 解析Linux ping结果
     let avgTime = -1;
     let packetLoss = 100;
 
@@ -201,44 +249,43 @@ async function systemPing(
 }
 
 /**
- * 测试所有数据中心延迟 (Linux)
+ * 测试所有数据中心延迟：TCP(443/80) 优先，失败再系统 ping
  */
 async function pingDataCenters(): Promise<string[]> {
   const results: string[] = [];
 
   for (let dc = 1; dc <= 5; dc++) {
     const ip = DCs[dc as keyof typeof DCs];
+    const dcLocation =
+      dc === 1 || dc === 3
+        ? "Miami"
+        : dc === 2 || dc === 4
+        ? "Amsterdam"
+        : "Singapore";
+
+    const tcp = await tcpingProbe(ip, [443, 80], 2, 3000);
+    if (tcp) {
+      results.push(
+        `🌐 <b>DC${dc} (${dcLocation}):</b> <code>${tcp.avg}ms</code> <i>TCP:${tcp.port}</i>`
+      );
+      continue;
+    }
+
     try {
       const { stdout } = await execFileAsync(
         "ping",
         ["-c", "1", "-W", "5", ip],
         { timeout: 10000, shell: false }
       );
-
-      // 从 ping 输出中提取延迟时间（替代 awk 管道）
       let pingTime = "0";
       const timeMatch = stdout.match(/time=([0-9.]+)/);
       if (timeMatch) {
         pingTime = String(Math.round(parseFloat(timeMatch[1])));
       }
-
-      const dcLocation =
-        dc === 1 || dc === 3
-          ? "Miami"
-          : dc === 2 || dc === 4
-          ? "Amsterdam"
-          : "Singapore";
-
       results.push(
-        `🌐 <b>DC${dc} (${dcLocation}):</b> <code>${pingTime}ms</code>`
+        `🌐 <b>DC${dc} (${dcLocation}):</b> <code>${pingTime}ms</code> <i>ICMP</i>`
       );
     } catch (error) {
-      const dcLocation =
-        dc === 1 || dc === 3
-          ? "Miami"
-          : dc === 2 || dc === 4
-          ? "Amsterdam"
-          : "Singapore";
       results.push(`🌐 <b>DC${dc} (${dcLocation}):</b> <code>超时</code>`);
     }
   }
@@ -272,7 +319,7 @@ function parseTarget(input: string): {
 
 class PingPlugin extends Plugin {
 
-  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping &lt;IP/域名&gt; - ICMP ping测试\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
+  description: string = `🏓 网络延迟测试工具\n\n• ${mainPrefix}ping - Telegram API延迟\n• ${mainPrefix}ping &lt;IP/域名&gt; - TCP 优先（fallback ICMP）\n• ${mainPrefix}ping dc1-dc5 - 数据中心延迟\n• ${mainPrefix}ping all - 所有数据中心延迟`;
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     ping: async (msg) => {
       const client = await getGlobalClient();
@@ -337,7 +384,7 @@ class PingPlugin extends Plugin {
         // 帮助信息
         if (target === "help" || target === "h") {
           await msg.edit({
-            text: `🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>支持ICMP和TCP连接测试</i>`,
+            text: `🏓 <b>Ping工具使用说明</b>\n\n<b>基础用法:</b>\n• <code>${mainPrefix}ping</code> - Telegram延迟测试\n• <code>${mainPrefix}ping all</code> - 所有数据中心延迟\n\n<b>网络测试:</b>\n• <code>${mainPrefix}ping 8.8.8.8</code> - IP地址ping\n• <code>${mainPrefix}ping google.com</code> - 域名ping\n• <code>${mainPrefix}ping dc1</code> - 指定数据中心\n\n<b>数据中心:</b>\n• DC1-DC5: 分别对应不同地区服务器\n\n💡 <i>TCP(443/80) 优先，系统 ping 仅作 fallback</i>`,
             parseMode: "html",
           });
           return;
@@ -363,65 +410,55 @@ class PingPlugin extends Plugin {
           );
         }
 
-        // ICMP Ping测试（尝试但可能失败）
-        try {
-          const pingResult = await systemPing(testTarget, 3);
-          if (pingResult.avg >= 0 && pingResult.loss < 100) {
-            const avgText =
-              pingResult.avg === 0 ? "<1" : pingResult.avg.toString();
-            results.push(
-              `🏓 <b>ICMP Ping:</b> <code>${avgText}ms</code> (丢包: ${pingResult.loss}%)`
-            );
-          } else {
-            // ICMP失败，使用HTTP ping作为替代
+        // TCP 优先（tcping），失败再系统 ICMP，再 HTTP
+        const tcpProbe = await tcpingProbe(testTarget, [443, 80, 22, 53], 3, 3000);
+        if (tcpProbe) {
+          const avgText = tcpProbe.avg === 0 ? "<1" : String(tcpProbe.avg);
+          results.push(
+            `🏓 <b>TCP Ping:</b> <code>${avgText}ms</code> (port ${tcpProbe.port}, 丢包: ${tcpProbe.loss}%, best ${tcpProbe.best}ms)`
+          );
+        } else {
+          try {
+            const pingResult = await systemPing(testTarget, 3);
+            if (pingResult.avg >= 0 && pingResult.loss < 100) {
+              const avgText =
+                pingResult.avg === 0 ? "<1" : pingResult.avg.toString();
+              results.push(
+                `🏓 <b>ICMP Ping:</b> <code>${avgText}ms</code> (TCP 不可用, 丢包: ${pingResult.loss}%)`
+              );
+            } else {
+              const httpResult = await httpPing(testTarget, false);
+              if (httpResult > 0) {
+                results.push(
+                  `🏓 <b>HTTP Ping:</b> <code>${httpResult}ms</code> (TCP/ICMP 不可用)`
+                );
+              } else {
+                results.push(`🏓 <b>连通性:</b> <code>TCP/ICMP/HTTP 均不可用</code>`);
+              }
+            }
+          } catch (_error: any) {
             const httpResult = await httpPing(testTarget, false);
             if (httpResult > 0) {
               results.push(
-                `🏓 <b>HTTP Ping:</b> <code>${httpResult}ms</code> (ICMP不可用)`
+                `🏓 <b>HTTP Ping:</b> <code>${httpResult}ms</code> (TCP/ICMP 受限)`
               );
             } else {
-              results.push(`🏓 <b>ICMP Ping:</b> <code>不可用</code>`);
+              results.push(`🏓 <b>网络测试:</b> <code>TCP/ICMP/HTTP 均不可用</code>`);
             }
           }
-        } catch (error: any) {
-          // ICMP失败，尝试HTTP ping
-          const httpResult = await httpPing(testTarget, false);
-          if (httpResult > 0) {
-            results.push(
-              `🏓 <b>HTTP Ping:</b> <code>${httpResult}ms</code> (ICMP受限)`
-            );
-          } else {
-            results.push(`🏓 <b>网络测试:</b> <code>ICMP/HTTP均不可用</code>`);
-          }
         }
 
-        // 使用Telegram网络栈测试TCP连接
-        const telegramTcp80 = await telegramTcpPing(testTarget, 80, 5000);
-        const telegramTcp443 = await telegramTcpPing(testTarget, 443, 5000);
-
-        // 如果Telegram网络栈失败，回退到传统方法
-        const tcp80 =
-          telegramTcp80 > 0
-            ? telegramTcp80
-            : await tcpPing(testTarget, 80, 5000);
-        const tcp443 =
-          telegramTcp443 > 0
-            ? telegramTcp443
-            : await tcpPing(testTarget, 443, 5000);
-
-        if (tcp80 > 0) {
-          const method = telegramTcp80 > 0 ? "TG" : "TCP";
-          results.push(`🌐 <b>${method}连接 (80):</b> <code>${tcp80}ms</code>`);
+        // 补充端口明细
+        const tcp80 = await tcpPing(testTarget, 80, 5000);
+        const tcp443 = await tcpPing(testTarget, 443, 5000);
+        if (tcp80 >= 0) {
+          results.push(`🌐 <b>TCP:80:</b> <code>${tcp80}ms</code>`);
+        }
+        if (tcp443 >= 0) {
+          results.push(`🔒 <b>TCP:443:</b> <code>${tcp443}ms</code>`);
         }
 
-        if (tcp443 > 0) {
-          const method = telegramTcp443 > 0 ? "TG" : "TCP";
-          results.push(
-            `🔒 <b>${method}连接 (443):</b> <code>${tcp443}ms</code>`
-          );
-        }
-
-        // HTTPS请求测试（应用层延迟）
+        // HTTPS 应用层
         const httpsResult = await httpPing(testTarget, true);
         if (httpsResult > 0) {
           results.push(`📡 <b>HTTPS请求:</b> <code>${httpsResult}ms</code>`);
