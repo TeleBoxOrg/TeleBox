@@ -2,7 +2,7 @@
 
 # 📋 TeleBox 安装指南
 
-> 💡 你是什么也不懂的小白吗？查看如何使用我们的 [一键部署脚本](https://github.com/TeleBoxOrg/TeleBox_Scripts)
+> 💡 你是什么也不懂的小白吗？查看如何使用我们的 [一键部署脚本](https://github.com/TeleBoxOrg/TeleBox-Scripts)
 
 [![Node.js](https://img.shields.io/badge/Node.js-24.x-green.svg?style=for-the-badge&logo=node.js)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-LGPL--2.1-blue?style=for-the-badge)](LICENSE)
