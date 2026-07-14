@@ -477,8 +477,10 @@ ${truncate2(firstLine, 220)}`;
   build(): string {
     const displayName = tgEscape(redactText(this.displayName, this.provider));
     const model = tgEscape(redactText(this.provider!.model, this.provider!));
+    // Always bold title: 🤖TeleBox(-Next) Agent (custom zn_name overrides brand text)
+    const titleLabel = displayName || "TeleBox Agent";
     const sections = [
-      displayName ? `${renderSharedAiIcon(this.icon)} <b>${displayName}</b>` : renderSharedAiIcon(this.icon)
+      `<b>${renderSharedAiIcon(this.icon)}${titleLabel}</b>`
     ];
     if (this.request) {
       sections.push(
