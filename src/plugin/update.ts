@@ -264,7 +264,7 @@ const GITHUB_BOT_USERNAME = "githubbot";
 const MAIN_REPO_PATTERN =
   /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox|TeleBox_M|TeleBox-Next)\s*:\s*main/i;
 const PLUGIN_REPO_PATTERN =
-  /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox_Plugins|TeleBox_M_Plugins|TeleBox-Next_Plugins)\s*:\s*main/i;
+  /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox_Plugins|TeleBox_M_Plugins|TeleBox-Next-Plugins|TeleBox-Next_Plugins)\s*:\s*main/i;
 
 function normalizeChatId(msg: Api.Message): string {
   if (msg.chatId != null) return String(msg.chatId);
