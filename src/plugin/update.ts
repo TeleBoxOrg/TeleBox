@@ -178,18 +178,25 @@ async function update(force = false, msg: Api.Message) {
 }
 
 // ── Auto-update for main repo ──────────────────────────────────────────
-/** React ✅ on GitHubBot commit message (success signal; no chat spam). */
+/** React ✅ on GitHubBot commit message (success signal; no chat spam).
+ * MUST be called while the MTProto connection is still healthy — i.e. BEFORE
+ * any synchronous, event-loop-blocking work (npm install) and BEFORE
+ * process.exit(). Retries a few times to ride out transient reconnects. */
 async function reactSuccessOnGithubMsg(githubMsg: Api.Message): Promise<void> {
-  try {
-    const client = await getGlobalClient();
-    const peer = githubMsg.peerId ?? (githubMsg.chatId != null ? String(githubMsg.chatId) : undefined);
-    if (peer == null || githubMsg.id == null) return;
-    await client.sendReaction(peer, githubMsg.id, [
-      new Api.ReactionEmoji({ emoticon: "✅" }),
-    ]);
-    console.log(`[auto-update] ✅ reaction on msg ${githubMsg.id}`);
-  } catch (e: any) {
-    console.warn("[auto-update] ✅ reaction failed:", e?.message || e);
+  const peer = githubMsg.peerId ?? (githubMsg.chatId != null ? String(githubMsg.chatId) : undefined);
+  if (peer == null || githubMsg.id == null) return;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const client = await getGlobalClient();
+      await client.sendReaction(peer, githubMsg.id, [
+        new Api.ReactionEmoji({ emoticon: "✅" }),
+      ]);
+      console.log(`[auto-update] ✅ reaction on msg ${githubMsg.id}`);
+      return;
+    } catch (e: any) {
+      console.warn(`[auto-update] ✅ reaction failed (attempt ${attempt}/3):`, e?.message || e);
+      if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
+    }
   }
 }
 
@@ -204,9 +211,15 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
 
     await gitExec(["fetch", "--all"]);
     await gitExec(["pull", remote, branch, "--no-rebase"]);
+
+    // Pull succeeded → update is already on disk and the connection is still
+    // healthy. React NOW, before the synchronous npm install blocks the event
+    // loop (which stalls MTProto heartbeats and kills the connection) and
+    // before process.exit(). Reacting after install is why ✅ never landed.
+    await reactSuccessOnGithubMsg(githubMsg);
+
     await npm_install_project_dependencies();
 
-    await reactSuccessOnGithubMsg(githubMsg);
     await executeAutoExit();
   } catch (error: any) {
     const errDetail = getErrorMessage(error);
