@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.9] - 2026-07-15
+
+> **版本类型**：补丁 / 维护版本  
+> **上一版本**：v0.2.8
+
+### 依赖与底层
+- **Classic**：`teleproto` 升级至 `^1.228.1`（上游 #25 下载 AbortSignal/timeout、#28 keepAliveInterval 已合入）
+- **Next**：`mtcute` 系对齐 `^0.30.3`
+- 仍保留 Classic 侧 **main-DC MediaScheduler.savePart** 短接（上游 #24 未合）与 **channelGapBreaker**（#26 未合）
+
+### Quote 本地渲染（插件仓）
+- 对齐 LyoSU quote-api glass 重设计：语音 / 文件 / 音频行内附件、视频播放角标与时长
+- 支持 `stories` / `image`（png）输出类型（命令参数 `stories` / `png`）
+- vendor 与 quote-api master 同步；自定义 emoji / 头像 userbot 桥接保留
+
+### 文档与生态
+- 组织主页、一键脚本仓库名 **TeleBox-Scripts**、Classic/Next 双版本说明已统一
+
+---
+
 ## [0.2.8] - 2026-06-07
 
 > **版本类型**：次要版本升级  

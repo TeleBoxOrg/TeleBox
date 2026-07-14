@@ -427,7 +427,7 @@ utils/* (工具模块)
 
 ### 版本信息
 
-- **当前版本**: 0.2.8
+- **当前版本**: 0.2.9
 - **Node.js要求**: 24.x
 - **TypeScript版本**: ^5.9.2
 - **Telegram 库版本**: teleproto ^1.227.5
@@ -936,7 +936,7 @@ TB_LISTENER_HANDLE_EDITED="sudo sure"
 ```json
 {
   "name": "telebox",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "scripts": {
     "start": "node scripts/run-tsx.cjs ./src/index.ts",
     "tpm": "node scripts/run-tsx.cjs ./src/plugin/tpm.ts",
