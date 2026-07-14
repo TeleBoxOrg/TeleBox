@@ -177,11 +177,74 @@ async function update(force = false, msg: Api.Message) {
   }
 }
 
+// ── Pending reaction: apply ✅ only AFTER the process fully restarts ─────
+// The main-repo path restarts the process (npm install + exit). Reacting
+// before exit lands ✅ while the OLD code is still (barely) running and the
+// connection is being torn down. Instead we persist the intent and re-apply
+// it once the NEW runtime is fully online — the moment equivalent to seeing
+// the manual-update "已完成" summary.
+const PENDING_REACTION_FILE = path.join(os.homedir(), ".telebox", "pending_reactions.json");
+
+interface PendingReaction {
+  chatId: string;
+  msgId: number;
+  queuedAt: number;
+}
+
+function loadPendingReactions(): PendingReaction[] {
+  try {
+    if (!fs.existsSync(PENDING_REACTION_FILE)) return [];
+    const raw = JSON.parse(fs.readFileSync(PENDING_REACTION_FILE, "utf8"));
+    return Array.isArray(raw) ? (raw as PendingReaction[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePendingReactions(items: PendingReaction[]): void {
+  try {
+    fs.mkdirSync(path.dirname(PENDING_REACTION_FILE), { recursive: true });
+    fs.writeFileSync(PENDING_REACTION_FILE, JSON.stringify(items.slice(-50), null, 2), "utf8");
+  } catch (e) {
+    console.error("[auto-update] 保存待点 reaction 失败:", e);
+  }
+}
+
+function queueReaction(chatId: string, msgId: number): void {
+  if (!chatId || !msgId) return;
+  const items = loadPendingReactions().filter((x) => !(x.chatId === chatId && x.msgId === msgId));
+  items.push({ chatId, msgId, queuedAt: Date.now() });
+  savePendingReactions(items);
+  console.log(`[auto-update] queued ✅ reaction chat=${chatId} msg=${msgId} (apply after restart)`);
+}
+
+/** Apply queued ✅ reactions after the runtime is fully back online.
+ * Called from runtimeManager once the new generation is running. */
+export async function flushPendingReactions(): Promise<void> {
+  const items = loadPendingReactions();
+  if (items.length === 0) return;
+  console.log(`[auto-update] flushing ${items.length} pending reaction(s)`);
+  const remaining: PendingReaction[] = [];
+  for (const item of items) {
+    // Drop stale entries (>24h): the commit notice is long gone.
+    if (Date.now() - item.queuedAt > 24 * 3600 * 1000) continue;
+    try {
+      const client = await getGlobalClient();
+      await client.sendReaction(item.chatId, item.msgId, [
+        new Api.ReactionEmoji({ emoticon: "✅" }),
+      ]);
+      console.log(`[auto-update] ✅ reaction applied chat=${item.chatId} msg=${item.msgId}`);
+    } catch (err: any) {
+      console.warn("[auto-update] pending reaction still failing:", err?.message || err);
+      remaining.push(item);
+    }
+  }
+  savePendingReactions(remaining);
+}
+
 // ── Auto-update for main repo ──────────────────────────────────────────
 /** React ✅ on GitHubBot commit message (success signal; no chat spam).
- * MUST be called while the MTProto connection is still healthy — i.e. BEFORE
- * any synchronous, event-loop-blocking work (npm install) and BEFORE
- * process.exit(). Retries a few times to ride out transient reconnects. */
+ * Used by the plugin path (no restart) — retries to ride out reconnects. */
 async function reactSuccessOnGithubMsg(githubMsg: Api.Message): Promise<void> {
   const peer = githubMsg.peerId ?? (githubMsg.chatId != null ? String(githubMsg.chatId) : undefined);
   if (peer == null || githubMsg.id == null) return;
@@ -212,11 +275,15 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
     await gitExec(["fetch", "--all"]);
     await gitExec(["pull", remote, branch, "--no-rebase"]);
 
-    // Pull succeeded → update is already on disk and the connection is still
-    // healthy. React NOW, before the synchronous npm install blocks the event
-    // loop (which stalls MTProto heartbeats and kills the connection) and
-    // before process.exit(). Reacting after install is why ✅ never landed.
-    await reactSuccessOnGithubMsg(githubMsg);
+    // Pull succeeded → update is on disk. But the process is about to restart
+    // (npm install blocks the event loop, then process.exit). Do NOT react now:
+    // ✅ should mean "已更新并完整重启上线", matching what the user sees after a
+    // manual update. Persist the intent; flushPendingReactions() re-applies it
+    // once the NEW runtime is fully online (see runtimeManager startup).
+    const peer = githubMsg.peerId ?? (githubMsg.chatId != null ? String(githubMsg.chatId) : undefined);
+    if (peer != null && githubMsg.id != null) {
+      queueReaction(String(peer), githubMsg.id);
+    }
 
     await npm_install_project_dependencies();
 

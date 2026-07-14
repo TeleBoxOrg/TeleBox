@@ -246,6 +246,18 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
     // 切换后上线后，编辑之前留下的"正在切换…"通知消息
     await resolvePendingSwitchNotification(runtime.client, "teleproto");
     void flushPendingStatusDeletes().catch((e) => console.warn("[RUNTIME] pending status deletes:", e));
+    // Apply ✅ reactions queued by auto-update BEFORE the restart — now that the
+    // new runtime is fully online (equivalent to the manual-update summary).
+    void (async () => {
+      try {
+        const mod = require("../plugin/update") as {
+          flushPendingReactions?: () => Promise<void>;
+        };
+        await mod.flushPendingReactions?.();
+      } catch (e) {
+        console.warn("[RUNTIME] pending reactions:", e);
+      }
+    })();
     runtime.state = "running";
     return runtime;
   } catch (error) {
