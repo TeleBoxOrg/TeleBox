@@ -6,16 +6,17 @@ import { readAppName } from "./teleboxInfoHelper";
 import { logger } from "./logger";
 import { initializeClientSession } from "./loginManager";
 
-// ── Fix teleproto main-DC media upload deadlock ────────────────────────────
-// teleproto (through 1.228.0) still routes upload.SaveFilePart through a
-// separate media sender even when the target is the account's main DC. On
-// affected sessions that media sender's auth is rejected and every part waits
-// through all scheduler deadlines, while the exact same SaveFilePart succeeds
-// immediately through the already-authorized main sender.
+// ── Fix teleproto main-DC media upload deadlock (upstream #24 still open) ──
+// teleproto through 1.228.1 still routes upload.SaveFilePart via MediaScheduler's
+// media sender even when dcId === session.dcId. On affected sessions that path
+// burns requestRetries × deadline while client.invoke(SaveFilePart) succeeds.
+//
+// 1.228.1 fixed #25 (download AbortSignal/requestTimeout) and #28 (keepalive
+// interval option) — no TeleBox patches needed for those. #24 remains open, so
+// keep this main-DC short-circuit. channelGapBreaker stays for #26 (still open).
 //
 // Route only main-DC uploads through client.invoke(). Non-main DC operations
 // retain the native MediaScheduler path (including migration/retry logic).
-// This is a TeleBox runtime hook; the npm dependency remains untouched.
 // ───────────────────────────────────────────────────────────────────────────
 (function patchMainDcMediaUpload() {
   try {
@@ -110,8 +111,8 @@ async function createClient(): Promise<TelegramClient> {
     console.log("使用代理连接 Telegram:", proxy);
   }
 
-  // teleproto ≥1.228.0 enables TCP keepalive + setNoDelay natively in
-  // PromisedNetSockets (hardcoded 30s). No CustomPromisedNetSockets needed.
+  // teleproto ≥1.228.0 enables TCP keepalive + setNoDelay natively;
+  // 1.228.1 adds keepAliveInterval option (#28). No CustomPromisedNetSockets needed.
   // Keep proxy.timeout default so SOCKS connect doesn't hang forever.
   if (proxy && !proxy.timeout) {
     proxy.timeout = 10; // seconds
