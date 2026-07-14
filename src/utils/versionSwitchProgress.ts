@@ -147,6 +147,66 @@ export function clearProgressSnapshot(home = DEFAULT_SWITCH_HOME): void {
   }
 }
 
+
+/** Marker that a version switch is actively running (controller alive or about to run). */
+export function switchInProgressLock(home = DEFAULT_SWITCH_HOME): string {
+  return path.join(home, "in-progress.lock");
+}
+
+export function markSwitchInProgress(
+  meta: { source: TeleBoxVersion; target: TeleBoxVersion; reason?: string },
+  home = DEFAULT_SWITCH_HOME,
+): void {
+  fs.mkdirSync(home, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(
+    switchInProgressLock(home),
+    JSON.stringify(
+      {
+        ...meta,
+        pid: process.pid,
+        startedAt: Date.now(),
+      },
+      null,
+      2,
+    ),
+    { mode: 0o600 },
+  );
+}
+
+export function clearSwitchInProgress(home = DEFAULT_SWITCH_HOME): void {
+  try {
+    const file = switchInProgressLock(home);
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * True while `.switch go` is running.
+ * Used by Memory Monitor to avoid killing the bot mid-switch (progress would freeze).
+ * Stale locks older than 40 minutes are ignored.
+ */
+export function isSwitchInProgress(home = DEFAULT_SWITCH_HOME): boolean {
+  try {
+    const lock = switchInProgressLock(home);
+    if (fs.existsSync(lock)) {
+      const st = fs.statSync(lock);
+      if (Date.now() - st.mtimeMs < 40 * 60 * 1000) return true;
+      // stale
+      try { fs.unlinkSync(lock); } catch { /* ignore */ }
+    }
+    const snap = readProgressSnapshot(home);
+    if (snap && !snap.done && !snap.failed) {
+      if (Date.now() - (snap.updatedAt || 0) < 40 * 60 * 1000) return true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+
 /** Controller-side reporter: only writes progress.json (bot process edits Telegram). */
 export class SwitchProgressReporter {
   private steps: ProgressStep[];
@@ -217,6 +277,7 @@ export class SwitchProgressReporter {
   async fail(message: string): Promise<void> {
     this.failed = true;
     this.finished = true;
+    clearSwitchInProgress();
     const running = this.steps.find((s) => s.status === "running");
     if (running) {
       running.status = "fail";
@@ -230,6 +291,7 @@ export class SwitchProgressReporter {
       if (s.status === "running" || s.status === "pending") s.status = "done";
     }
     this.finished = true;
+    clearSwitchInProgress();
     this.flush(
       extra ?? "目标版本正在启动，完成后本条消息会显示最终结果。",
     );

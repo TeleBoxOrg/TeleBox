@@ -48,7 +48,11 @@ import {
   PEER_DIR_NAME,
   isRunnableRepo,
 } from "./versionSwitchPaths";
-import { SwitchProgressReporter } from "./versionSwitchProgress";
+import {
+  SwitchProgressReporter,
+  markSwitchInProgress,
+  clearSwitchInProgress,
+} from "./versionSwitchProgress";
 import fs from "fs";
 import path from "path";
 
@@ -231,6 +235,7 @@ async function main(): Promise<void> {
 
   // Live progress on the original .switch go message (works after PM2 stop)
   progress = new SwitchProgressReporter(source, target);
+  markSwitchInProgress({ source, target, reason: "controller" });
   await progress.init();
   await progress.set("layout", "running", `准备 ${PEER_DIR_NAME[target]}…`);
 
@@ -478,6 +483,7 @@ async function main(): Promise<void> {
     console.log(`[controller] ✅ Switch complete: ${source} → ${target}`);
     await progress.set("ready", "done", "已上线");
     await progress.done("目标版本已上线，正在完成最终通知…");
+    clearSwitchInProgress();
     await progress.close();
   } catch (err) {
     console.error("[controller] Switch failed, rolling back...", err);
@@ -513,6 +519,7 @@ async function main(): Promise<void> {
     try {
       await progress?.close();
     } catch { /* ignore */ }
+    clearSwitchInProgress();
     process.exit(1);
   }
 }
@@ -653,5 +660,6 @@ function injectSessionConfig(version: "teleproto" | "mtcute", extPath: string): 
 
 main().catch((err) => {
   console.error("[controller] Fatal:", err);
+  try { clearSwitchInProgress(); } catch { /* ignore */ }
   process.exit(1);
 });

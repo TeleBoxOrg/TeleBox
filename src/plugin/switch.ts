@@ -24,7 +24,7 @@ import {
   resolveRepoRoot,
   spawnTsxDetached,
 } from "@utils/versionSwitchPaths";
-import {
+import { markSwitchInProgress, clearSwitchInProgress, 
   resolveTeleprotoChatId,
   readProgressSnapshot,
   clearProgressSnapshot,
@@ -232,6 +232,7 @@ const plugin = new (class extends Plugin {
       return;
     }
     clearProgressSnapshot(DEFAULT_SWITCH_HOME);
+    markSwitchInProgress({ source: current, target, reason: "plugin-go" });
     state.pendingNotification = {
       chatId,
       msgId: msg.id,
@@ -244,6 +245,7 @@ const plugin = new (class extends Plugin {
       spawnController(current, target);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
+      clearSwitchInProgress();
       await msg.edit({
         text: [
           `❌ **无法启动切换**`,

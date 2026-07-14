@@ -12,6 +12,7 @@ import { JSONFilePreset } from "lowdb/node";
 import { getCurrentGenerationContext } from "@utils/runtimeManager";
 import { reloadRuntime } from "@utils/runtimeManager";
 import { htmlEscape } from "@utils/htmlEscape";
+import { isSwitchInProgress } from "@utils/versionSwitchProgress";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -266,6 +267,13 @@ async function memoryMonitorTask() {
     const configDB = await initConfig();
     const config = configDB.data;
     if (!config.leakfixEnabled) return;
+
+    // Never kill/reload the bot while version switch is running — progress
+    // poller lives in this process; exit freezes the switch UI mid-way.
+    if (isSwitchInProgress()) {
+      console.log("[Memory Monitor] switch 进行中，跳过内存保护动作（避免进度卡死）");
+      return;
+    }
 
     const memory = getMemoryUsage();
     if (config.baselineHeapUsed == null || config.baselineRss == null) {
