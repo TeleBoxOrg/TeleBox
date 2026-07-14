@@ -71,7 +71,7 @@ function findNestedEdition(home: string, version: TeleBoxVersion): string | null
 const TELEPROTO_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox.git";
 const MTCUTE_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox-Next.git";
 const TELEPROTO_PLUGIN_CLONE_URL =
-  "https://github.com/TeleBoxOrg/TeleBox_Plugins.git";
+  "https://github.com/TeleBoxOrg/TeleBox-Plugins.git";
 const MTCUTE_PLUGIN_CLONE_URL =
   "https://github.com/TeleBoxOrg/TeleBox-Next-Plugins.git";
 
@@ -81,7 +81,8 @@ const PATH_CACHE_FILE = path.join(DEFAULT_SWITCH_HOME, "paths.json");
 const HOME_RESERVED = new Set([
   PEER_DIR_NAME.teleproto,
   PEER_DIR_NAME.mtcute,
-  "TeleBox_Plugins",
+  "TeleBox-Plugins",
+  "TeleBox_Plugins", // legacy underscore
   "TeleBox-Next-Plugins",
   "TeleBox-Next_Plugins", // legacy dir name after rebrand
   "TeleBox_M_Plugins",
@@ -701,7 +702,7 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
 
   const names =
     version === "teleproto"
-      ? ["TeleBox_Plugins", "telebox_plugins"]
+      ? ["TeleBox-Plugins", "TeleBox_Plugins", "telebox_plugins", "telebox-plugins"]
       : [
           "TeleBox-Next-Plugins",
           "TeleBox-Next_Plugins", // legacy
@@ -723,7 +724,7 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
   }
 
   const defaultName =
-    version === "teleproto" ? "TeleBox_Plugins" : "TeleBox-Next-Plugins";
+    version === "teleproto" ? "TeleBox-Plugins" : "TeleBox-Next-Plugins";
   const cloneTarget = path.join(home, defaultName);
   if (!fs.existsSync(cloneTarget)) {
     console.log(`[versionSwitch] 克隆插件索引 → ${cloneTarget}`);

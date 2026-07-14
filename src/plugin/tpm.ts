@@ -21,7 +21,7 @@ const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 const MAX_MESSAGE_LENGTH = 4000;
 const PLUGINS_INDEX_URL =
-  "https://raw.githubusercontent.com/TeleBoxOrg/TeleBox_Plugins/main/plugins.json";
+  "https://raw.githubusercontent.com/TeleBoxOrg/TeleBox-Plugins/main/plugins.json";
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RETRIES = 4;
 const RETRYABLE_STATUS = new Set([429, 502, 503, 504]);
@@ -1010,7 +1010,7 @@ async function search(msg: Api.Message) {
       `• <code>${mainPrefix}tpm rm [名称]</code> 卸载\n` +
       `• <code>${mainPrefix}tpm rm all</code> 清空`;
 
-    const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxOrg/TeleBox_Plugins">TeleBox_Plugins</a>`;
+    const repoLink = `\n🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxOrg/TeleBox-Plugins">TeleBox-Plugins</a>`;
 
     const title = keyword ? `🔍 搜索 "${htmlEscape(keyword)}" 结果` : `🔍 远程插件列表`;
     const fullMessage = [
@@ -1158,7 +1158,7 @@ async function showPluginRecords(msg: Api.Message, verbose?: boolean) {
       "",
       `━━━━━━━━━━━━━━━━━`,
       `📊 总计: ${dbNames.length + notInDb.length} 个插件`,
-      "", `🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxOrg/TeleBox_Plugins">TeleBox_Plugins</a>`,
+      "", `🔗 <b>插件仓库:</b> <a href="https://github.com/TeleBoxOrg/TeleBox-Plugins">TeleBox-Plugins</a>`,
     ].join("\n");
     const fullMessage = messageParts.join("\n");
     

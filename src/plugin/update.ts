@@ -264,7 +264,7 @@ const GITHUB_BOT_USERNAME = "githubbot";
 const MAIN_REPO_PATTERN =
   /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox|TeleBox_M|TeleBox-Next)\s*:\s*main/i;
 const PLUGIN_REPO_PATTERN =
-  /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox_Plugins|TeleBox_M_Plugins|TeleBox-Next-Plugins|TeleBox-Next_Plugins)\s*:\s*main/i;
+  /new commit[\s\S]*?to\s+(?:TeleBoxOrg\/)?(TeleBox-Plugins|TeleBox_Plugins|TeleBox_M_Plugins|TeleBox-Next-Plugins|TeleBox-Next_Plugins)\s*:\s*main/i;
 
 function normalizeChatId(msg: Api.Message): string {
   if (msg.chatId != null) return String(msg.chatId);
@@ -339,7 +339,7 @@ class UpdatePlugin extends Plugin {
     const text = msg.message || "";
     if (!text || !/new commit/i.test(text)) return;
 
-    // Plugin repos first — "TeleBox_Plugins" also contains substring "TeleBox"
+    // Plugin repos first — match before main TeleBox (name contains TeleBox)
     if (PLUGIN_REPO_PATTERN.test(text)) {
       console.log("[auto-update] 检测到插件仓库提交，开始自动更新插件…");
       await autoUpdatePlugins(msg);

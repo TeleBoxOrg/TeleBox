@@ -305,7 +305,7 @@ abstract class Plugin {
 
 <div align="center">
 
-[![Plugin Repository](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-blue?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox_Plugins)
+[![Plugin Repository](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-blue?style=for-the-badge)](https://github.com/TeleBoxOrg/TeleBox-Plugins)
 
 </div>
 
@@ -390,7 +390,7 @@ npm run dev
 
 [![主仓库](https://img.shields.io/badge/📦_主仓库-TeleBox-blue?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox)
 
-[![插件仓库](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox_Plugins)
+[![插件仓库](https://img.shields.io/badge/🔌_插件仓库-TeleBox__Plugins-green?style=for-the-badge&logo=github)](https://github.com/TeleBoxOrg/TeleBox-Plugins)
 
 </td>
 <td align="center" width="20%">
