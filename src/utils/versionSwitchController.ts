@@ -421,8 +421,32 @@ async function main(): Promise<void> {
       if (target === "mtcute") clearSwitchSessionMarker(target);
     }
 
+    // Critical: we are about to stop the source bot. This controller MUST already
+    // be outside the bot's process tree (spawned via setsid). Write a heartbeat
+    // so operators can see we reached pre-stop even if the next log never flushes.
+    console.log(
+      `[controller] Pre-stop checkpoint: source=${PM2_NAMES[source]} target=${PM2_NAMES[target]} pid=${process.pid}`,
+    );
+    try {
+      fs.writeFileSync(
+        path.join(DEFAULT_SWITCH_HOME, "controller.alive"),
+        JSON.stringify({ pid: process.pid, at: Date.now(), phase: "pre-stop" }),
+        { mode: 0o600 },
+      );
+    } catch { /* ignore */ }
+
+    // Prefer delete+recreate later for target; for source use stop.
+    // Note: `pm2 stop` with kill_tree will kill children of the bot — controller
+    // must not be a child (see spawnTsxDetached setsid).
     pm2("stop", PM2_NAMES[source]);
     console.log(`[controller] Stopped ${source} (${PM2_NAMES[source]})`);
+    try {
+      fs.writeFileSync(
+        path.join(DEFAULT_SWITCH_HOME, "controller.alive"),
+        JSON.stringify({ pid: process.pid, at: Date.now(), phase: "post-stop" }),
+        { mode: 0o600 },
+      );
+    } catch { /* ignore */ }
     await progress.set("stop", "done", "源 bot 已离线，后续由目标版完成通知");
 
     // Flatten → nested: move live edition into home/telebox-xx after process stopped

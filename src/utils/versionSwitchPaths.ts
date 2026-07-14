@@ -786,6 +786,17 @@ export function spawnTsxSync(
   });
 }
 
+/**
+ * Spawn a long-running switch controller that MUST survive PM2 stop of the bot.
+ *
+ * Root cause of mid-switch freezes: Node `detached:true` alone does NOT remove
+ * the child from PM2's kill tree. When controller runs `pm2 stop telebox`, PM2
+ * kills the bot AND every descendant — including the controller. Progress then
+ * freezes around "合并插件配置" / "停止当前版本" with no further log lines.
+ *
+ * Fix: launch via `setsid` so the controller is a new session leader outside
+ * the bot process tree; unref the launcher handle.
+ */
 export function spawnTsxDetached(
   repoRoot: string,
   script: string,
@@ -796,25 +807,43 @@ export function spawnTsxDetached(
   if (!fs.existsSync(scriptPath)) {
     throw new Error(`脚本不存在: ${scriptPath}`);
   }
-  const child = spawn(process.execPath, [cli, scriptPath], {
-    cwd: options.cwd ?? repoRoot,
-    env: options.env ?? process.env,
-    stdio: options.stdio ?? "ignore",
-    detached: options.detached ?? true,
-  });
+  const node = process.execPath;
+  const cwd = options.cwd ?? repoRoot;
+  const env = options.env ?? process.env;
+  const stdio = options.stdio ?? "ignore";
+  const args = [cli, scriptPath];
+
+  const spawnNode = (): ChildProcess =>
+    spawn(node, args, {
+      cwd,
+      env,
+      stdio,
+      detached: true,
+    });
+
+  // setsid: new session → not in PM2 kill tree of the source bot
+  let child: ChildProcess;
+  if (fs.existsSync("/usr/bin/setsid") || fs.existsSync("/bin/setsid")) {
+    const setsidBin = fs.existsSync("/usr/bin/setsid") ? "/usr/bin/setsid" : "/bin/setsid";
+    child = spawn(setsidBin, [node, ...args], {
+      cwd,
+      env,
+      stdio,
+      detached: true,
+    });
+  } else {
+    child = spawnNode();
+  }
+
   child.on("error", (err: Error) => {
     console.error(
-      `[versionSwitch] failed to spawn ${scriptPath} via ${cli}:`,
+      `[versionSwitch] failed to spawn ${scriptPath}:`,
       err.message,
     );
   });
   return child;
 }
 
-/**
- * PM2 process names. Active bot uses edition-specific name so both can exist
- * with correct --cwd under the nested layout.
- */
 export const PM2_PROCESS_NAMES: Record<TeleBoxVersion, string> = {
   teleproto: "telebox",
   mtcute: "telebox-next",

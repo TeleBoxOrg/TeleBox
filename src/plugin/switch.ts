@@ -172,8 +172,18 @@ function spawnController(source: TeleBoxVersion, target: TeleBoxVersion): void {
       /* ignore */
     }
   });
+  // Detach fully: parent must not wait, and PM2 must not track this tree.
   child.unref();
-  console.log(`[switch] controller spawned pid=${child.pid} log=${logPath}`);
+  try {
+    if (child.pid) {
+      fs.writeFileSync(
+        path.join(logDir, "controller.pid"),
+        String(child.pid),
+        { mode: 0o600 },
+      );
+    }
+  } catch { /* ignore */ }
+  console.log(`[switch] controller spawned pid=${child.pid} log=${logPath} (setsid/out-of-tree)`);
 }
 
 const plugin = new (class extends Plugin {
