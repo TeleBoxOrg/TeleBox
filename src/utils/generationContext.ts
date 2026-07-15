@@ -86,6 +86,15 @@ export class GenerationContext {
     return this.abortCause;
   }
 
+  /** Number of in-flight tracked tasks (excludes the current ALS task if any). */
+  getTrackedTaskCount(): number {
+    const selfEntry = this.currentTaskStorage.getStore();
+    if (selfEntry && this.tasks.has(selfEntry)) {
+      return Math.max(0, this.tasks.size - 1);
+    }
+    return this.tasks.size;
+  }
+
   // ── 生命周期 ──
 
   abort(reason?: unknown): void {
