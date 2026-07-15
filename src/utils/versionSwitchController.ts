@@ -180,6 +180,20 @@ function listTargetNativePluginNames(pluginRepo: string): string[] {
   return names;
 }
 
+
+/** Built into src/plugin — never install from plugin repo or migrate user copy. */
+const SYSTEM_PROVIDED_PLUGINS = new Set(["kitt"]);
+
+function dropUserSpaceSystemPlugins(repoRoot: string): void {
+  for (const name of SYSTEM_PROVIDED_PLUGINS) {
+    const userFile = path.join(repoRoot, "plugins", `${name}.ts`);
+    if (fs.existsSync(userFile)) {
+      fs.rmSync(userFile, { force: true });
+      console.log(`[controller] removed user-space ${name}.ts (now a system plugin)`);
+    }
+  }
+}
+
 function runSessionConvert(source: "teleproto" | "mtcute", target: "teleproto" | "mtcute"): void {
   // Always run conversion under mtcute repo (has @mtcute/convert).
   // Use process.execPath + scripts/run-tsx.cjs — never bare "npx" (PATH may be empty under PM2).
@@ -318,12 +332,18 @@ async function main(): Promise<void> {
   const sourceInstalled = listInstalledPlugins(source);
   const targetPluginRepo = PLUGIN_INDEX_PATHS[target].replace(/\/plugins\.json$/, "");
   const targetAvailable = listTargetNativePluginNames(targetPluginRepo);
-  const { install, unavailable } = matchPlugins(
+  const matched = matchPlugins(
     sourceInstalled,
     sourceIndex,
     targetIndex,
     targetAvailable,
   );
+  // kitt (and similar) ship as system plugins — do not install/archive user copies
+  // or merge their assets (see SKIP_PLUGIN_DATA_MIGRATION).
+  const install = matched.install.filter((m) => !SYSTEM_PROVIDED_PLUGINS.has(m.name));
+  const unavailable = matched.unavailable.filter((n) => !SYSTEM_PROVIDED_PLUGINS.has(n));
+  dropUserSpaceSystemPlugins(REPO_ROOTS[source]);
+  dropUserSpaceSystemPlugins(REPO_ROOTS[target]);
 
   const txId = state.pendingTransaction ?? String(Date.now());
   const backupRoot = path.join(DEFAULT_SWITCH_HOME, "backups", txId);

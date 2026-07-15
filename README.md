@@ -77,7 +77,7 @@ sudo / sure，把能力安全分享给协作者
 📦 TeleBox/
 ├── 🎯 src/
 │   ├── 🚪 index.ts              # 入口
-│   ├── 🔌 plugin/               # 内置系统插件（22 个）
+│   ├── 🔌 plugin/               # 内置系统插件（23 个）
 │   │   ├── help.ts · tpm.ts · update.ts · switch.ts · autofix.ts
 │   │   ├── status.ts · ping.ts · reload.ts · exec.ts · sudo.ts
 │   │   └── …
@@ -154,6 +154,7 @@ abstract class Plugin {
 <tr><td><strong>save</strong></td><td><code>save</code></td><td>会话 / 配置保存相关</td></tr>
 <tr><td><strong>leech</strong></td><td><code>leech</code></td><td>历史消息抓取与归档</td></tr>
 <tr><td><strong>agent</strong></td><td><code>agent</code></td><td>内置 Agent 能力</td></tr>
+<tr><td><strong>kitt</strong></td><td><code>kitt</code></td><td>高级触发器：匹配 → 执行（系统插件）</td></tr>
 </tbody>
 </table>
 

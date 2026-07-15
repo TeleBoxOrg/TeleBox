@@ -162,6 +162,9 @@ export function restoreInstalledPlugins(journal: InstalledPluginJournal): void {
   }
 }
 
+/** Plugin asset dirs that must NOT be merged across editions (API-incompatible). */
+export const SKIP_PLUGIN_DATA_MIGRATION = new Set(["kitt"]);
+
 export function executePluginDataMigration(options: {
   plugins: string[];
   sourceAssetsRoot: string;
@@ -174,6 +177,10 @@ export function executePluginDataMigration(options: {
   try {
     for (const plugin of [...new Set(options.plugins)].sort()) {
       assertPluginName(plugin);
+      if (SKIP_PLUGIN_DATA_MIGRATION.has(plugin)) {
+        console.log(`[switch] skip asset migration for system/incompatible plugin: ${plugin}`);
+        continue;
+      }
       const sourceDir = path.join(options.sourceAssetsRoot, plugin);
       if (!fs.existsSync(sourceDir)) continue;
       const targetDir = path.join(options.targetAssetsRoot, plugin);
