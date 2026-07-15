@@ -188,11 +188,10 @@ async function update(force = false, msg: Api.Message) {
 // 1) Never queue String(msg.peerId): PeerChannel/etc becomes "[object Object]"
 //    and flush fails with "Cannot find any entity corresponding to ...".
 //    Always persist normalizeChatId(msg) (e.g. -100xxxxxxxx).
-// 2) "✅" is often REACTION_INVALID in groups with restricted reaction packs.
-//    Prefer default-set emojis (👍/❤) with fallback.
+// 2) Prefer ❤ (API form of ❤️); fall back to 👍 if the pack disallows it.
 const PENDING_REACTION_FILE = path.join(os.homedir(), ".telebox", "pending_reactions.json");
-/** Default Telegram reaction set first; ✅ last (often disabled in groups). */
-const SUCCESS_REACTION_EMOJIS = ["👍", "❤", "✅"] as const;
+/** Prefer ❤️; keep common defaults as fallback for restricted packs. */
+const SUCCESS_REACTION_EMOJIS = ["❤", "❤️", "👍"] as const;
 
 interface PendingReaction {
   chatId: string;
@@ -303,18 +302,37 @@ export async function flushPendingReactions(): Promise<void> {
 }
 
 // ── Auto-update for main repo ──────────────────────────────────────────
-/** React on GitHubBot commit message (success signal; no chat spam).
- * Used by the plugin path (no restart) — retries to ride out reconnects. */
-async function reactSuccessOnGithubMsg(githubMsg: Api.Message): Promise<void> {
-  if (githubMsg.id == null) return;
+/**
+ * React on GitHubBot commit message after update finishes (success signal).
+ * Plugin path must capture entity/chatId BEFORE loadPlugins()/reloadRuntime(),
+ * otherwise the old message client/entity cache is gone and reaction silently fails.
+ */
+async function reactSuccessOnGithubMsg(
+  githubMsg: Api.Message,
+  prefetched?: { entity?: any; chatId?: string; msgId?: number },
+): Promise<void> {
+  const msgId = prefetched?.msgId ?? githubMsg.id;
+  if (msgId == null) return;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const entity = await resolveReactionEntity(githubMsg);
-      const used = await sendSuccessReaction(entity, githubMsg.id);
-      console.log(`[auto-update] reaction ${used} on msg ${githubMsg.id}`);
+      let entity = prefetched?.entity;
+      if (entity == null) {
+        entity = await resolveReactionEntity(
+          githubMsg,
+          prefetched?.chatId ?? normalizeChatId(githubMsg),
+        );
+      }
+      const used = await sendSuccessReaction(entity, msgId);
+      console.log(`[auto-update] reaction ${used} on msg ${msgId}`);
       return;
     } catch (e: any) {
       console.warn(`[auto-update] reaction failed (attempt ${attempt}/3):`, e?.message || e);
+      // Prefetched InputPeer may be enough; if it failed, retry with chatId string
+      if (attempt === 2 && prefetched?.entity != null && prefetched?.chatId) {
+        try {
+          prefetched = { ...prefetched, entity: prefetched.chatId };
+        } catch (_) {}
+      }
       if (attempt < 3) await new Promise((r) => setTimeout(r, 1500));
     }
   }
@@ -362,13 +380,29 @@ async function executeAutoExit(): Promise<void> {
 
 // ── Auto-update for plugin repos ───────────────────────────────────────
 async function autoUpdatePlugins(githubMsg: Api.Message): Promise<void> {
+  // Capture peer BEFORE updateAllPlugins → silent loadPlugins() → reloadRuntime().
+  // Reaction still runs AFTER the update finishes; only the entity is prefetched.
+  const chatId = normalizeChatId(githubMsg);
+  const msgId = githubMsg.id;
+  let entity: any;
+  try {
+    entity = await (githubMsg as any).getInputChat?.();
+  } catch (_) {}
+  if (entity == null && (githubMsg as any).peerId) {
+    entity = (githubMsg as any).peerId;
+  }
+  if (entity == null && isUsableChatId(chatId)) {
+    entity = chatId;
+  }
+
   try {
     // Silent: updateAllPlugins still needs a message object for internal edits.
     // We pass githubMsg but use silent mode so it never posts progress to the group.
     const result = await updateAllPlugins(githubMsg, { silent: true });
 
     if (result.failedCount === 0) {
-      await reactSuccessOnGithubMsg(githubMsg);
+      // After files updated + plugins reloaded — then react.
+      await reactSuccessOnGithubMsg(githubMsg, { entity, chatId, msgId });
       return;
     }
     // Partial/full failure — surface error only
@@ -447,7 +481,7 @@ class UpdatePlugin extends Plugin {
             text:
               "✅ 自动更新已开启\n\n" +
               "任意会话中 GitHubBot 推送 TeleBox 仓库（TeleBox / TeleBox-Plugins，含 TeleBoxLabs 镜像）提交时自动更新。\n" +
-              "成功：仅在 commit 消息上点赞（👍 等）；失败：回复错误。",
+              "成功：仅在 commit 消息上 ❤️；失败：回复错误。",
           });
           return;
         }
