@@ -5,9 +5,9 @@ import import_fs2 = require("fs");
 import import_path2 = require("path");
 import import_node = require("lowdb/node");
 import import_pathHelpers = require("@utils/pathHelpers");
-const UAI_DIR = (0, import_pathHelpers.createDirectoryInAssets)("uai");
-const ZN_CONFIG_PATH = import_path2.join(UAI_DIR, "config.json");
-const WORKSPACE_ROOT = import_path2.join(UAI_DIR, "workspaces");
+const AGENT_DIR = (0, import_pathHelpers.createDirectoryInAssets)("agent", ["uai"]);
+const AGENT_CONFIG_PATH = import_path2.join(AGENT_DIR, "config.json");
+const WORKSPACE_ROOT = import_path2.join(AGENT_DIR, "workspaces");
 const AGENT_SCHEMA_VERSION = 3;
 const LEGACY_BUILTIN_SKILL_SUFFIX = "\u7F16\u7A0B\u667A\u80FD\u4F53\u9ED8\u8BA4\u89C4\u5219";
 const LEGACY_NAME_PATTERNS = [/^Curs[o]r$/i, /^Cod[e]x$/i];
@@ -169,7 +169,7 @@ function valueToKey(value: unknown): any {
   return String(value);
 }
 async function readConfig(): Promise<any> {
-  const db = await (0, import_node.JSONFilePreset)(ZN_CONFIG_PATH, DEFAULT_CONFIG);
+  const db = await (0, import_node.JSONFilePreset)(AGENT_CONFIG_PATH, DEFAULT_CONFIG);
   const data: any = db.data;
   const migrated = migrateLegacyAgentData(data);
   data.prompts = data.prompts || {};
@@ -192,7 +192,7 @@ async function readConfig(): Promise<any> {
 async function updateConfig(mutator: (config: AgentConfig) => void) {
   let result;
   const operation = writeQueue.then(async () => {
-    const db = await (0, import_node.JSONFilePreset)(ZN_CONFIG_PATH, DEFAULT_CONFIG);
+    const db = await (0, import_node.JSONFilePreset)(AGENT_CONFIG_PATH, DEFAULT_CONFIG);
     migrateLegacyAgentData(db.data);
     result = await mutator(db.data);
     await db.write();
