@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="logo-circle.png" alt="TeleBox" width="120" height="120" />
-
 # 🚀 TeleBox
 
 [![License](https://img.shields.io/badge/License-LGPL%202.1-blue.svg?style=for-the-badge)](LICENSE)
