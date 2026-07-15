@@ -185,17 +185,17 @@ async function handleVersion(msg: Api.Message): Promise<void> {
 
   const mainLine =
     mainUpdate === true
-      ? `⚙️有更新可用，使用 <code>${mainPrefix}update</code> 更新`
+      ? `本体有更新可用，使用 <code>${mainPrefix}update</code> 更新`
       : mainUpdate === false
-        ? "✅已是最新版本"
-        : "❓无法检测更新（请检查网络或 git 远程）";
+        ? "本体已是最新版本"
+        : "本体更新状态未知（请检查网络或 git 远程）";
 
   const pluginLine =
     pluginUpdate === true
-      ? `⚙️插件有更新可用，使用 <code>${mainPrefix}tpm update</code> 更新插件`
+      ? `插件有更新可用，使用 <code>${mainPrefix}tpm update</code> 更新`
       : pluginUpdate === false
-        ? "✅插件已是最新"
-        : "❓插件更新状态未知";
+        ? "插件已是最新版本"
+        : "插件更新状态未知";
 
   const text =
     `<b>${EDITION_LABEL} v${display}</b>\n\n` +
