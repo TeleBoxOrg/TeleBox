@@ -50,7 +50,7 @@ const EMOJI: Record<TeleBoxVersion, string> = {
 };
 
 function label(v: TeleBoxVersion): string {
-  return v === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
+  return v === "teleproto" ? "TeleBox" : "TeleBox-Next";
 }
 
 function statusIcon(status: ProgressStatus): string {

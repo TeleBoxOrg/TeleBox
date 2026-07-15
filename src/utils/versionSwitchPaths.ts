@@ -3,7 +3,7 @@
  *
  * Layout (after first .switch go):
  *   <runtimeHome>/                 e.g. ~/telebox  (original install path)
- *     telebox-classic/             TeleBox Classic (teleproto)
+ *     telebox-classic/             TeleBox (teleproto)
  *     telebox-next/                TeleBox-Next (mtcute)
  *
  * Flat installs (code at runtimeHome root) are restructured on first switch:

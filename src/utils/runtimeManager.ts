@@ -207,8 +207,8 @@ async function resolvePendingSwitchNotification(
     if (!notification || notification.target !== currentVersion) return;
 
     const icon = currentVersion === "teleproto" ? "🟦" : "🟧";
-    const label = currentVersion === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
-    const other = currentVersion === "teleproto" ? "TeleBox-Next" : "TeleBox Classic";
+    const label = currentVersion === "teleproto" ? "TeleBox" : "TeleBox-Next";
+    const other = currentVersion === "teleproto" ? "TeleBox-Next" : "TeleBox";
     const summary = notification.summary ? `\n\n${notification.summary}` : "";
     // Plain text — msg.edit often has no Markdown parseMode
     const text =

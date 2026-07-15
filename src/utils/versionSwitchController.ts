@@ -516,8 +516,8 @@ async function main(): Promise<void> {
     try {
       const finalState = loadSwitchState(DEFAULT_SWITCH_HOME);
       if (finalState.pendingNotification) {
-        const sourceLabel = source === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
-        const targetLabel = target === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
+        const sourceLabel = source === "teleproto" ? "TeleBox" : "TeleBox-Next";
+        const targetLabel = target === "teleproto" ? "TeleBox" : "TeleBox-Next";
         const maxList = 40;
         let unmatchedBlock: string;
         if (unavailable.length === 0) {

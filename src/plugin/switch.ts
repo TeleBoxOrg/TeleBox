@@ -39,7 +39,7 @@ const EMOJI: Record<string, string> = {
 };
 
 function label(v: TeleBoxVersion): string {
-  return v === "teleproto" ? "TeleBox Classic" : "TeleBox-Next";
+  return v === "teleproto" ? "TeleBox" : "TeleBox-Next";
 }
 
 function detectCurrentVersion(): TeleBoxVersion {
@@ -63,7 +63,7 @@ const T = {
     [
       `🔄 版本切换`,
       ``,
-      `在 TeleBox Classic 和 TeleBox-Next 之间切换。`,
+      `在 TeleBox 和 TeleBox-Next 之间切换。`,
       `session 直接转换，不用重新登录。`,
       `两版都放在原安装目录下：telebox/telebox-classic 与 telebox/telebox-next。`,
       ``,
