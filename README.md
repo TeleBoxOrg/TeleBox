@@ -138,7 +138,7 @@ abstract class Plugin {
 <tr><td><strong>switch</strong></td><td><code>switch</code></td><td>TeleBox ↔ Next 版本切换（会话转换 + 配置迁移）</td></tr>
 <tr><td><strong>autofix</strong></td><td><code>autofix</code></td><td>一键修复：清重名插件 → 硬同步 → 重启 → 更新插件</td></tr>
 <tr><td><strong>reload</strong></td><td><code>reload</code>, <code>exit</code>, <code>restart</code>, <code>pmr</code></td><td>插件重载 / 退出 / PM2 重启</td></tr>
-<tr><td><strong>health</strong></td><td><code>health</code>, <code>memory</code></td><td>智能内存保护：连续超限 → GC → 等任务 → reload → exit</td></tr>
+<tr><td><strong>health</strong></td><td><code>health</code>, <code>memory</code></td><td>内存守护：看占用、开自动保护，偏高时尽量不打断任务再清理</td></tr>
 <tr><td><strong>status</strong></td><td><code>status</code>, <code>sysinfo</code></td><td>运行状态与系统信息</td></tr>
 <tr><td><strong>version</strong></td><td><code>version</code>, <code>ver</code></td><td>版本号与更新状态</td></tr>
 <tr><td><strong>ping</strong></td><td><code>ping</code></td><td>API / 目标 / DC 延迟探测（TCP 优先）</td></tr>

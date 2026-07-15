@@ -125,15 +125,16 @@ export async function executeExit(
   process.exit(0);
 }
 
-const HELP_TEXT = `🔄 Reload - 插件重载
+const HELP_TEXT = `🔄 Reload · 重载与重启
 
-🔧 命令:
-• <code>${mainPrefix}reload</code> - 重新加载所有插件
-• <code>${mainPrefix}exit</code> / <code>${mainPrefix}restart</code> - 退出进程（PM2 自动拉起）
-• <code>${mainPrefix}pmr</code> - PM2 进程重启
+• <code>${mainPrefix}reload</code> — 重新加载插件（一般不重启整个程序）
+• <code>${mainPrefix}exit</code> / <code>${mainPrefix}restart</code> — 退出进程，PM2 会自动再启动
+• <code>${mainPrefix}pmr</code> — 让 PM2 直接重启本进程
 
-🩺 内存与健康请使用系统插件 <code>health</code>：
-• <code>${mainPrefix}health</code> · <code>${mainPrefix}memory status</code>
+🩺 想管内存 / 自动保护？用：
+• <code>${mainPrefix}health</code> — 看内存
+• <code>${mainPrefix}memory on</code> — 打开自动保护
+• <code>${mainPrefix}memory</code> — 完整说明（小白友好）
 `;
 
 class ReloadPlugin extends Plugin {
