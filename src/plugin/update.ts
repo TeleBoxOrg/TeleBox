@@ -394,7 +394,7 @@ void _GITHUB_CHANNEL_ID_LEGACY;
 const GITHUB_BOT_USER_ID = "107550100";
 const GITHUB_BOT_USERNAME = "githubbot";
 
-// Classic edition only reacts to classic repos (not TeleBox-Next*).
+// TeleBox edition only reacts to TeleBox repos (not TeleBox-Next*).
 // Accept TeleBoxOrg / TeleBoxLabs / bare names. Plugin pattern first.
 // GitHubBot: "1 new commit to …" / "2 new commits to …" (singular or plural)
 const COMMIT_NOTICE_PATTERN = /\bnew\s+commits?\b/i;
@@ -446,7 +446,7 @@ class UpdatePlugin extends Plugin {
           await msg.edit({
             text:
               "✅ 自动更新已开启\n\n" +
-              "任意会话中 GitHubBot 推送 Classic 仓库（TeleBox / TeleBox-Plugins，含 TeleBoxLabs 镜像）提交时自动更新。\n" +
+              "任意会话中 GitHubBot 推送 TeleBox 仓库（TeleBox / TeleBox-Plugins，含 TeleBoxLabs 镜像）提交时自动更新。\n" +
               "成功：仅在 commit 消息上点赞（👍 等）；失败：回复错误。",
           });
           return;

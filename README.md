@@ -46,7 +46,7 @@ _TypeScript 全栈 · 插件热加载 · 一键扩展 · 可与 TeleBox-Next 无
 sudo / sure，把能力安全分享给协作者
 
 🔀 **版本切换**  
-`.switch go` 在 Classic 与 Next 之间直切，会话与插件配置一并迁移
+`.switch go` 在 TeleBox 与 Next 之间直切，会话与插件配置一并迁移
 
 </td>
 <td width="33%">
@@ -133,7 +133,7 @@ abstract class Plugin {
 <tr><td><strong>help</strong></td><td><code>help</code>, <code>h</code></td><td>帮助与命令列表</td></tr>
 <tr><td><strong>tpm</strong></td><td><code>tpm</code></td><td>插件管理器：搜索 / 安装 / 卸载 / 更新 / 上传</td></tr>
 <tr><td><strong>update</strong></td><td><code>update</code></td><td>拉取主仓最新代码并安装依赖</td></tr>
-<tr><td><strong>switch</strong></td><td><code>switch</code></td><td>Classic ↔ Next 版本切换（会话转换 + 配置迁移）</td></tr>
+<tr><td><strong>switch</strong></td><td><code>switch</code></td><td>TeleBox ↔ Next 版本切换（会话转换 + 配置迁移）</td></tr>
 <tr><td><strong>autofix</strong></td><td><code>autofix</code></td><td>一键修复：清重名插件 → 硬同步 → 重启 → 更新插件</td></tr>
 <tr><td><strong>reload</strong></td><td><code>reload</code>, <code>exit</code>, <code>restart</code>, <code>health</code>, <code>memory</code>…</td><td>重载 / 退出 / 健康与内存检查</td></tr>
 <tr><td><strong>status</strong></td><td><code>status</code>, <code>sysinfo</code></td><td>运行状态与系统信息</td></tr>

@@ -316,7 +316,7 @@ run();
 | `status.ts` | 系统状态（PM2、版本、内存、generation） |
 | `sudo.ts` | 权限管理 |
 | `sure.ts` | 确认操作 |
-| `switch.ts` | 版本切换（Classic ↔ Next） |
+| `switch.ts` | 版本切换（TeleBox ↔ Next） |
 | `tpm.ts` | 插件包管理器 |
 | `update.ts` | 更新管理（含自动更新功能） |
 
