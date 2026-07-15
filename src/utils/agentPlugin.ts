@@ -1,4 +1,5 @@
 import import_globalClient3 = require("@utils/runtimeManager");
+import { tryGetCurrentGenerationContext } from "@utils/runtimeManager";
 import { formatProviderError } from "./agentProvider";
 import { normalizeWorkspaceId, readConfig, getDisplayName, getProvider, getProviders, setProvider, removeProvider, updateConfig, getMaxSteps, getModelTimeout, getCommandTimeout, getContextLimit, getSession, conversationToMessages, appendConversation, resetConversation, setWorkspace, getSkillText, resolveWorkspacePath, MAX_AGENT_STEPS, MAX_CONTEXT_LIMIT } from "./agentStore";
 import { runAgent, AgentStatus, buildReplyContext, showHtmlMessage, showPreformattedMessage, dispatchPluginCaptured, buildSystemPrompt, safeReply, safeEdit, redactText, splitMarkdownText, markdownToTelegramHtml, splitLongText, stripTelegramHtml, tgEscape, tgCode, tgBold, tgBlockquote, tgHtmlBlockquote, renderSharedAiIcon, toolLabel, summarizeArgs, truncate2, usageTotal, elapsed, findCommand, stripCommandPrefix, cloneForCapture, looksPending, wait, documentName, safeFileName, detectImageMime, toBuffer } from "./agentLoop";
@@ -122,7 +123,7 @@ function helpText(scope: AgentScope, displayName = "") {
       [`${prefix} ${alias("perms", "\u6743\u9650")}`, "\u67E5\u770B\u6743\u9650\u4ECB\u7EED"],
       [
         `${other} <\u9700\u6C42>`,
-        `\u5207\u6362\u5230${scope === "system" ? "TeleBox \u667A\u80FD\u4F53" : "\u7CFB\u7EDF\u667A\u80FD\u4F53"}\u667A\u80FD\u4F53`
+        `\u5207\u6362\u5230${scope === "system" ? "TeleBox \u667A\u80FD\u4F53" : "\u7CFB\u7EDF\u667A\u80FD\u4F53"}`
       ]
     ]),
     menuSection("\u914D\u7F6E AI \u6A21\u578B", [
@@ -187,6 +188,41 @@ function directExec(command: string, cwd: string, timeoutMs: number): Promise<{ 
     );
   });
 }
+
+/** Serialize concurrent agent runs per conversation key (chat+scope). */
+const sessionRunLocks = new Map<string, Promise<void>>();
+async function withSessionRunLock(key: string, task: () => Promise<void>): Promise<void> {
+  const prev = sessionRunLocks.get(key) || Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // Chain: wait for previous run, then hold until our release() in finally.
+  const chained = prev.catch(() => undefined).then(() => gate);
+  sessionRunLocks.set(key, chained);
+  await prev.catch(() => undefined);
+  try {
+    await task();
+  } finally {
+    release();
+    // If nobody queued after us, drop the map entry to avoid leaks.
+    queueMicrotask(() => {
+      if (sessionRunLocks.get(key) === chained) sessionRunLocks.delete(key);
+    });
+  }
+}
+
+function sessionLockKey(msg: any, scope: string): string {
+  const chat =
+    msg?.chatId ??
+    msg?.chat?.id ??
+    msg?.peerId ??
+    msg?.chat?.peerId ??
+    "unknown";
+  const sender = msg?.senderId ?? msg?.fromId ?? msg?.sender?.id ?? "";
+  return `${scope}:${String(chat)}:${String(sender)}`;
+}
+
 const AgentPlugin = class extends Plugin {
   description: any;
   abortSignal: any;
@@ -270,6 +306,9 @@ const AgentPlugin = class extends Plugin {
   }
   async run(msg: any, prompt: string, options: AgentOptions) {
     const scope = options.scope ?? "private";
+    const lockKey = sessionLockKey(msg, scope);
+    const gen = tryGetCurrentGenerationContext();
+    const work = async () => {
     const session = await getSession(msg, scope);
     const provider = getProvider(session.config);
     const displayName = getDisplayName(session.config);
@@ -314,6 +353,7 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
     const runtime: RuntimeContext = {
       msg,
       scope: scope,
+      signal: this.abortSignal,
       projectRoot: process.cwd(),
       workspace: session.workspace,
       provider,
@@ -358,6 +398,13 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
         { role: "assistant", content: `\u6267\u884C\u5931\u8D25\uFF1A${message}` }
       ]).catch(() => void 0);
     }
+    }; // end work()
+    // Hold session lock first, then track under generation so reload can see in-flight work.
+    await withSessionRunLock(lockKey, async () => {
+      const run = work();
+      if (gen) await gen.trackTask(run, { label: "agent:run" });
+      else await run;
+    });
   }
   async showConfig(msg: any, scope: AgentScope) {
     const config = await readConfig();
@@ -397,7 +444,7 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
       if (sub === "set" || sub === "add") {
         const [name, baseUrl, apiKey, model, iface] = parts;
         if (!name || !baseUrl || !apiKey || !model) {
-          throw new Error(`\u7528\u6CD5\uFF1A${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B]\u3002\u7C7B\u578B\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / gemini / anthropic`);
+          throw new Error(`\u7528\u6CD5\uFF1A${prefix} config set <\u540D\u79F0> <\u5730\u5740> <\u5BC6\u94A5> <\u6A21\u578B> [\u7C7B\u578B]\u3002\u7C7B\u578B\u53EF\u7701\u7565\uFF08\u6839\u636E\u5730\u5740/\u6A21\u578B\u81EA\u52A8\u8BC6\u522B\uFF09\uFF1Aopenai / gemini / anthropic / responses / deepseek / xai / custom / responses / deepseek / xai / custom`);
         }
         await setProvider(name, {
           base_url: baseUrl.replace(/\/+$/, ""),
@@ -405,12 +452,19 @@ ${tgBlockquote(`${scopeCommand(scope)} <\u9700\u6C42>`)}`
           model,
           type: iface ? iface.toLowerCase() : void 0
         });
-        const provider = await getProvider(await readConfig());
-        const isActiveNow = name === (await readConfig()).default_provider;
+        const configAfter = await readConfig();
+        const provider = getProvider(configAfter);
+        const isActiveNow = name === configAfter.default_provider;
         const activeNote = isActiveNow
           ? "已自动设为当前供应商"
-          : tgCode(prefix + " config use " + name) + " 切换";
-        const saved = `${name} · ${model}\n类型：${provider?.type || "openai"}\n地址：${baseUrl}\n\n${activeNote}`;
+          : `${tgCode(prefix + " config use " + name)} 可切换为当前`;
+        await showHtmlMessage(
+          msg,
+          successCard(
+            "供应商已保存",
+            `${name} · ${model}\n类型：${provider?.type || "openai"}\n地址：${baseUrl}\n\n${activeNote}`,
+          ),
+        );
         return;
       }
       if (sub === "use" || sub === "switch") {

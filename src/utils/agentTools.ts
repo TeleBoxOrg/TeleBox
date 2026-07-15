@@ -216,15 +216,26 @@ async function collectFiles(context: RuntimeContext, root: string, recursive: bo
   await visit(root);
   return output;
 }
-function runProcess(command: string, cwd: string, timeoutMs: number): Promise<CommandResult> {
+function runProcess(command: string, cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<CommandResult> {
   return new Promise((resolve) => {
     const started = Date.now();
-    (0, import_child_process.exec)(
+    if (signal?.aborted) {
+      resolve({
+        exitCode: 1,
+        stdout: "",
+        stderr: "任务已中断，命令未执行",
+        timedOut: false,
+        durationMs: 0,
+        killed: true,
+      });
+      return;
+    }
+    const child = (0, import_child_process.exec)(
       command,
       { cwd, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024, windowsHide: true },
       (error, stdout, stderr) => {
-        const record = error;
-        if (error && /maxbuffer/i.test(String(error.message || error.code || ""))) {
+        const record = error as any;
+        if (error && /maxbuffer/i.test(String(error.message || record?.code || ""))) {
           resolve({
             exitCode: 0,
             stdout: String(stdout || ""),
@@ -240,10 +251,24 @@ function runProcess(command: string, cwd: string, timeoutMs: number): Promise<Co
           stdout: String(stdout || ""),
           stderr: String(stderr || ""),
           timedOut: Boolean(record?.killed) && Date.now() - started >= timeoutMs - 100,
-          durationMs: Date.now() - started
+          durationMs: Date.now() - started,
+          killed: Boolean(record?.killed) || Boolean(signal?.aborted),
         });
       }
     );
+    const onAbort = () => {
+      try {
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          try { child.kill("SIGKILL"); } catch { /* ignore */ }
+        }, 1500).unref?.();
+      } catch { /* ignore */ }
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener("abort", onAbort, { once: true });
+      child.on("exit", () => signal.removeEventListener("abort", onAbort));
+    }
   });
 }
 function runRg(args: string[], cwd: string): Promise<{ code: number; stdout: string; stderr: string }> {
@@ -317,6 +342,9 @@ function validatePlan(args: Record<string, any>) {
   return { explanation: asString(args.explanation).trim() || void 0, items };
 }
 async function executeTool(context: RuntimeContext, name: string, args: Record<string, any>) {
+  if (context.signal?.aborted) {
+    throw new Error("任务已中断（插件重载或取消）");
+  }
   if (name === "update_plan") {
     const plan = validatePlan(args);
     await context.onPlanChange(plan);
@@ -443,7 +471,8 @@ size: ${stat.size} bytes`
     const stat = await import_fs.promises.stat(cwd);
     if (!stat.isDirectory()) throw new Error("cwd \u4E0D\u662F\u76EE\u5F55");
     const timeoutMs = asInt(args.timeout_ms, context.commandTimeoutMs ?? 12e4, 1e3, 864e5);
-    const result: CommandResult = await runProcess(command, cwd, timeoutMs);
+    if (context.signal?.aborted) throw new Error("任务已中断，命令未执行");
+    const result: CommandResult = await runProcess(command, cwd, timeoutMs, context.signal);
     return {
       ok: result.exitCode === 0,
       title: result.exitCode === 0 ? "\u547D\u4EE4\u6267\u884C\u5B8C\u6210" : "\u547D\u4EE4\u6267\u884C\u5931\u8D25",
