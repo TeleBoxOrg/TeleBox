@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="logo-circle.png" alt="TeleBox" width="120" height="120" />
+<img src="telebox.png" alt="TeleBox" width="120" height="120" style="border-radius: 50%;" />
 
 # 🚀 TeleBox
 
