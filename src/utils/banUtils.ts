@@ -11,19 +11,56 @@ import { Api, TelegramClient } from "teleproto";
  * @param user 用户实体或ID
  * @returns 是否成功
  */
+async function resolveBanChannel(client: TelegramClient, channel: any): Promise<any> {
+  // EditBanned 需要 InputChannel；裸 id 没有 access_hash 会静默失败
+  if (channel && typeof channel === "object" && (channel.className === "InputChannel" || channel.className === "InputPeerChannel")) {
+    return channel;
+  }
+  return await client.getInputEntity(channel);
+}
+
+/**
+ * 解析踢人/封禁目标。
+ * 已注销账号无法用裸 userId getInputEntity——必须带上 User 上的 accessHash。
+ */
+async function resolveBanParticipant(client: TelegramClient, user: any): Promise<any> {
+  if (user == null) throw new Error("participant is empty");
+  if (typeof user === "object") {
+    // 完整 User / InputPeer* 直接交给 getInputEntity 或原样使用
+    if (user.className === "InputPeerUser" || user.className === "InputUser" || user.className === "InputPeerChannel") {
+      return user;
+    }
+    if (user.className === "User" || user.accessHash !== undefined || user.access_hash !== undefined) {
+      try {
+        return await client.getInputEntity(user);
+      } catch {
+        const userId = user.id ?? user.userId;
+        const accessHash = user.accessHash ?? user.access_hash ?? 0;
+        if (userId != null) {
+          return new Api.InputPeerUser({ userId, accessHash });
+        }
+        throw new Error("无法解析用户实体（缺少 id/accessHash）");
+      }
+    }
+    // 其它对象尽量 getInputEntity
+    return await client.getInputEntity(user);
+  }
+  // 裸 id：仅当缓存里还有实体时能成功；已注销账号通常会失败
+  return await client.getInputEntity(user);
+}
+
 export async function unbanUser(
   client: TelegramClient,
   channel: any,
   user: any
 ): Promise<boolean> {
   try {
-    const userEntity = typeof user === 'number' 
-      ? await client.getInputEntity(user)
-      : user;
-    
+    const channelEntity = await resolveBanChannel(client, channel);
+    const userEntity = await resolveBanParticipant(client, user);
+
     await client.invoke(
       new Api.channels.EditBanned({
-        channel: channel,
+        channel: channelEntity,
         participant: userEntity,
         bannedRights: new Api.ChatBannedRights({
           untilDate: 0,  // 0 = 解除所有限制
@@ -63,13 +100,12 @@ export async function banUser(
   untilDate: number = 0
 ): Promise<boolean> {
   try {
-    const userEntity = typeof user === 'number' 
-      ? await client.getInputEntity(user)
-      : user;
-    
+    const channelEntity = await resolveBanChannel(client, channel);
+    const userEntity = await resolveBanParticipant(client, user);
+
     await client.invoke(
       new Api.channels.EditBanned({
-        channel: channel,
+        channel: channelEntity,
         participant: userEntity,
         bannedRights: new Api.ChatBannedRights({
           untilDate: untilDate,
