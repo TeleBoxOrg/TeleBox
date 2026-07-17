@@ -111,6 +111,31 @@ function getErrorMessage(error: any): string {
   return (errObj.stderr as string) || (errObj.message as string) || String(error);
 }
 
+
+/**
+ * True when package.json differs between HEAD and remote branch after fetch.
+ * Used to auto-escalate to force (reset --hard) so dependency range changes
+ * land cleanly without local package.json merge noise.
+ */
+async function remotePackageJsonChanged(remote: string, branch: string): Promise<boolean> {
+  try {
+    const { stdout } = await gitExec([
+      "diff",
+      "--name-only",
+      "HEAD",
+      `${remote}/${branch}`,
+      "--",
+      "package.json",
+    ]);
+    return stdout
+      .split("\n")
+      .map((l) => l.trim())
+      .some((l) => l === "package.json" || l.endsWith("/package.json"));
+  } catch {
+    return false;
+  }
+}
+
 // ── Manual update (existing) ───────────────────────────────────────────
 async function update(force = false, msg: Api.Message) {
   await msg.edit({ text: "🚀 正在更新项目..." });
@@ -129,14 +154,21 @@ async function update(force = false, msg: Api.Message) {
     await gitExec(["fetch", "--all"]);
     await msg.edit({ text: "🔄 正在拉取最新代码..." });
 
+    // package.json 变更时自动走 -f：硬重置到远程，避免依赖声明冲突/半更新
+    if (!force && (await remotePackageJsonChanged(remote, branch))) {
+      force = true;
+      console.log("📦 检测到 package.json 变更，自动切换为强制更新（等同 .update -f）");
+      await msg.edit({ text: "📦 检测到 package.json 变更，自动强制更新..." });
+    }
+
     if (force) {
       console.log(`⚠️ 强制回滚到 ${fullBranch}...`);
       await gitExec(["reset", "--hard", fullBranch]);
       await msg.edit({ text: "🔄 强制更新中..." });
+    } else {
+      await gitExec(["pull", remote, branch, "--no-rebase"]);
+      await msg.edit({ text: "🔄 正在合并最新代码..." });
     }
-
-    await gitExec(["pull", remote, branch, "--no-rebase"]);
-    await msg.edit({ text: "🔄 正在合并最新代码..." });
 
     console.log("\n📦 安装依赖...");
     await msg.edit({ text: "📦 正在安装依赖..." });
@@ -348,7 +380,12 @@ async function autoUpdateMainRepo(githubMsg: Api.Message): Promise<void> {
     const { remote, branch } = branchInfo;
 
     await gitExec(["fetch", "--all"]);
-    await gitExec(["pull", remote, branch, "--no-rebase"]);
+    if (await remotePackageJsonChanged(remote, branch)) {
+      console.log("[auto-update] 📦 package.json 变更，自动 reset --hard（等同 update -f）");
+      await gitExec(["reset", "--hard", `${remote}/${branch}`]);
+    } else {
+      await gitExec(["pull", remote, branch, "--no-rebase"]);
+    }
 
     // Pull succeeded → update is on disk. But the process is about to restart
     // (npm install blocks the event loop, then process.exit). Do NOT react now:
@@ -466,7 +503,7 @@ function isGitHubBot(msg: Api.Message): boolean {
 class UpdatePlugin extends Plugin {
   description: string =
     `更新项目：拉取最新代码并安装依赖\n` +
-    `<code>${mainPrefix}update -f/-force</code> 强制更新\n` +
+    `<code>${mainPrefix}update -f/-force</code> 强制更新（package.json 变更时自动启用）\n` +
     `<code>${mainPrefix}update auto on</code> / <code>off</code> 自动更新开关（默认关闭）`;
 
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
