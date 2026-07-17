@@ -561,7 +561,7 @@ class HealthPlugin extends Plugin {
         overThresholdStreak = 0;
         await configDB.write();
         await msg.edit({
-          text: "❌ <b>自动内存保护已关闭</b>\n\n系统不会再自动清理/重启。\n需要时再发 <code>${mainPrefix}memory on</code> 打开。",
+          text: `❌ <b>自动内存保护已关闭</b>\n\n系统不会再自动清理/重启。\n需要时再发 <code>${mainPrefix}memory on</code> 打开。`,
           parseMode: "html",
         });
       } else if (subCmd === "set") {
