@@ -1,5 +1,12 @@
 # Changelog
 
+
+## 2026-07-17
+
+- **TeleBox**：`teleproto` 升级至 `^1.228.2`
+- **Next**：`mtcute` 系对齐 `^0.31.0`（`@mtcute/node` / `dispatcher` / `convert`）
+- **update**：自动更新开启提示不再提及 TeleBoxLabs 镜像（匹配逻辑仍兼容）
+
 ## [0.2.9] - 2026-07-15
 
 > **版本类型**：补丁 / 维护版本  
