@@ -328,7 +328,7 @@ run();
 **特殊功能**：
 - 在 `index.ts` 中通过 `import "./hook/patches/telegram.patch"` 加载
 - `telegram.patch.ts` 仅含 HTML 实体保护 + Message 原型扩展（`deleteWithDelay` / `safeDelete`）
-- teleproto 运行时补丁在 `runtimeManager.ts`：`MediaScheduler.prototype.savePart`（main-DC 上传走主 sender）。TCP keepalive 已由 teleproto ≥1.228.0 原生提供，不再需要 CustomPromisedNetSockets
+- teleproto 运行时补丁：`runtimeManager.ts` 的 `MediaScheduler.prototype.savePart`（main-DC 上传走主 sender，上游 #24 仍 open）；`channelGapBreaker` 处理 `PERSISTENT_TIMESTAMP_OUTDATED` / `HISTORY_GET_FAILED`（1.228.2 的 #26 只 drop 了 PRIVATE/INVALID/TIMESTAMP_INVALID）。TCP keepalive 已由 ≥1.228.0 原生提供（#28 可配 `keepAliveInterval`），不再需要 CustomPromisedNetSockets；下载 AbortSignal/timeout 已由 1.228.1 #25 覆盖
 
 ### 目录组织
 

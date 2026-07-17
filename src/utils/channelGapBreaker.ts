@@ -1,9 +1,11 @@
 /**
  * Channel gap recovery circuit breaker.
  *
- * When _recoverChannelGap (in teleproto) encounters persistent PTS desync
- * errors (PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED) for a
- * channel, it retries indefinitely — wasting API calls and log bandwidth.
+ * teleproto 1.228.2 (#26) stops forever-retry only for CHANNEL_PRIVATE /
+ * CHANNEL_INVALID / PERSISTENT_TIMESTAMP_INVALID. For the errors that
+ * still flood long-lived userbots — PERSISTENT_TIMESTAMP_OUTDATED and
+ * HISTORY_GET_FAILED — UpdateManager.fetchChannelDifference still uses
+ * unbounded exponential backoff (1s → 64s cap, no max attempts).
  *
  * This module hooks into the Logger's existing downgrade interceptor and
  * tracks per-channel failure counts. Once a channel exceeds the failure
@@ -13,7 +15,8 @@
  * another round of hopeless GetChannelDifference calls.
  *
  * Importantly, this only touches TeleBox code — the teleproto library
- * itself is not modified.
+ * itself is not modified. Do not remove until upstream also drop/retry-
+ * caps OUTDATED / HISTORY_GET_FAILED (verify node_modules UpdateManager).
  */
 
 // Note: this module intentionally does NOT import getGlobalClient — it needs

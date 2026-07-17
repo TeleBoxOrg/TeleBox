@@ -7,13 +7,20 @@ import { logger } from "./logger";
 import { initializeClientSession } from "./loginManager";
 
 // ── Fix teleproto main-DC media upload deadlock (upstream #24 still open) ──
-// teleproto through 1.228.1 still routes upload.SaveFilePart via MediaScheduler's
+// teleproto through 1.228.2 still routes upload.SaveFilePart via MediaScheduler's
 // media sender even when dcId === session.dcId. On affected sessions that path
 // burns requestRetries × deadline while client.invoke(SaveFilePart) succeeds.
 //
-// 1.228.1 fixed #25 (download AbortSignal/requestTimeout) and #28 (keepalive
-// interval option) — no TeleBox patches needed for those. #24 remains open, so
-// keep this main-DC short-circuit. channelGapBreaker stays for #26 (still open).
+// Already covered by upstream (no TeleBox patch):
+//   - ≥1.228.0 TCP keepalive / setNoDelay (no CustomPromisedNetSockets)
+//   - 1.228.1 #25 download AbortSignal/requestTimeout; #28 keepAliveInterval
+//   - 1.228.2 #26 partial: drop CHANNEL_PRIVATE / CHANNEL_INVALID /
+//     PERSISTENT_TIMESTAMP_INVALID (NOT OUTDATED / HISTORY_GET_FAILED)
+//
+// Still required:
+//   - this main-DC savePart short-circuit (#24 open)
+//   - channelGapBreaker for PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED
+//     (1.228.2 still infinite-retries those in UpdateManager.fetchChannelDifference)
 //
 // Route only main-DC uploads through client.invoke(). Non-main DC operations
 // retain the native MediaScheduler path (including migration/retry logic).
