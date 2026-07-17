@@ -11,6 +11,7 @@ import { promisify } from "util";
 import { getCurrentGenerationContext } from "@utils/runtimeManager";
 import { reloadRuntime } from "@utils/runtimeManager";
 import { htmlEscape } from "@utils/htmlEscape";
+import { normalizeDeletePeer } from "@utils/postReloadMessage";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -65,35 +66,142 @@ function scheduleTrackedTimeout(
   return timer;
 }
 
+/**
+ * Persist a stable peer key for post-restart editMessage.
+ * NEVER JSON-serialize PeerUser/PeerChannel objects — after process restart the
+ * entity cache is empty and Peer* without accessHash fails getInputEntity:
+ *   Could not find the input entity for {"userId":"…","className":"PeerUser"}
+ */
+function resolvePersistableChatId(msg: Api.Message, result?: Api.Message | boolean | null): string {
+  const candidates: unknown[] = [
+    result && typeof result === "object" ? (result as Api.Message).chatId : undefined,
+    result && typeof result === "object" ? (result as Api.Message).peerId : undefined,
+    msg.chatId,
+    msg.peerId,
+  ];
+  for (const c of candidates) {
+    const n = normalizeDeletePeer(c);
+    if (n) return n;
+  }
+  // last resort: plain string of chatId
+  if (msg.chatId != null) return String(msg.chatId);
+  return "";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 const editExitMsg = async () => {
+  if (!fs.existsSync(exitFile)) return;
+  let payload: {
+    messageId?: number;
+    chatId?: unknown;
+    time?: number;
+    successText?: string;
+    parseMode?: "html" | "markdown";
+  };
   try {
-    const data = fs.readFileSync(exitFile, "utf-8");
-    const { messageId, chatId, time, successText, parseMode } = JSON.parse(data);
+    payload = JSON.parse(fs.readFileSync(exitFile, "utf-8"));
+  } catch (e) {
+    console.error("Failed to parse exit message file:", e);
+    try {
+      fs.unlinkSync(exitFile);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  const messageId = Number(payload.messageId);
+  const rawChatId = payload.chatId;
+  // Normalize legacy Peer* objects that may already be on disk
+  const chatId =
+    normalizeDeletePeer(rawChatId) ||
+    (typeof rawChatId === "string" || typeof rawChatId === "number"
+      ? String(rawChatId)
+      : rawChatId && typeof rawChatId === "object" && (rawChatId as { userId?: unknown }).userId != null
+        ? String((rawChatId as { userId: unknown }).userId)
+        : "");
+  if (!chatId || !Number.isFinite(messageId)) {
+    try {
+      fs.unlinkSync(exitFile);
+    } catch {
+      /* ignore */
+    }
+    return;
+  }
+
+  const elapsedMs = Date.now() - (Number(payload.time) || Date.now());
+  const tmpl: string = payload.successText || "✅ 重启完成，耗时 {elapsedMs}ms";
+  const text = tmpl.replace(/\{elapsedMs\}/g, String(elapsedMs));
+  const parseMode = payload.parseMode;
+
+  // Wait for runtime client + session entity cache (restart is racy)
+  const delays = [0, 1500, 3000, 6000, 12000];
+  let lastErr: unknown;
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i] > 0) await sleep(delays[i]);
+    try {
+      const client = await getGlobalClient();
+      if (!client) {
+        lastErr = new Error("client not ready");
+        continue;
+      }
+      // Prefer marked/numeric id (session can resolve); avoid Peer* without accessHash
+      try {
+        await client.editMessage(chatId, {
+          message: messageId,
+          text,
+          ...(parseMode ? { parseMode } : {}),
+        });
+        fs.unlinkSync(exitFile);
+        return;
+      } catch (editErr) {
+        lastErr = editErr;
+        // Fallback: resolve via getEntity only when chatId is a plain id/string
+        try {
+          const entity = await client.getEntity(chatId);
+          await client.editMessage(entity, {
+            message: messageId,
+            text,
+            ...(parseMode ? { parseMode } : {}),
+          });
+          fs.unlinkSync(exitFile);
+          return;
+        } catch (entityErr) {
+          lastErr = entityErr;
+        }
+      }
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+
+  // Final fallback: send a new status message so the user still sees success
+  try {
     const client = await getGlobalClient();
     if (client) {
-      let targetChat: EntityLike | number | string = chatId;
-      try {
-        targetChat = await client.getEntity(chatId);
-      } catch (innerE) {
-        console.error("Failed to resolve entity for exit message:", innerE);
-      }
-      const elapsedMs = Date.now() - time;
-      const tmpl: string = successText || "✅ 重启完成，耗时 {elapsedMs}ms";
-      const text = tmpl.replace(/\{elapsedMs\}/g, String(elapsedMs));
-      await client.editMessage(targetChat, {
-        message: messageId,
-        text,
+      await client.sendMessage(chatId, {
+        message: text,
         ...(parseMode ? { parseMode } : {}),
       });
-      fs.unlinkSync(exitFile);
     }
-  } catch (e) {
-    console.error("Failed to edit exit message:", e);
+  } catch (sendErr) {
+    console.error("Failed to edit/send exit message after retries:", lastErr || sendErr);
+  }
+  try {
+    fs.unlinkSync(exitFile);
+  } catch {
+    /* ignore */
   }
 };
 
 if (fs.existsSync(exitFile)) {
-  editExitMsg().catch((e) => console.error("Failed to handle exit message on startup:", e));
+  // Defer until after client.connect(); editExitMsg itself retries with backoff.
+  setTimeout(() => {
+    editExitMsg().catch((e) => console.error("Failed to handle exit message on startup:", e));
+  }, 2000);
 }
 
 export async function executeExit(
@@ -109,18 +217,28 @@ export async function executeExit(
     text: pendingText,
     ...(options?.parseMode ? { parseMode: options.parseMode } : {}),
   });
-  if (result) {
+  const messageId =
+    result && typeof result === "object" && "id" in result
+      ? Number((result as Api.Message).id)
+      : Number(msg.id);
+  const chatId = resolvePersistableChatId(
+    msg,
+    result && typeof result === "object" ? (result as Api.Message) : undefined,
+  );
+  if (Number.isFinite(messageId) && chatId) {
     fs.writeFileSync(
       exitFile,
       JSON.stringify({
-        messageId: result.id,
-        chatId: result.chatId || result.peerId,
+        messageId,
+        chatId, // always a marked/numeric string — never Peer* object
         time: Date.now(),
         successText: options?.successText,
         parseMode: options?.parseMode,
       }),
-      "utf-8"
+      "utf-8",
     );
+  } else {
+    console.warn("[RELOAD] executeExit: could not persist exit status peer/messageId");
   }
   process.exit(0);
 }
@@ -150,7 +268,11 @@ class ReloadPlugin extends Plugin {
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     reload: async (msg) => {
       const statusMessage = await msg.edit({ text: "🔄 正在重新加载插件..." });
-      const targetChat = statusMessage?.chatId || statusMessage?.peerId || msg.chatId || msg.peerId;
+      const targetChat =
+        resolvePersistableChatId(msg, statusMessage as Api.Message | undefined) ||
+        statusMessage?.chatId ||
+        msg.chatId ||
+        msg.peerId;
       const targetMessageId = statusMessage?.id || msg.id;
       try {
         const startTime = Date.now();
