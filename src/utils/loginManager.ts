@@ -7,6 +7,18 @@ import { storeStringSession } from "./apiConfig";
 import { isAuthKeyUnregisteredError, safeCheckAuthorization, safeGetMe } from "./authGuards";
 import type { GenerationContext } from "./generationContext";
 
+/** Installs a process SIGINT guard that exits cleanly during interactive login.
+ *  readline.createInterface captures stdin in raw mode and intercepts SIGINT
+ *  as a line-editing event; without this handler ctrl+c does nothing. */
+function installLoginSigintGuard(): () => void {
+  const handler = () => {
+    console.warn("\n⏹ Login aborted (SIGINT).");
+    process.exit(130);
+  };
+  process.on("SIGINT", handler);
+  return () => process.removeListener("SIGINT", handler);
+}
+
 
 const QR_REFRESH_INTERVAL = 2000;
 const QR_TIMEOUT_MS = 90_000;
@@ -18,6 +30,12 @@ let rl: Interface | null = null;
 function getReadlineInterface(): Interface {
   if (!rl) {
     rl = createInterface({ input, output });
+    // readline in raw mode intercepts SIGINT; listen and exit cleanly
+    rl.on("SIGINT", () => {
+      console.warn("\n⏹ Login aborted (SIGINT).");
+      rl?.close();
+      process.exit(130);
+    });
   }
   return rl;
 }
@@ -117,14 +135,21 @@ export async function initializeClientSession(
 
   let loggedIn = false;
 
-  if (useQr.trim().toLowerCase() === "y") {
-    loggedIn = await loginWithQr(client, lifecycle);
-  }
+  // teleproto client.start() creates readline internally and captures SIGINT.
+  // Install a process-level guard so ctrl+c always exits.
+  const removeSigintGuard = installLoginSigintGuard();
+  try {
+    if (useQr.trim().toLowerCase() === "y") {
+      loggedIn = await loginWithQr(client, lifecycle);
+    }
 
-  if (!loggedIn) {
-    throwIfAborted(lifecycle);
-    console.log("Falling back to phone login...");
-    await loginWithPhone(client, lifecycle);
+    if (!loggedIn) {
+      throwIfAborted(lifecycle);
+      console.log("Falling back to phone login...");
+      await loginWithPhone(client, lifecycle);
+    }
+  } finally {
+    removeSigintGuard();
   }
 
   throwIfAborted(lifecycle);
