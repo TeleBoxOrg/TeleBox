@@ -28,6 +28,7 @@ import { markSwitchInProgress, clearSwitchInProgress,
   resolveTeleprotoChatId,
   readProgressSnapshot,
   clearProgressSnapshot,
+  isSwitchInProgress,
 } from "@utils/versionSwitchProgress";
 
 const prefixes = getPrefixes();
@@ -223,6 +224,12 @@ const plugin = new (class extends Plugin {
   };
 
   private async handleGo(msg: Api.Message): Promise<void> {
+    // Prevent multiple simultaneous switches
+    if (isSwitchInProgress(DEFAULT_SWITCH_HOME)) {
+      await msg.edit({ text: "⚠️ 版本切换已在进行中，请等待完成后再试。" });
+      return;
+    }
+
     const current = detectCurrentVersion();
     const target: TeleBoxVersion = current === "teleproto" ? "mtcute" : "teleproto";
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
