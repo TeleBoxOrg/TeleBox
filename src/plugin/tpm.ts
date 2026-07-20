@@ -241,8 +241,20 @@ async function sendLongMessage(
     linkPreview: options?.linkPreview !== false,
   };
 
-  // Append footer to the first message so it always appears at the bottom of the main output
-  const firstMessage = footer ? `${messages[0]}\n${footer}` : messages[0];
+  // Footer must go on the LAST part. Appending to part[0] overflows Telegram's
+  // 4096 limit when the body already spans multiple messages, so the repo link
+  // (and totals) get truncated / never reach the user-visible last bubble.
+  if (footer) {
+    const lastIdx = messages.length - 1;
+    const candidate = `${messages[lastIdx]}\n${footer}`;
+    if (candidate.length <= MAX_MESSAGE_LENGTH) {
+      messages[lastIdx] = candidate;
+    } else {
+      messages.push(footer.replace(/^\n+/, ""));
+    }
+  }
+
+  const firstMessage = messages[0];
 
   if (isEdit) {
     try {
