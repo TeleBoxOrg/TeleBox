@@ -30,6 +30,7 @@ import { markSwitchInProgress, clearSwitchInProgress,
   clearProgressSnapshot,
   isSwitchInProgress,
 } from "@utils/versionSwitchProgress";
+import { htmlEscape } from "@utils/htmlEscape";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -70,18 +71,18 @@ const T = {
       ``,
       `两个子命令：`,
       ``,
-      `1. \`${mainPrefix}switch go\``,
+      `1. <code>${mainPrefix}switch go</code>`,
       `• 立刻切到另一个版本`,
       `• 自动：转换 session → 同步插件/配置 → 重启目标版本`,
       `• 另一边没有的插件会归档到本机，不会丢`,
       `• bot 会短暂离线几秒，完成后本条消息会更新`,
       ``,
-      `2. \`${mainPrefix}switch status\``,
+      `2. <code>${mainPrefix}switch status</code>`,
       `• 查看当前运行的是哪个版本`,
       `• 显示另一边版本名称`,
       `• 不切换，只看状态`,
       ``,
-      `再切回去：再发一次 \`${mainPrefix}switch go\` 即可。`,
+      `再切回去：再发一次 <code>${mainPrefix}switch go</code> 即可。`,
     ].join("\n"),
 
   status: (state: ReturnType<typeof loadSwitchState>) => {
@@ -93,8 +94,8 @@ const T = {
       `当前运行： ${EMOJI[current]} ${label(current)}`,
       `另一边： ${EMOJI[other]} ${label(other)}`,
       ``,
-      `切过去：\`${mainPrefix}switch go\``,
-      `再看状态：\`${mainPrefix}switch status\``,
+      `切过去：<code>${mainPrefix}switch go</code>`,
+      `再看状态：<code>${mainPrefix}switch status</code>`,
     ];
     if (state.activeVersion) {
       lines.push(
@@ -121,21 +122,21 @@ const T = {
     [
       `❌ 当前没有可用的 session`,
       ``,
-      `请先正常登录当前版本，再发 \`${mainPrefix}switch go\`。`,
+      `请先正常登录当前版本，再发 <code>${mainPrefix}switch go</code>。`,
     ].join("\n"),
 
   legacyRemoved: () =>
     [
       `ℹ️ 现在只有两个命令：`,
       ``,
-      `\`${mainPrefix}switch go\` — 切到另一个版本`,
-      `\`${mainPrefix}switch status\` — 查看状态`,
+      `<code>${mainPrefix}switch go</code> — 切到另一个版本`,
+      `<code>${mainPrefix}switch status</code> — 查看状态`,
       ``,
       `不用 login / code / pwd / revert。`,
     ].join("\n"),
 
   unknownSub: (sub: string) =>
-    `不知道 \`${sub}\` 是什么命令。\n\n` + T.help(),
+    `不知道 <code>${htmlEscape(sub)}</code> 是什么命令。\n\n` + T.help(),
 };
 
 function spawnController(source: TeleBoxVersion, target: TeleBoxVersion): void {
@@ -198,11 +199,11 @@ const plugin = new (class extends Plugin {
       const sub = (parts[1] || "").toLowerCase();
 
       if (!sub || sub === "help") {
-        await msg.edit({ text: T.help() });
+        await msg.edit({ text: T.help(), parseMode: "html" });
         return;
       }
       if (sub === "status") {
-        await msg.edit({ text: T.status(loadSwitchState(DEFAULT_SWITCH_HOME)) });
+        await msg.edit({ text: T.status(loadSwitchState(DEFAULT_SWITCH_HOME)), parseMode: "html" });
         return;
       }
       if (
@@ -212,14 +213,14 @@ const plugin = new (class extends Plugin {
         sub === "password" ||
         sub === "revert"
       ) {
-        await msg.edit({ text: T.legacyRemoved() });
+        await msg.edit({ text: T.legacyRemoved(), parseMode: "html" });
         return;
       }
       if (sub === "go") {
         await this.handleGo(msg);
         return;
       }
-      await msg.edit({ text: T.unknownSub(sub) });
+      await msg.edit({ text: T.unknownSub(sub), parseMode: "html" });
     },
   };
 
@@ -235,16 +236,17 @@ const plugin = new (class extends Plugin {
     const state = loadSwitchState(DEFAULT_SWITCH_HOME);
 
     if (!hasTeleprotoNativeSession()) {
-      await msg.edit({ text: T.goNoSourceSession() });
+      await msg.edit({ text: T.goNoSourceSession(), parseMode: "html" });
       return;
     }
 
-    await msg.edit({ text: T.goSwitching(target) });
+    await msg.edit({ text: T.goSwitching(target), parseMode: "html" });
     // msg.peerId is an Api.TypePeer object — never Number(peerId).
     const chatId = resolveTeleprotoChatId(msg);
     if (chatId == null || Math.abs(chatId) === 777000) {
       await msg.edit({
-        text: "❌ 无法识别当前对话，请在私聊中对账号发 `.switch go` 重试。",
+        text: "❌ 无法识别当前对话，请在私聊中对账号发 <code>.switch go</code> 重试。",
+        parseMode: "html",
       });
       return;
     }
