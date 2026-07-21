@@ -1,0 +1,64 @@
+version: 2
+updates:
+  # npm dependencies - weekly schedule for production deps
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "npm"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    groups:
+      # Group minor/patch updates together to reduce PR noise
+      development-dependencies:
+        patterns:
+          - "@types/*"
+          - "typescript"
+          - "tsx"
+          - "vitest"
+          - "eslint*"
+          - "prettier*"
+        update-types:
+          - "minor"
+          - "patch"
+      production-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+        exclude-patterns:
+          - "@types/*"
+          - "typescript"
+          - "tsx"
+          - "vitest"
+          - "eslint*"
+          - "prettier*"
+      # Major versions separately for review
+      major-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
+
+  # GitHub Actions - daily checks
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+      time: "09:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
