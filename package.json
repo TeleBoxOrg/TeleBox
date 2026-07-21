@@ -31,17 +31,17 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.26.0",
-    "@types/archiver": "^6.0.3",
+    "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cron": "^2.0.1",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.20",
-    "@types/lowdb": "^1.0.15",
-    "@types/node": "^24.3.0",
+    "@types/lowdb": "^2.0.3",
+    "@types/node": "^26.1.1",
     "@types/opencc-js": "^1.0.3",
     "@types/qrcode-terminal": "^0.12.2",
     "@vitalets/google-translate-api": "^9.2.1",
-    "archiver": "^7.0.1",
+    "archiver": "^8.0.0",
     "axios": "^1.11.0",
     "better-sqlite3": "^12.2.0",
     "canvas": "^3.2.1",
@@ -51,10 +51,10 @@
     "dotenv": "^17.2.2",
     "emoji-db": "^16.0.1",
     "jimp": "^1.6.1",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^5.2.1",
     "lodash": "^4.17.21",
     "lowdb": "^7.0.1",
-    "lru-cache": "^6.0.0",
+    "lru-cache": "^11.5.2",
     "modern-gif": "^2.0.4",
     "node-schedule": "^2.1.1",
     "opencc-js": "^1.0.5",
@@ -68,6 +68,6 @@
     "teleproto": "^1.228.2",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.22.4",
-    "typescript": "^5.9.2"
+    "typescript": "^7.0.2"
   }
 }
