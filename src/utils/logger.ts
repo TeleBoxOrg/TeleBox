@@ -249,7 +249,7 @@ class Logger {
         const channelId = this.extractChannelId(msg);
         // Record failure and suppress logging entirely for circuit-broken channels
         if (channelId) {
-          recordChannelGapFailure(channelId);
+          recordChannelGapFailure(channelId, msg);
           if (isChannelCircuitBroken(channelId)) return;
         }
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
@@ -287,7 +287,7 @@ class Logger {
         const channelId = this.extractChannelId(msg);
         // Record failure and suppress logging entirely for circuit-broken channels
         if (channelId) {
-          recordChannelGapFailure(channelId);
+          recordChannelGapFailure(channelId, msg);
           if (isChannelCircuitBroken(channelId)) return;
         }
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
@@ -315,7 +315,7 @@ class Logger {
         const channelId = this.extractChannelId(msg);
         // Record failure and suppress logging entirely for circuit-broken channels
         if (channelId) {
-          recordChannelGapFailure(channelId);
+          recordChannelGapFailure(channelId, msg);
           if (isChannelCircuitBroken(channelId)) return;
         }
         const rateKey = channelId ? `pts_err:${channelId}` : 'pts_err:unknown';
@@ -372,6 +372,7 @@ class Logger {
    *     too large to recover. Without circuit-breaking, teleproto keeps retrying forever.
    *   - all versions: "Could not find a matching Constructor ID" inside _recoverChannelGap / _recoverGap
    *     (TL schema desync — equally hopeless to retry)
+   *   - mtcute: "getChannelDifference (cid = <id>) returned channelDifferenceTooLong..."
    *
    * The string match is intentionally permissive — false positives just mean
    * we trip the breaker a bit more aggressively for that channel.
@@ -381,6 +382,10 @@ class Logger {
       msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
       msg.includes('HISTORY_GET_FAILED') ||
       msg.includes('difference too long') ||
+      msg.includes('channelDifferenceTooLong') ||
+      // ChannelInvalidError: channel no longer accessible; keep retrying is futile
+      // (synced from teleproto 0e8ac85)
+      msg.includes('ChannelInvalidError') ||
       (msg.includes('fetchChannelDifference ') && (
         msg.includes('PERSISTENT_TIMESTAMP_OUTDATED') ||
         msg.includes('HISTORY_GET_FAILED') ||

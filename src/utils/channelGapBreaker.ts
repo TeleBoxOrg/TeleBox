@@ -29,6 +29,13 @@
 /** How many consecutive PTS failures before we circuit-break the channel. */
 const FAILURE_THRESHOLD = 2;
 
+/** Immediate circuit-break on fatal unrecoverable errors (no retry possible). */
+const FATAL_ERRORS = [
+  'difference too long',
+  'channelDifferenceTooLong',
+  'Could not find a matching Constructor',
+];
+
 /**
  * Sliding window in ms. Failures older than this are forgotten.
  * Set to 30 minutes so that transient issues self-heal.
@@ -73,28 +80,32 @@ const MAX_TRACKED_CHANNELS = 500;
 const EVICTION_MIN_AGE_MS = 2 * 60 * 60 * 1000; // 2 hours
 
 // --- Public API --------------------------------------------------------------
-
 /**
  * Called by the Logger's downgrade interceptor each time a
  * PERSISTENT_TIMESTAMP_OUTDATED or HISTORY_GET_FAILED error is detected
  * for a channel.
  *
  * @param channelId - The Telegram channel/group ID as a string (e.g. "1680975844")
+ * @param errorMsg - Optional full error message to detect fatal unrecoverable errors
  */
-export function recordChannelGapFailure(channelId: string): void {
+export function recordChannelGapFailure(channelId: string, errorMsg?: string): void {
   const now = Date.now();
 
-  // Evict stale entries if the map grows too large
+  // Evict stale entries if the map grows too large. Proactive eviction
+  // bounds memory even under very high channel counts (long-running bots
+  // subscribed to many chats) instead of waiting for an external cron.
   if (channelFailures.size >= MAX_TRACKED_CHANNELS) {
     evictStaleRecords(now);
   }
 
   let record = channelFailures.get(channelId);
-
   if (!record) {
     record = { timestamps: [], brokenAt: null, breakCount: 0 };
     channelFailures.set(channelId, record);
   }
+
+  // Check for fatal unrecoverable errors that should trigger immediate circuit break
+  const isFatalError = errorMsg && FATAL_ERRORS.some(fatal => errorMsg.includes(fatal));
 
   // Compute the effective cooldown for this channel based on its repeat break count
   const effectiveCooldown = getEffectiveCooldown(record.breakCount);
@@ -107,6 +118,12 @@ export function recordChannelGapFailure(channelId: string): void {
   // the full cooldown window.
   if (record.brokenAt && now - record.brokenAt < effectiveCooldown) {
     silentlyClearChannelPts(channelId);
+    return;
+  }
+
+  // For fatal errors, trigger immediate circuit break
+  if (isFatalError) {
+    circuitBreakChannel(channelId);
     return;
   }
 
