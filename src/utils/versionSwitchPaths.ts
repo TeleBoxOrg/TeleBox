@@ -353,15 +353,39 @@ function ensureNpmInstall(repo: string, label: string): void {
   }
   if (hasUsableNodeModules(repo)) return;
   console.log(`[versionSwitch] npm install (${label})…`);
-  const install = spawnSync("npm", ["install"], {
+  
+  // Respect mise/node version manager by using project's node via npm exec / npx from repo
+  const nodeBin = process.execPath;
+  const npmCli = path.join(path.dirname(nodeBin), "npm");
+  const install = spawnSync(npmCli, ["install"], {
     cwd: repo,
     stdio: "inherit",
     timeout: 600_000,
-    env: process.env,
+    env: {
+      ...process.env,
+      // Ensure npm uses the same node version as the controller
+      NODE: nodeBin,
+    },
   });
   if (install.status !== 0) {
     throw new Error(`npm install 失败: ${repo}`);
   }
+  
+  // npm 11+ require approve-scripts for native build packages
+  console.log(`[versionSwitch] npm approve-scripts (${label})…`);
+  const approve = spawnSync(npmCli, ["approve-scripts", "--allow-scripts-pending"], {
+    cwd: repo,
+    stdio: "inherit",
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      NODE: nodeBin,
+    },
+  });
+  if (approve.status !== 0) {
+    console.warn(`[versionSwitch] npm approve-scripts 返回非零码 (${approve.status}): ${repo} — 继续尝试`);
+  }
+  
   if (!hasUsableNodeModules(repo)) {
     throw new Error(`npm install 后仍无可用依赖: ${repo}`);
   }
