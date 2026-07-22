@@ -1,14 +1,28 @@
 /**
- * TeleBox Panel — built-in settings providers.
- * These register PanelSettingProvider entries for the WebApp settings page.
+ * Built-in Panel settings providers for core TeleBox plugins.
+ * These do not modify original plugins — they adapt existing files/APIs.
  */
 
-import { registerPanelSettings, unregisterPanelSettings } from "./settingsRegistry";
-import type { PanelSettingField } from "./types";
-import { writeEnvKey, createDirectoryInAssets } from "@utils/pathHelpers";
 import fs from "fs";
 import path from "path";
 import { JSONFilePreset } from "lowdb/node";
+import { createDirectoryInAssets } from "@utils/pathHelpers";
+import {
+  getPrefixes,
+  setPrefixes,
+  loadPlugins,
+} from "@utils/pluginManager";
+import { logger } from "@utils/logger";
+import {
+  registerPanelSettings,
+  unregisterPanelSettings,
+} from "./settingsRegistry";
+import {
+  readPanelConfig,
+  updatePanelConfig,
+  maskToken,
+} from "./configStore";
+import type { PanelSettingField } from "./types";
 
 const BUILTIN_IDS = [
   "panel",
@@ -18,116 +32,101 @@ const BUILTIN_IDS = [
   "sudo",
   "env",
   "tpm",
-];
+] as const;
+
+function writeEnvKey(key: string, value: string): boolean {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let content = fs.existsSync(envPath)
+      ? fs.readFileSync(envPath, "utf-8")
+      : "";
+    const line = `${key}="${value.replace(/"/g, '\\"')}"`;
+    const re = new RegExp(`^[ \\t]*${key}\\s*=.*$`, "m");
+    if (re.test(content)) content = content.replace(re, line);
+    else {
+      if (content && !content.endsWith("\n")) content += "\n";
+      content += line + "\n";
+    }
+    fs.writeFileSync(envPath, content, "utf-8");
+    return true;
+  } catch (e: unknown) {
+    logger.warn(`[panel] write .env ${key} failed`, e);
+    return false;
+  }
+}
 
 function registerPanelSelf(): void {
   registerPanelSettings({
     id: "panel",
-    title: "Panel 面板",
-    description: "Bot 小程序面板开关、Token、端口、隧道模式、显示名",
+    title: "Panel 本体",
+    description: "管理小程序开关、Bot Token、公网地址与绑定端口",
     category: "系统",
     icon: "🎛️",
     getSchema: (): PanelSettingField[] => [
       {
         key: "enabled",
-        label: "启用面板",
+        label: "启用 Panel",
         type: "boolean",
-        description: "开关 Panel HTTP 服务与伴随 Bot",
+        description: "关闭后 Bot 与 HTTP 服务会停止",
       },
       {
         key: "botToken",
         label: "Bot Token",
         type: "password",
-        description: "从 @BotFather 获取的 Bot Token（留空保持不变）",
-        placeholder: "123456:ABC-DEF...",
+        secret: true,
+        description: "用于小程序的 Bot API Token",
       },
       {
-        key: "webappUrl",
-        label: "WebApp 公网地址",
+        key: "publicBaseUrl",
+        label: "公网 HTTPS 地址",
         type: "string",
-        description: "Telegram Mini App 入口的 HTTPS URL（手动模式用）",
-        placeholder: "https://your-domain.com",
-      },
-      {
-        key: "tunnelMode",
-        label: "隧道模式",
-        type: "select",
-        options: [
-          { value: "cloudflare", label: "Cloudflare Tunnel（自动、免费、免域名）" },
-          { value: "manual", label: "手动指定 URL" },
-          { value: "off", label: "关闭（仅本地访问）" },
-        ],
-        description: "如何提供 WebApp 公网 HTTPS 入口",
-      },
-      {
-        key: "port",
-        label: "本地端口",
-        type: "number",
-        description: "Panel HTTP 服务监听端口（默认 8787）",
-        default: 8787,
-        min: 1,
-        max: 65535,
+        placeholder: "https://panel.example.com",
+        description: "Telegram WebApp 必须是 HTTPS 公网 URL",
       },
       {
         key: "bindHost",
         label: "监听地址",
-        type: "select",
-        options: [
-          { value: "0.0.0.0", label: "0.0.0.0（所有网卡，含局域网/公网）" },
-          { value: "127.0.0.1", label: "127.0.0.1（仅本机）" },
-        ],
-        description: "HTTP 服务绑定的网络接口",
+        type: "string",
+        default: "0.0.0.0",
+      },
+      {
+        key: "bindPort",
+        label: "监听端口",
+        type: "number",
+        min: 1,
+        max: 65535,
+        default: 8787,
       },
       {
         key: "displayName",
         label: "显示名称",
         type: "string",
-        description: "小程序标题栏显示的名称（默认 TeleBox Panel）",
-        placeholder: "TeleBox Panel",
+        default: "TeleBox Panel",
       },
     ],
     getValues: async () => {
-      try {
-        const { readPanelConfig, maskToken } = await import("./configStore");
-        const cfg = await readPanelConfig();
-        return {
-          enabled: cfg.enabled,
-          botToken: maskToken(cfg.botToken),
-          webappUrl: cfg.publicBaseUrl || "",
-          tunnelMode: cfg.tunnelMode || "cloudflare",
-          port: cfg.bindPort || 8787,
-          bindHost: cfg.bindHost || "0.0.0.0",
-          displayName: cfg.displayName || "TeleBox Panel",
-        };
-      } catch {
-        return {
-          enabled: false,
-          botToken: "",
-          webappUrl: "",
-          tunnelMode: "cloudflare",
-          port: 8787,
-          bindHost: "0.0.0.0",
-          displayName: "TeleBox Panel",
-        };
-      }
+      const cfg = await readPanelConfig();
+      return {
+        enabled: cfg.enabled,
+        botToken: cfg.botToken ? maskToken(cfg.botToken) : "",
+        publicBaseUrl: cfg.publicBaseUrl,
+        bindHost: cfg.bindHost,
+        bindPort: cfg.bindPort,
+        displayName: cfg.displayName,
+      };
     },
     setValues: async (patch: Record<string, unknown>) => {
-      const { setPanelEnabled, setPanelBotToken, updatePanelConfig } = await import("./configStore");
-      if (typeof patch.enabled === "boolean") {
-        await setPanelEnabled(patch.enabled);
+      const next: Record<string, unknown> = { ...patch };
+      if (typeof next.botToken === "string" && next.botToken.includes("••••")) {
+        delete next.botToken;
       }
-      if (typeof patch.botToken === "string" && patch.botToken.trim()) {
-        await setPanelBotToken(patch.botToken.trim());
+      if (typeof next.bindPort === "string") {
+        next.bindPort = Number(next.bindPort);
       }
-      const updates: Record<string, unknown> = {};
-      if (typeof patch.webappUrl === "string") updates.publicBaseUrl = patch.webappUrl.trim() || undefined;
-      if (typeof patch.tunnelMode === "string") updates.tunnelMode = patch.tunnelMode;
-      if (typeof patch.port === "number") updates.bindPort = patch.port;
-      if (typeof patch.bindHost === "string") updates.bindHost = patch.bindHost;
-      if (typeof patch.displayName === "string") updates.displayName = patch.displayName.trim() || "TeleBox Panel";
-      if (Object.keys(updates).length) {
-        await updatePanelConfig(updates);
-      }
+      await updatePanelConfig(next as Parameters<typeof updatePanelConfig>[0]);
+      // Hot-apply runtime via controller (dynamic import avoids cycle).
+      const { applyPanelRuntimeFromConfig } = await import("./controller");
+      await applyPanelRuntimeFromConfig();
     },
   });
 }
@@ -136,43 +135,32 @@ function registerPrefix(): void {
   registerPanelSettings({
     id: "prefix",
     title: "命令前缀",
-    description: "管理命令触发前缀（如 . / ! 等）",
+    description: "TeleBox 指令前缀（写入 .env TB_PREFIX）",
     category: "系统",
-    icon: "🔤",
+    icon: "❕",
     getSchema: (): PanelSettingField[] => [
       {
         key: "prefixes",
         label: "前缀列表",
-        type: "list",
-        itemFields: [
-          { key: "prefix", label: "前缀字符", type: "string", placeholder: "." },
-        ],
-        description: "每行一个前缀字符，首位优先作为主前缀",
+        type: "string",
+        description: "多个前缀用空格分隔，例如 . ！",
+        required: true,
       },
     ],
-    getValues: async () => {
-      try {
-        const { getPrefixes } = await import("@utils/pluginManager");
-        const prefixes = getPrefixes();
-        return { prefixes: prefixes.map((p) => ({ prefix: p })) };
-      } catch {
-        return { prefixes: [] };
-      }
-    },
+    getValues: () => ({
+      prefixes: getPrefixes().join(" "),
+    }),
     setValues: async (patch: Record<string, unknown>) => {
-      try {
-        const { writeEnvKey } = await import("@utils/pathHelpers");
-        const { setPrefixes } = await import("@utils/pluginManager");
-        const prefixes = ((patch.prefixes as Array<{ prefix: string }>) || [])
-          .map((p) => p?.prefix?.trim())
-          .filter(Boolean);
-        if (!prefixes.length) throw new Error("至少需要一个前缀");
-        await setPrefixes(prefixes);
-        // Also sync to .env for runtime pick-up
-        writeEnvKey("TB_PREFIXES", prefixes.join(" "));
-      } catch (e) {
-        throw new Error("前缀格式错误: " + (e as Error).message);
-      }
+      const raw = String(patch.prefixes ?? "").trim();
+      if (!raw) throw new Error("至少保留一个前缀");
+      const list = Array.from(
+        new Set(raw.split(/\s+/).filter(Boolean)),
+      );
+      if (list.length === 0) throw new Error("至少保留一个前缀");
+      setPrefixes(list);
+      process.env.TB_PREFIX = list.join(" ");
+      writeEnvKey("TB_PREFIX", list.join(" "));
+      await loadPlugins();
     },
   });
 }
@@ -180,35 +168,38 @@ function registerPrefix(): void {
 function registerStatus(): void {
   registerPanelSettings({
     id: "status",
-    title: "状态卡片",
-    description: "自定义 .status 输出模板与可用标签",
+    title: "Status 模板",
+    description: "系统状态消息自定义模板",
     category: "系统",
-    icon: "📋",
+    icon: "📊",
     getSchema: (): PanelSettingField[] => [
       {
         key: "template",
-        label: "模板内容",
+        label: "状态模板",
         type: "textarea",
-        placeholder: "{botName} 运行中\\n版本: {version}\\n运行: {uptime}",
-        description: "可用标签见下方列表",
+        description: "支持 {cpu} {mem} {telebox} 等占位符",
       },
     ],
     getValues: async () => {
+      const dbPath = path.join(
+        createDirectoryInAssets("status"),
+        "config.json",
+      );
+      if (!fs.existsSync(dbPath)) return { template: "" };
       try {
-        const dbPath = path.join(createDirectoryInAssets("status"), "config.json");
-        if (!fs.existsSync(dbPath)) return { template: "" };
-        try {
-          const raw = JSON.parse(fs.readFileSync(dbPath, "utf-8")) as { template?: string };
-          return { template: raw.template || "" };
-        } catch {
-          return { template: "" };
-        }
+        const raw = JSON.parse(fs.readFileSync(dbPath, "utf-8")) as {
+          template?: string;
+        };
+        return { template: raw.template || "" };
       } catch {
         return { template: "" };
       }
     },
     setValues: async (patch: Record<string, unknown>) => {
-      const dbPath = path.join(createDirectoryInAssets("status"), "config.json");
+      const dbPath = path.join(
+        createDirectoryInAssets("status"),
+        "config.json",
+      );
       const db = await JSONFilePreset<{ template?: string }>(dbPath, {});
       if (typeof patch.template === "string") {
         db.data.template = patch.template;
@@ -222,19 +213,15 @@ function registerAlias(): void {
   registerPanelSettings({
     id: "alias",
     title: "命令别名",
-    description: "管理命令别名映射（原命令 → 目标命令）",
+    description: "管理命令别名映射",
     category: "系统",
     icon: "🔗",
     getSchema: (): PanelSettingField[] => [
       {
         key: "entries",
-        label: "别名列表",
-        type: "list",
-        itemFields: [
-          { key: "original", label: "原命令", type: "string", placeholder: "ping" },
-          { key: "final", label: "目标命令", type: "string", placeholder: "pong" },
-        ],
-        description: "每行一个映射：原命令 → 目标命令",
+        label: "别名列表 (JSON)",
+        type: "textarea",
+        description: "格式: {\"原命令\": \"目标命令\"}...",
       },
     ],
     getValues: () => {
@@ -249,12 +236,12 @@ function registerAlias(): void {
         };
         const db = new AliasDB();
         try {
-          return { entries: db.list().map((e) => ({ original: e.original, final: e.final })) };
+          return { entries: JSON.stringify(db.list(), null, 2) };
         } finally {
           db.close();
         }
       } catch {
-        return { entries: [] };
+        return { entries: "{}" };
       }
     },
     setValues: async (patch: Record<string, unknown>) => {
@@ -269,19 +256,18 @@ function registerAlias(): void {
         };
         const db = new AliasDB();
         try {
-          const entries = (patch.entries as Array<{ original: string; final: string }>) || [];
+          const entries = JSON.parse(String(patch.entries || "{}")) as Record<string, string>;
+          // Clear and rebuild
           const current = db.list();
           current.forEach((e) => db.remove(e.original));
-          entries.forEach((e) => {
-            if (e && typeof e.original === "string" && typeof e.final === "string") {
-              db.add(e.original, e.final);
-            }
+          Object.entries(entries).forEach(([o, f]) => {
+            if (typeof f === "string") db.add(o, f);
           });
         } finally {
           db.close();
         }
       } catch (e) {
-        throw new Error("别名格式错误: " + (e as Error).message);
+        throw new Error("JSON 格式错误: " + (e as Error).message);
       }
     },
   });
@@ -297,23 +283,15 @@ function registerSudo(): void {
     getSchema: (): PanelSettingField[] => [
       {
         key: "users",
-        label: "Sudo 用户",
-        type: "list",
-        itemFields: [
-          { key: "uid", label: "用户 ID", type: "number", placeholder: "123456789" },
-          { key: "username", label: "用户名(可选)", type: "string", placeholder: "username" },
-        ],
-        description: "每行一个用户：ID + 可选用户名",
+        label: "Sudo 用户 (JSON)",
+        type: "textarea",
+        description: "格式: [{ \"uid\": 123456, \"username\": \"user\" }]",
       },
       {
         key: "chats",
-        label: "对话白名单",
-        type: "list",
-        itemFields: [
-          { key: "id", label: "对话 ID", type: "number", placeholder: "-1001234567890" },
-          { key: "name", label: "对话名(可选)", type: "string", placeholder: "群组名称" },
-        ],
-        description: "每行一个对话：ID + 可选名称（私聊/群组/频道）",
+        label: "对话白名单 (JSON)",
+        type: "textarea",
+        description: "格式: [{ \"id\": -100123456, \"name\": \"群组\" }]",
       },
     ],
     getValues: () => {
@@ -328,14 +306,14 @@ function registerSudo(): void {
         const db = new SudoDB();
         try {
           return {
-            users: db.ls().map((u) => ({ uid: u.uid, username: u.username })),
-            chats: db.lsChats().map((c) => ({ id: c.id, name: c.name })),
+            users: JSON.stringify(db.ls(), null, 2),
+            chats: JSON.stringify(db.lsChats(), null, 2),
           };
         } finally {
           db.close();
         }
       } catch {
-        return { users: [], chats: [] };
+        return { users: "[]", chats: "[]" };
       }
     },
     setValues: async (patch: Record<string, unknown>) => {
@@ -354,7 +332,7 @@ function registerSudo(): void {
         const db = new SudoDB();
         try {
           // Users
-          const users = (patch.users as Array<{ uid: number; username?: string }>) || [];
+          const users = JSON.parse(String(patch.users || "[]")) as Array<{ uid: number; username?: string }>;
           const currentUsers = db.ls();
           currentUsers.forEach((u) => db.del(u.uid));
           users.forEach((u) => {
@@ -362,7 +340,7 @@ function registerSudo(): void {
           });
 
           // Chats
-          const chats = (patch.chats as Array<{ id: number; name?: string }>) || [];
+          const chats = JSON.parse(String(patch.chats || "[]")) as Array<{ id: number; name?: string }>;
           const currentChats = db.lsChats();
           currentChats.forEach((c) => db.delChat(c.id));
           chats.forEach((c) => {
@@ -372,7 +350,7 @@ function registerSudo(): void {
           db.close();
         }
       } catch (e) {
-        throw new Error("Sudo 格式错误: " + (e as Error).message);
+        throw new Error("JSON 格式错误: " + (e as Error).message);
       }
     },
   });
@@ -403,11 +381,11 @@ function registerEnv(): void {
       },
     ],
     getValues: () => ({
-      TB_CMD_IGNORE_EDITED: (process.env.TB_CMD_IGNORE_EDITED || "true").toLowerCase() !== "false",
+      TB_CMD_IGNORE_EDITED:
+        (process.env.TB_CMD_IGNORE_EDITED || "true").toLowerCase() !== "false",
       NODE_ENV: process.env.NODE_ENV || "production",
     }),
     setValues: async (patch: Record<string, unknown>) => {
-      const { writeEnvKey } = await import("@utils/pathHelpers");
       if (patch.TB_CMD_IGNORE_EDITED !== undefined) {
         const v = patch.TB_CMD_IGNORE_EDITED ? "true" : "false";
         process.env.TB_CMD_IGNORE_EDITED = v;

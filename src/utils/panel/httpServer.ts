@@ -1,6 +1,7 @@
-/** 
+/**
  * TeleBox Panel — lightweight HTTP server (Node http, no express dep).
  * Serves WebApp static assets + JSON API + SSE.
+ * Self-healing: auto port retry, token validation, tunnel persistence, auth recovery.
  */
 
 import http from "http";
@@ -56,6 +57,12 @@ type ApiResult = {
 
 let server: http.Server | null = null;
 let runningMeta: { host: string; port: number } | null = null;
+
+// Self-healing constants
+const MAX_PORT_RETRIES = 10;
+const PORT_RETRY_DELAY_MS = 500;
+const MAX_TUNNEL_RETRIES = 5;
+const TUNNEL_RETRY_BASE_DELAY_MS = 3000;
 
 function sendJson(
   res: http.ServerResponse,
@@ -154,6 +161,88 @@ async function buildStatus(): Promise<PanelStatusSnapshot> {
     pluginCount: (await help.listLoadedPlugins()).length,
     commandCount: listCommands().length,
   };
+}
+
+// --- Self-healing helpers ---
+
+/** Find available port starting from preferred, retrying on EADDRINUSE */
+async function findAvailablePort(
+  preferredPort: number,
+  host: string,
+  maxRetries = MAX_PORT_RETRIES,
+): Promise<number> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const port = preferredPort + attempt;
+    try {
+      await testPort(host, port);
+      if (attempt > 0) {
+        logger.info(`[panel-http] Auto-selected available port ${port} (tried ${preferredPort})`);
+      }
+      return port;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("EADDRINUSE") || msg.includes("address already in use")) {
+        if (attempt < maxRetries) {
+          logger.warn(`[panel-http] Port ${port} in use, trying ${port + 1}...`);
+          await sleep(PORT_RETRY_DELAY_MS);
+          continue;
+        }
+      }
+      throw e;
+    }
+  }
+  throw new Error(`No available port in range ${preferredPort}-${preferredPort + maxRetries}`);
+}
+
+function testPort(host: string, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const testServer = http.createServer();
+    testServer.once("error", (err) => {
+      testServer.close();
+      reject(err);
+    });
+    testServer.once("listening", () => {
+      testServer.close(() => resolve());
+    });
+    testServer.listen(port, host);
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Persist tunnel URL to config (fire-and-forget with logging) */
+async function persistTunnelUrl(tunnelUrl: string, cfgPort: number): Promise<void> {
+  try {
+    await updatePanelConfig({ tunnelUrl, publicBaseUrl: tunnelUrl });
+    logger.info(`[panel] Tunnel URL persisted: ${tunnelUrl}`);
+  } catch (e) {
+    logger.error("[panel] Failed to persist tunnel URL", e);
+  }
+}
+
+/** Robust tunnel start with retries and URL persistence */
+export async function startTunnelRobust(port: number, attempt = 1): Promise<string | null> {
+  try {
+    const { startTunnel } = await import("./cloudflareTunnel");
+    const url = await startTunnel(port);
+    if (url) {
+      await persistTunnelUrl(url, port);
+      return url;
+    }
+    throw new Error("Tunnel started but no URL captured");
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn(`[panel-tunnel] Attempt ${attempt}/${MAX_TUNNEL_RETRIES} failed: ${msg}`);
+    if (attempt < MAX_TUNNEL_RETRIES) {
+      const delay = TUNNEL_RETRY_BASE_DELAY_MS * attempt;
+      await sleep(delay);
+      return startTunnelRobust(port, attempt + 1);
+    }
+    logger.error("[panel-tunnel] All retry attempts exhausted");
+    return null;
+  }
 }
 
 async function routeApi(
@@ -581,18 +670,48 @@ export async function startHttpServer(
   if (server) {
     await stopHttpServer();
   }
-  await new Promise<void>((resolve, reject) => {
-    const s = http.createServer((req, res) => {
-      void handler(req, res);
-    });
-    s.once("error", reject);
-    s.listen(port, host, () => {
-      server = s;
-      runningMeta = { host, port };
-      logger.info(`[panel-http] listening on http://${host}:${port}`);
-      resolve();
-    });
-  });
+  
+  // Self-healing: auto-retry on EADDRINUSE (port conflict)
+  let currentPort = port;
+  for (let attempt = 1; attempt <= MAX_PORT_RETRIES; attempt++) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const s = http.createServer((req, res) => {
+          void handler(req, res);
+        });
+        s.once("error", reject);
+        s.listen(currentPort, host, () => {
+          server = s;
+          runningMeta = { host, port: currentPort };
+          logger.info(`[panel-http] listening on http://${host}:${currentPort}`);
+          resolve();
+        });
+      });
+      // If config port changed, persist it
+      if (currentPort !== port) {
+        logger.warn(`[panel-http] Auto-selected alternative port ${currentPort} (original ${port} was in use)`);
+        try {
+          updatePanelConfig({ bindPort: currentPort }).catch((e) => 
+            logger.error("[panel-http] failed to persist auto-selected port", e)
+          );
+        } catch {}
+      }
+      return;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const isAddrInUse = msg.includes("EADDRINUSE") || msg.includes("address already in use");
+      
+      if (isAddrInUse && attempt < MAX_PORT_RETRIES) {
+        logger.warn(`[panel-http] Port ${currentPort} in use, retrying (${attempt}/${MAX_PORT_RETRIES})...`);
+        await new Promise(r => setTimeout(r, PORT_RETRY_DELAY_MS));
+        currentPort = port + attempt; // try next port
+        continue;
+      }
+      throw e;
+    }
+  }
+  
+  throw new Error(`Failed to start HTTP server after ${MAX_PORT_RETRIES} port retries`);
 }
 
 export async function stopHttpServer(): Promise<void> {

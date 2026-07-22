@@ -39,8 +39,7 @@ export type PanelFieldType =
   | "select"
   | "textarea"
   | "json"
-  | "password"
-  | "list";
+  | "password";
 
 export interface PanelSettingField {
   key: string;
@@ -55,15 +54,6 @@ export interface PanelSettingField {
   required?: boolean;
   min?: number;
   max?: number;
-  /** For type "list": sub-fields for each row item. */
-  itemFields?: Array<{
-    key: string;
-    label: string;
-    type: PanelFieldType;
-    placeholder?: string;
-    description?: string;
-    options?: Array<{ value: string; label: string }>;
-  }>;
 }
 
 export interface PanelSettingsProvider {
