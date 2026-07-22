@@ -13,7 +13,6 @@
  */
 
 import { Plugin } from "@utils/pluginBase";
-import { thtml as html } from "@mtcute/html-parser";
 import { getPrefixes } from "@utils/pluginManager";
 import { htmlEscape } from "@utils/htmlEscape";
 import { logger } from "@utils/logger";
@@ -132,12 +131,12 @@ class PanelPlugin extends Plugin {
         const rest = parts.slice(2);
 
         if (!sub || sub === "help" || sub === "h") {
-          await msg.edit({ text: html(HELP) });
+          await msg.edit({ text: HELP, parseMode: "html" });
           return;
         }
 
         if (sub === "status" || sub === "st") {
-          await msg.edit({ text: html(await statusText()) });
+          await msg.edit({ text: await statusText(), parseMode: "html" });
           return;
         }
 
@@ -148,9 +147,9 @@ class PanelPlugin extends Plugin {
             ? `\n\n⚠️ ${result.warnings.map(htmlEscape).join("\n⚠️ ")}`
             : "";
           await msg.edit({
-            text: html(
+            text:
               `✅ Panel 已开启\n• HTTP: ${result.http ? "✅" : "❌"} ${result.bind ? htmlEscape(result.bind) : ""}\n• Bot: ${result.bot ? "✅" : "❌"}${warn}`,
-            ),
+            parseMode: "html",
           });
           return;
         }
@@ -158,7 +157,7 @@ class PanelPlugin extends Plugin {
         if (sub === "off" || sub === "disable" || sub === "stop") {
           await setPanelEnabled(false);
           await applyPanelRuntimeFromConfig();
-          await msg.edit({ text: html("✅ Panel 已关闭") });
+          await msg.edit({ text: "✅ Panel 已关闭", parseMode: "html" });
           return;
         }
 
@@ -166,9 +165,9 @@ class PanelPlugin extends Plugin {
           const token = rest.join(" ").trim();
           if (!token || !token.includes(":")) {
             await msg.edit({
-              text: html(
+              text:
                 `❌ 请提供 Bot Token\n<code>${mainPrefix}panel set 123456:AA...</code>`,
-              ),
+              parseMode: "html",
             });
             return;
           }
@@ -176,7 +175,8 @@ class PanelPlugin extends Plugin {
           const cfg = await readPanelConfig();
           if (cfg.enabled) await applyPanelRuntimeFromConfig();
           await msg.edit({
-            text: html(`✅ 已设置 Bot Token: <code>${htmlEscape(maskToken(token))}</code>`),
+            text: `✅ 已设置 Bot Token: <code>${htmlEscape(maskToken(token))}</code>`,
+            parseMode: "html",
           });
           return;
         }
@@ -185,15 +185,16 @@ class PanelPlugin extends Plugin {
           const url = rest.join(" ").trim().replace(/\/+$/, "");
           if (!url) {
             await msg.edit({
-              text: html(
+              text:
                 `❌ 请提供 HTTPS 公网地址\n<code>${mainPrefix}panel url https://panel.example.com</code>`,
-              ),
+              parseMode: "html",
             });
             return;
           }
           if (!/^https:\/\//i.test(url)) {
             await msg.edit({
-              text: html("❌ Telegram WebApp 要求 <b>https://</b> 公网地址"),
+              text: "❌ Telegram WebApp 要求 <b>https://</b> 公网地址",
+              parseMode: "html",
             });
             return;
           }
@@ -201,7 +202,8 @@ class PanelPlugin extends Plugin {
           const cfg = await readPanelConfig();
           if (cfg.enabled) await applyPanelRuntimeFromConfig();
           await msg.edit({
-            text: html(`✅ 公网地址: <code>${htmlEscape(url)}</code>`),
+            text: `✅ 公网地址: <code>${htmlEscape(url)}</code>`,
+            parseMode: "html",
           });
           return;
         }
@@ -216,9 +218,9 @@ class PanelPlugin extends Plugin {
               applyPanelRuntimeFromConfig().catch((e) => {
                 logger.error("[panel] async tunnel start failed", e);
               });
-              await msg.edit({ text: html("🔄 Tunnel 模式: <b>Cloudflare</b> — 后台启动中，请稍候...") });
+              await msg.edit({ text: "🔄 Tunnel 模式: <b>Cloudflare</b> — 后台启动中，请稍候...", parseMode: "html" });
             } else {
-              await msg.edit({ text: html("✅ Tunnel 模式: <b>Cloudflare</b>（面板开启时自动起隧道）") });
+              await msg.edit({ text: "✅ Tunnel 模式: <b>Cloudflare</b>（面板开启时自动起隧道）", parseMode: "html" });
             }
             return;
           }
@@ -229,13 +231,14 @@ class PanelPlugin extends Plugin {
               const result = await applyPanelRuntimeFromConfig();
               if (result.warnings.length) {
                 await msg.edit({
-                  text: html(`✅ Tunnel 模式: <b>关闭</b>\n⚠️ ${result.warnings.map(htmlEscape).join("\n⚠️ ")}`),
+                  text: `✅ Tunnel 模式: <b>关闭</b>\n⚠️ ${result.warnings.map(htmlEscape).join("\n⚠️ ")}`,
+                  parseMode: "html",
                 });
               } else {
-                await msg.edit({ text: html("✅ Tunnel 模式: <b>关闭</b>（使用手动 URL）") });
+                await msg.edit({ text: "✅ Tunnel 模式: <b>关闭</b>（使用手动 URL）", parseMode: "html" });
               }
             } else {
-              await msg.edit({ text: html("✅ Tunnel 模式: <b>关闭</b>（使用手动 URL）") });
+              await msg.edit({ text: "✅ Tunnel 模式: <b>关闭</b>（使用手动 URL）", parseMode: "html" });
             }
             return;
           }
@@ -246,13 +249,14 @@ class PanelPlugin extends Plugin {
               const result = await applyPanelRuntimeFromConfig();
               if (result.warnings.length) {
                 await msg.edit({
-                  text: html(`✅ Tunnel 模式: <b>手动</b>\n⚠️ ${result.warnings.map(htmlEscape).join("\n⚠️ ")}`),
+                  text: `✅ Tunnel 模式: <b>手动</b>\n⚠️ ${result.warnings.map(htmlEscape).join("\n⚠️ ")}`,
+                  parseMode: "html",
                 });
               } else {
-                await msg.edit({ text: html("✅ Tunnel 模式: <b>手动</b>（需自行配 .panel url）") });
+                await msg.edit({ text: "✅ Tunnel 模式: <b>手动</b>（需自行配 .panel url）", parseMode: "html" });
               }
             } else {
-              await msg.edit({ text: html("✅ Tunnel 模式: <b>手动</b>（需自行配 .panel url）") });
+              await msg.edit({ text: "✅ Tunnel 模式: <b>手动</b>（需自行配 .panel url）", parseMode: "html" });
             }
             return;
           }
@@ -262,23 +266,23 @@ class PanelPlugin extends Plugin {
             const running = isTunnelRunning();
             const url = getTunnelUrl();
             await msg.edit({
-              text: html(
+              text:
                 `🌐 Tunnel 状态\n` +
                 `• 模式: <b>${cfg.tunnelMode}</b>\n` +
                 `• 运行中: ${running ? "✅ 是" : "❌ 否"}\n` +
                 `• 当前 URL: ${url ? `<code>${htmlEscape(url)}</code>` : "—"}`,
-              ),
+              parseMode: "html",
             });
             return;
           }
           await msg.edit({
-            text: html(
+            text:
               `用法:\n` +
               `<code>${mainPrefix}panel tunnel on</code> — 启用 Cloudflare 自动隧道\n` +
               `<code>${mainPrefix}panel tunnel off</code> — 关闭隧道\n` +
               `<code>${mainPrefix}panel tunnel manual</code> — 手动模式（自行配 URL）\n` +
               `<code>${mainPrefix}panel tunnel status</code> — 查看状态`,
-            ),
+            parseMode: "html",
           });
           return;
         }
@@ -286,37 +290,37 @@ class PanelPlugin extends Plugin {
         if (sub === "port") {
           const port = Number(rest[0]);
           if (!Number.isFinite(port) || port < 1 || port > 65535) {
-            await msg.edit({ text: html("❌ 端口无效 (1-65535)") });
+            await msg.edit({ text: "❌ 端口无效 (1-65535)", parseMode: "html" });
             return;
           }
           await updatePanelConfig({ bindPort: port });
           const cfg = await readPanelConfig();
           if (cfg.enabled) await applyPanelRuntimeFromConfig();
-          await msg.edit({ text: html(`✅ 端口: <code>${port}</code>`) });
+          await msg.edit({ text: `✅ 端口: <code>${port}</code>`, parseMode: "html" });
           return;
         }
 
         if (sub === "bind" || sub === "host") {
           const host = rest[0]?.trim();
           if (!host) {
-            await msg.edit({ text: html("❌ 请提供监听地址，如 0.0.0.0 或 127.0.0.1") });
+            await msg.edit({ text: "❌ 请提供监听地址，如 0.0.0.0 或 127.0.0.1", parseMode: "html" });
             return;
           }
           await updatePanelConfig({ bindHost: host });
           const cfg = await readPanelConfig();
           if (cfg.enabled) await applyPanelRuntimeFromConfig();
-          await msg.edit({ text: html(`✅ 监听: <code>${htmlEscape(host)}</code>`) });
+          await msg.edit({ text: `✅ 监听: <code>${htmlEscape(host)}</code>`, parseMode: "html" });
           return;
         }
 
         if (sub === "name") {
           const name = rest.join(" ").trim();
           if (!name) {
-            await msg.edit({ text: html("❌ 请提供显示名") });
+            await msg.edit({ text: "❌ 请提供显示名", parseMode: "html" });
             return;
           }
           await updatePanelConfig({ displayName: name });
-          await msg.edit({ text: html(`✅ 显示名: <b>${htmlEscape(name)}</b>`) });
+          await msg.edit({ text: `✅ 显示名: <b>${htmlEscape(name)}</b>`, parseMode: "html" });
           return;
         }
 
@@ -327,9 +331,9 @@ class PanelPlugin extends Plugin {
             const ownerId = await getOwnerId();
             if (!admins.length) {
               await msg.edit({
-                text: html(
+                text:
                   `👥 Panel 管理员\n• Owner: <code>${ownerId ?? "未知"}</code>（始终允许）\n• 额外: 无`,
-                ),
+                parseMode: "html",
               });
               return;
             }
@@ -338,9 +342,9 @@ class PanelPlugin extends Plugin {
                 `• <code>${a.userId}</code>${a.note ? ` — ${htmlEscape(a.note)}` : ""}`,
             );
             await msg.edit({
-              text: html(
+              text:
                 `👥 Panel 管理员\n• Owner: <code>${ownerId ?? "未知"}</code>\n${lines.join("\n")}`,
-              ),
+              parseMode: "html",
             });
             return;
           }
@@ -349,17 +353,17 @@ class PanelPlugin extends Plugin {
             const note = rest.slice(2).join(" ").trim() || undefined;
             if (!Number.isFinite(uid) || uid <= 0) {
               await msg.edit({
-                text: html(
+                text:
                   `❌ 用法: <code>${mainPrefix}panel admin add &lt;userid&gt; [备注]</code>`,
-                ),
+                parseMode: "html",
               });
               return;
             }
             const admins = await addPanelAdmin(uid, note);
             await msg.edit({
-              text: html(
+              text:
                 `✅ 已添加 <code>${uid}</code>\n当前额外管理员 ${admins.length} 人`,
-              ),
+              parseMode: "html",
             });
             return;
           }
@@ -367,24 +371,24 @@ class PanelPlugin extends Plugin {
             const uid = Number(rest[1]);
             if (!Number.isFinite(uid) || uid <= 0) {
               await msg.edit({
-                text: html(
+                text:
                   `❌ 用法: <code>${mainPrefix}panel admin del &lt;userid&gt;</code>`,
-                ),
+                parseMode: "html",
               });
               return;
             }
             const admins = await removePanelAdmin(uid);
             await msg.edit({
-              text: html(
+              text:
                 `✅ 已移除 <code>${uid}</code>\n当前额外管理员 ${admins.length} 人`,
-              ),
+              parseMode: "html",
             });
             return;
           }
           await msg.edit({
-            text: html(
+            text:
               `用法:\n<code>${mainPrefix}panel admin list</code>\n<code>${mainPrefix}panel admin add &lt;id&gt;</code>\n<code>${mainPrefix}panel admin del &lt;id&gt;</code>`,
-            ),
+            parseMode: "html",
           });
           return;
         }
@@ -393,7 +397,8 @@ class PanelPlugin extends Plugin {
           const cfg = await readPanelConfig();
           if (!cfg.enabled) {
             await msg.edit({
-              text: html(`❌ Panel 未开启，先 <code>${mainPrefix}panel on</code>`),
+              text: `❌ Panel 未开启，先 <code>${mainPrefix}panel on</code>`,
+              parseMode: "html",
             });
             return;
           }
@@ -401,24 +406,24 @@ class PanelPlugin extends Plugin {
           const effectiveUrl = cfg.publicBaseUrl || cfg.tunnelUrl;
           if (!effectiveUrl) {
             await msg.edit({
-              text: html(
+              text:
                 `❌ 未设置公网地址\n<code>${mainPrefix}panel url https://...</code> 或 <code>${mainPrefix}panel tunnel on</code>`,
-              ),
+              parseMode: "html",
             });
             return;
           }
           if (!isBotRunning()) {
             await msg.edit({
-              text: html(
+              text:
                 `⚠️ Bot 未运行。检查 token 后重试 <code>${mainPrefix}panel on</code>`,
-              ),
+              parseMode: "html",
             });
             return;
           }
           await msg.edit({
-            text: html(
+            text:
               `✅ 在 Panel Bot 中发送 /start 或 /panel 即可打开小程序\n🔗 <code>${htmlEscape(effectiveUrl)}</code>`,
-            ),
+            parseMode: "html",
           });
           return;
         }
@@ -426,25 +431,27 @@ class PanelPlugin extends Plugin {
         if (sub === "restart") {
           const cfg = await readPanelConfig();
           if (!cfg.enabled) {
-            await msg.edit({ text: html("❌ Panel 未开启") });
+            await msg.edit({ text: "❌ Panel 未开启", parseMode: "html" });
             return;
           }
           const result = await applyPanelRuntimeFromConfig();
           await msg.edit({
-            text: html(
+            text:
               `✅ 已重载\n• HTTP: ${result.http ? "✅" : "❌"} ${result.bind || ""}\n• Bot: ${result.bot ? "✅" : "❌"}`,
-            ),
+            parseMode: "html",
           });
           return;
         }
 
         await msg.edit({
-          text: html(`❌ 未知子命令 <code>${htmlEscape(sub)}</code>\n\n${HELP}`),
+          text: `❌ 未知子命令 <code>${htmlEscape(sub)}</code>\n\n${HELP}`,
+          parseMode: "html",
         });
       } catch (e: unknown) {
         logger.error("[panel] command error", e);
         await msg.edit({
-          text: html(`❌ ${htmlEscape(e instanceof Error ? e.message : String(e))}`),
+          text: `❌ ${htmlEscape(e instanceof Error ? e.message : String(e))}`,
+          parseMode: "html",
         });
       }
     },
