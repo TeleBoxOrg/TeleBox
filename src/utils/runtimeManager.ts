@@ -224,23 +224,31 @@ async function resolvePendingSwitchNotification(
       summary +
       `\n\n再切回去：发 .switch go（会切到 ${other}）。`;
 
-    await client.editMessage(notification.chatId, {
-      message: notification.msgId,
-      text,
-    });
-
-    state.pendingNotification = null;
-    saveSwitchState(state, DEFAULT_SWITCH_HOME);
-    console.log("[RUNTIME] Resolved pending switch notification");
-  } catch {
-    // 通知消息可能已被删除，或 peer 解析失败——静默清理不再重试
-    try {
-      const state = loadSwitchState(DEFAULT_SWITCH_HOME);
-      if (state.pendingNotification) {
+    // Retry editMessage up to 3 times with backoff (handles transient floods / timing)
+    let lastErr: Error | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await client.editMessage(notification.chatId, {
+          message: notification.msgId,
+          text,
+        });
+        // Success
         state.pendingNotification = null;
         saveSwitchState(state, DEFAULT_SWITCH_HOME);
+        console.log("[RUNTIME] Resolved pending switch notification");
+        return;
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        console.warn(`[RUNTIME] resolvePendingSwitchNotification edit failed (attempt ${attempt}/3):`, lastErr.message);
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 1000 * attempt));
       }
-    } catch { /* ignore */ }
+    }
+
+    // All retries failed — log error but do NOT clear notification so it can be retried on next restart
+    console.error("[RUNTIME] resolvePendingSwitchNotification failed after 3 attempts:", lastErr);
+  } catch (err) {
+    // Unexpected error in state loading — log but don't clear notification
+    console.error("[RUNTIME] resolvePendingSwitchNotification unexpected error:", err instanceof Error ? err.message : err);
   }
 }
 
