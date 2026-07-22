@@ -48,18 +48,18 @@ const HELP = `<b>🎛️ TeleBox Panel</b>
 • <code>${mainPrefix}panel on</code> / <code>off</code>
 • <code>${mainPrefix}panel status</code>
 
-<b>Bot / 网络</b>
+<blockquote expandable><b>Bot / 网络</b>
 • <code>${mainPrefix}panel set <bot_token></code>
 • <code>${mainPrefix}panel url https://你的域名</code>  (手动模式)
 • <code>${mainPrefix}panel tunnel cloudflare|manual|off</code>  (隧道模式)
 • <code>${mainPrefix}panel port 8787</code>
 • <code>${mainPrefix}panel bind 0.0.0.0</code>
-• <code>${mainPrefix}panel name 显示名</code>
+• <code>${mainPrefix}panel name 显示名</code></blockquote>
 
-<b>管理员</b>
+<blockquote expandable><b>管理员</b>
 • <code>${mainPrefix}panel admin add <userid></code>
 • <code>${mainPrefix}panel admin del <userid></code>
-• <code>${mainPrefix}panel admin list</code>
+• <code>${mainPrefix}panel admin list</code></blockquote>
 
 <b>入口</b>
 • <code>${mainPrefix}panel open</code> — 说明如何打开小程序
@@ -70,11 +70,7 @@ const HELP = `<b>🎛️ TeleBox Panel</b>
 3. <code>${mainPrefix}panel tunnel cloudflare</code> 自动起 Cloudflare Tunnel（无需域名）
    或 <code>${mainPrefix}panel tunnel manual</code> 手动配 url
 4. <code>${mainPrefix}panel on</code>
-5. 在管理 Bot 里点 /start → 打开小程序
-
-面板内含完整 TPM + Help，以及插件设置钩子
-<code>registerPanelSettings()</code>（from <code>@utils/panel</code>)
-</blockquote>`;
+5. 在管理 Bot 里点 /start → 打开小程序</blockquote>`;
 
 async function statusText(): Promise<string> {
   const cfg = await readPanelConfig();
