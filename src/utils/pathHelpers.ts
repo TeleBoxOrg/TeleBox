@@ -4,6 +4,30 @@ import path from "path";
 const ASSETS_PATH = path.join(process.cwd(), "assets");
 const TEMP_PATH = path.join(process.cwd(), "temp");
 
+/**
+ * Write or update a key=value pair in .env file.
+ * Handles quoting and escaping automatically.
+ */
+export function writeEnvKey(key: string, value: string): boolean {
+  try {
+    const envPath = path.join(process.cwd(), ".env");
+    let content = fs.existsSync(envPath) ? fs.readFileSync(envPath, "utf-8") : "";
+    const line = `${key}="${value.replace(/"/g, '\\"')}"`;
+    const re = new RegExp(`^[ \\t]*${key}\\s*=.*$`, "m");
+    if (re.test(content)) {
+      content = content.replace(re, line);
+    } else {
+      if (content && !content.endsWith("\n")) content += "\n";
+      content += line + "\n";
+    }
+    fs.writeFileSync(envPath, content, "utf-8");
+    return true;
+  } catch (e: unknown) {
+    console.warn(`[pathHelpers] write .env ${key} failed`, e);
+    return false;
+  }
+}
+
 function createDirectoryInDirectory(name: string, basePath: string): string {
   const filePath = path.join(basePath, name);
   if (!fs.existsSync(filePath)) {

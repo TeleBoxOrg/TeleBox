@@ -418,6 +418,23 @@ class Logger {
     m = clean.match(/(\d{8,})/);
     return m ? m[1] : null;
   }
+
+  // Instance methods for convenience (delegating to console with level check)
+  public debug(...args: any[]): void {
+    if (this.level <= LogLevel.DEBUG) console.debug(...args);
+  }
+  public info(...args: any[]): void {
+    if (this.level <= LogLevel.INFO) console.info(...args);
+  }
+  public warn(...args: any[]): void {
+    if (this.level <= LogLevel.WARNING) console.warn(...args);
+  }
+  public error(...args: any[]): void {
+    if (this.level <= LogLevel.ERROR) console.error(...args);
+  }
+  public log(...args: any[]): void {
+    if (this.level <= LogLevel.INFO) console.log(...args);
+  }
 }
 
 export const logger = new Logger();
