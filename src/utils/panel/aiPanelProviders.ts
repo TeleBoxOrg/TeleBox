@@ -648,12 +648,161 @@ function registerSumPlugin(): void {
   });
 }
 
-// ============ Exports ============
+// ============ Agent Plugin (agent.ts) ============
+function registerAgentPlugin(): void {
+  const AGENT_DIR = path.join(createDirectoryInAssets("agent", ["uai"]));
+  const DB_PATH = path.join(AGENT_DIR, "config.json");
+
+  // Type definitions matching agentStore.ts
+  interface AgentProvider {
+    name: string;
+    base_url: string;
+    api_key: string;
+    model: string;
+    type?: "openai" | "gemini" | "anthropic" | "responses" | "deepseek" | "xai" | "custom";
+  }
+
+  interface AgentConfig {
+    agent_schema_version: number;
+    providers: Record<string, AgentProvider>;
+    default_provider?: string;
+    prompts: Record<string, string>;
+    skill_raws: Record<string, string>;
+    timeout: number;
+    system_timeout: number;
+    max_agent_steps: number;
+    conversation_context_limit: number;
+    zn_name?: string;
+    zn_conversations: Record<string, any>;
+    zn_workspaces: Record<string, any>;
+    icon?: string;
+  }
+
+  const DEFAULT_CONFIG: AgentConfig = {
+    agent_schema_version: 3,
+    providers: {},
+    default_provider: undefined,
+    prompts: {},
+    skill_raws: {},
+    timeout: 120000,
+    system_timeout: 120000,
+    max_agent_steps: 12,
+    conversation_context_limit: 20,
+    zn_conversations: {},
+    zn_workspaces: {},
+  };
+
+  function redactAgentKeys(obj: Record<string, AgentProvider>): Record<string, AgentProvider> {
+    const copy: Record<string, AgentProvider> = { ...obj };
+    for (const k of Object.keys(copy)) {
+      if (copy[k].api_key) {
+        copy[k] = { ...copy[k], api_key: "••••••••" };
+      }
+    }
+    return copy;
+  }
+
+  registerPanelSettings({
+    id: "agent",
+    title: "Agent 智能体",
+    description: "TeleBox-Next 智能体配置：AI 供应商、工作区、对话上下文、权限",
+    category: "AI",
+    icon: "🤖",
+    getSchema: (): PanelSettingField[] => [
+      {
+        key: "providers",
+        label: "AI 供应商配置",
+        type: "provider-list",
+        description:
+          "每行一个供应商，用 | 分隔：Name | Base URL | API Key | Model | Type\n示例：openai | https://api.openai.com | sk-xxx | gpt-4o | openai\nType 可选：openai / gemini / anthropic / responses / deepseek / xai / custom\n留空 Key 表示保持原值不修改。",
+        required: true,
+        providerColumns: "name|base_url|api_key|model|type",
+        providerAddLabel: "+ 添加供应商",
+      },
+      { key: "defaultProvider", label: "默认供应商", type: "string", placeholder: "openai" },
+      { key: "displayName", label: "智能体名称", type: "string", placeholder: "TeleBox-Next", description: "显示在帮助菜单中的名称" },
+      { key: "maxSteps", label: "最大执行步数", type: "number", min: 1, max: 100, default: 12, description: "单次运行最大工具调用步数" },
+      { key: "modelTimeout", label: "模型超时 (ms)", type: "number", min: 10000, max: 86400000, default: 120000, description: "单次模型请求超时时间" },
+      { key: "commandTimeout", label: "命令超时 (ms)", type: "number", min: 10000, max: 86400000, default: 120000, description: "系统命令执行超时时间" },
+      { key: "contextLimit", label: "对话上下文条数", type: "number", min: 1, max: 40, default: 20, description: "自动加载的历史消息条数" },
+      { key: "icon", label: "状态图标", type: "string", placeholder: "🤖", description: "运行时显示的图标" },
+    ],
+    getValues: async () => {
+      if (!fs.existsSync(DB_PATH)) return {};
+      try {
+        const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf-8")) as AgentConfig;
+        const providers = redactAgentKeys(raw.providers || {});
+        const columns = ["name", "base_url", "api_key", "model", "type"];
+        const lines = Object.values(providers).map((p) => {
+          const pp = { name: p.name || "", base_url: p.base_url || "", api_key: p.api_key || "••••••••", model: p.model || "", type: p.type || "" };
+          return columns.map((col) => pp[col as keyof typeof pp] || "").join(" | ");
+        });
+
+        return {
+          providers: lines.join("\n"),
+          defaultProvider: raw.default_provider || "",
+          displayName: raw.zn_name || "",
+          maxSteps: raw.max_agent_steps ?? 12,
+          modelTimeout: raw.timeout ?? 120000,
+          commandTimeout: raw.system_timeout ?? 120000,
+          contextLimit: raw.conversation_context_limit ?? 20,
+          icon: raw.icon || "🤖",
+        };
+      } catch {
+        return {};
+      }
+    },
+    setValues: async (patch: Record<string, unknown>) => {
+      let db: AgentConfig;
+      if (fs.existsSync(DB_PATH)) {
+        db = JSON.parse(fs.readFileSync(DB_PATH, "utf-8")) as AgentConfig;
+      } else {
+        db = { ...DEFAULT_CONFIG };
+      }
+
+      if (typeof patch.providers === "string") {
+        const lines = patch.providers.split("\n").filter((l) => l.trim());
+        const columns = ["name", "base_url", "api_key", "model", "type"];
+        const existing = db.providers || {};
+        const newProviders: Record<string, AgentProvider> = {};
+        for (const line of lines) {
+          const parts = line.split("|").map((p) => p.trim());
+          if (parts.length < columns.length) continue;
+          const name = parts[0];
+          if (!name) continue;
+          const old = existing[name] || {};
+          const apiKey = parts[2] === "••••••••" || !parts[2] ? old.api_key || "" : parts[2];
+          newProviders[name] = {
+            name,
+            base_url: parts[1] || "",
+            api_key: apiKey,
+            model: parts[3] || "",
+            type: (parts[4] as AgentProvider["type"]) || "openai",
+          };
+        }
+        db.providers = newProviders;
+      }
+
+      if (typeof patch.defaultProvider === "string") db.default_provider = patch.defaultProvider || undefined;
+      if (typeof patch.displayName === "string") db.zn_name = patch.displayName || undefined;
+      if (typeof patch.maxSteps === "number") db.max_agent_steps = Math.min(100, Math.max(1, patch.maxSteps));
+      if (typeof patch.modelTimeout === "number") db.timeout = Math.min(86400000, Math.max(10000, patch.modelTimeout));
+      if (typeof patch.commandTimeout === "number") db.system_timeout = Math.min(86400000, Math.max(10000, patch.commandTimeout));
+      if (typeof patch.contextLimit === "number") db.conversation_context_limit = Math.min(40, Math.max(1, patch.contextLimit));
+      if (typeof patch.icon === "string") db.icon = patch.icon || "🤖";
+
+      // Ensure schema version
+      db.agent_schema_version = 3;
+      fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+    },
+  });
+}
 export function registerAiPanelProviders(): void {
   registerAiPlugin();
   registerAitcPlugin();
   registerUaiPlugin();
   registerSumPlugin();
+  registerAgentPlugin();
 }
 
 export function unregisterAiPanelProviders(): void {
@@ -661,4 +810,5 @@ export function unregisterAiPanelProviders(): void {
   unregisterPanelSettings("aitc");
   unregisterPanelSettings("uai");
   unregisterPanelSettings("sum");
+  unregisterPanelSettings("agent");
 }
