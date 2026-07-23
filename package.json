@@ -68,6 +68,8 @@
     "teleproto": "^1.228.2",
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.22.4",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "@mtcute/dispatcher": "^0.22.0",
+    "@mtcute/node": "^0.22.0"
   }
 }
