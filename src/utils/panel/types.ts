@@ -39,7 +39,10 @@ export type PanelFieldType =
   | "select"
   | "textarea"
   | "json"
-  | "password";
+  | "password"
+  | "provider-list"
+  | "prompt-map"
+  | "tag-list";
 
 export interface PanelSettingField {
   key: string;
@@ -54,6 +57,18 @@ export interface PanelSettingField {
   required?: boolean;
   min?: number;
   max?: number;
+  /** For provider-list: pipe-separated columns to show */
+  providerColumns?: string;
+  /** For provider-list: label for add button */
+  providerAddLabel?: string;
+  /** For prompt-map: placeholder for key/short name */
+  promptKeyPlaceholder?: string;
+  /** For prompt-map: placeholder for value/prompt */
+  promptValuePlaceholder?: string;
+  /** For tag-list: placeholder */
+  tagPlaceholder?: string;
+  /** For tag-list: whether tags can be duplicated */
+  tagAllowDuplicates?: boolean;
 }
 
 export interface PanelSettingsProvider {

@@ -1,6 +1,7 @@
 /**
  * TeleBox Panel — built-in Panel settings providers for AI plugins.
  * These register AI plugin configs into the Panel WebApp.
+ * Uses new field types: provider-list, prompt-map, tag-list for better UX.
  */
 
 import fs from "fs";
@@ -62,8 +63,9 @@ interface AitcConfig {
   providers: Record<string, AitcProviderConfig>;
   default_provider?: string;
   prompts: Record<string, string>;
-  timeout: number;
+  temperature: number;
   collapse: boolean;
+  timeout: number;
 }
 
 interface UaiProviderConfig {
@@ -103,29 +105,77 @@ interface SumAIConfig {
 }
 
 // ============ Redaction helpers ============
-function redactApiKeys<T extends { api_key?: string }>(
-  obj: Record<string, T>
-): Record<string, T> {
-  const copy: Record<string, T> = { ...obj };
+function redactApiKeys(obj: Record<string, { api_key?: string }>): Record<string, { api_key?: string }> {
+  const copy: Record<string, { api_key?: string }> = { ...obj };
   for (const k of Object.keys(copy)) {
     if (copy[k].api_key) {
-      copy[k] = { ...copy[k], api_key: "••••••••" } as T;
+      copy[k] = { ...copy[k], api_key: "••••••••" };
     }
   }
   return copy;
 }
 
-function redactApiKeysCustom<T extends Record<string, any>>(
-  obj: Record<string, T>,
-  keyField: string
-): Record<string, T> {
-  const copy: Record<string, T> = { ...obj };
+function redactKeyField(obj: Record<string, AiProviderConfig>): Record<string, AiProviderConfig> {
+  const copy: Record<string, AiProviderConfig> = { ...obj };
   for (const k of Object.keys(copy)) {
-    if (copy[k][keyField]) {
-      copy[k] = { ...copy[k], [keyField]: "••••••••" } as T;
+    if (copy[k].key) {
+      copy[k] = { ...copy[k], key: "••••••••" };
     }
   }
   return copy;
+}
+
+// ============ Provider list parsing ============
+interface ParsedProvider {
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  type: string;
+  // ai.ts specific
+  tag?: string;
+  url?: string;
+  key?: string;
+  stream?: boolean;
+  responses?: boolean;
+  // aitc/uai specific
+  auth_method?: string;
+}
+
+function parseProviderLine(line: string, columns: string[]): ParsedProvider | null {
+  const parts = line.split("|").map((p) => p.trim());
+  if (parts.length < columns.length) return null;
+  const obj: ParsedProvider = { name: "", base_url: "", api_key: "", model: "", type: "" };
+  for (let i = 0; i < columns.length; i++) {
+    const col = columns[i];
+    const val = parts[i] || "";
+    if (col === "name" || col === "tag") obj.name = val;
+    else if (col === "base_url" || col === "url") obj.base_url = val;
+    else if (col === "api_key" || col === "key") obj.api_key = val;
+    else if (col === "model") obj.model = val;
+    else if (col === "type") obj.type = val;
+    else if (col === "auth_method") obj.auth_method = val;
+    else if (col === "stream") obj.stream = val === "true";
+    else if (col === "responses") obj.responses = val === "true";
+    else if (col === "tag") obj.tag = val;
+  }
+  return obj.name ? obj : null;
+}
+
+function stringifyProvider(p: ParsedProvider, columns: string[]): string {
+  return columns
+    .map((col) => {
+      if (col === "name" || col === "tag") return p.name;
+      if (col === "base_url" || col === "url") return p.base_url;
+      if (col === "api_key" || col === "key") return p.api_key || "••••••••";
+      if (col === "model") return p.model;
+      if (col === "type") return p.type;
+      if (col === "auth_method") return p.auth_method || "";
+      if (col === "stream") return p.stream ? "true" : "false";
+      if (col === "responses") return p.responses ? "true" : "false";
+      return "";
+    })
+    .join(" | ");
 }
 
 // ============ AI Plugin (ai.ts) ============
@@ -140,22 +190,14 @@ function registerAiPlugin(): void {
     icon: "🤖",
     getSchema: (): PanelSettingField[] => [
       {
-        key: "configsJson",
-        label: "供应商配置 (JSON)",
-        type: "json",
-        description: `完整供应商配置。格式：
-{
-  "openai": {
-    "tag": "openai",
-    "url": "https://api.openai.com",
-    "key": "sk-xxx",
-    "type": "openai",
-    "stream": true,
-    "responses": false
-  }
-}
-留空 key 表示不修改该供应商的 key。`,
+        key: "providers",
+        label: "供应商配置",
+        type: "provider-list",
+        description:
+          "每行一个供应商，用 | 分隔：Tag | URL | Key | Type | Stream | Responses\n示例：openai | https://api.openai.com | sk-xxx | openai | true | false\n留空 Key 表示保持原值不修改。",
         required: true,
+        providerColumns: "tag|url|key|type|stream|responses",
+        providerAddLabel: "+ 添加供应商",
       },
       { key: "currentChatTag", label: "默认聊天供应商", type: "string", placeholder: "openai" },
       { key: "currentChatModel", label: "默认聊天模型", type: "string", placeholder: "gpt-4o-mini" },
@@ -173,9 +215,23 @@ function registerAiPlugin(): void {
       if (!fs.existsSync(DB_PATH)) return {};
       try {
         const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf-8")) as AiConfig;
-        const configs = redactApiKeysCustom(raw.configs, "key");
+        const configs = redactKeyField(raw.configs);
+        const columns = ["tag", "url", "key", "type", "stream", "responses"];
+        const lines = Object.values(configs).map((c) => {
+          const p: ParsedProvider = {
+            name: c.tag,
+            base_url: c.url || "",
+            api_key: c.key || "",
+            model: "",
+            type: c.type || "",
+            stream: c.stream,
+            responses: c.responses,
+          };
+          return stringifyProvider(p, columns);
+        });
+
         return {
-          configsJson: JSON.stringify(configs, null, 2),
+          providers: lines.join("\n"),
           currentChatTag: raw.currentChatTag || "",
           currentChatModel: raw.currentChatModel || "",
           currentSearchTag: raw.currentSearchTag || "",
@@ -207,18 +263,25 @@ function registerAiPlugin(): void {
         };
       }
 
-      if (typeof patch.configsJson === "string") {
-        try {
-          const newConfigs = JSON.parse(patch.configsJson) as Record<string, AiProviderConfig>;
-          for (const [name, cfg] of Object.entries(newConfigs)) {
-            if (!cfg) continue;
-            const old = db.configs[name] || {};
-            if (cfg.key === "••••••••" || !cfg.key) cfg.key = old.key || "";
-            db.configs[name] = cfg;
-          }
-        } catch (e) {
-          throw new Error("供应商配置 JSON 格式错误: " + (e as Error).message);
+      if (typeof patch.providers === "string") {
+        const lines = patch.providers.split("\n").filter((l) => l.trim());
+        const columns = ["tag", "url", "key", "type", "stream", "responses"];
+        const newConfigs: Record<string, AiProviderConfig> = {};
+        for (const line of lines) {
+          const parsed = parseProviderLine(line, columns);
+          if (!parsed || !parsed.name) continue;
+          const old = db.configs[parsed.name] || {};
+          if (parsed.api_key === "••••••••" || !parsed.api_key) parsed.api_key = old.key || "";
+          newConfigs[parsed.name] = {
+            tag: parsed.name,
+            url: parsed.base_url || "",
+            key: parsed.api_key || "",
+            type: parsed.type || "",
+            stream: parsed.stream ?? true,
+            responses: parsed.responses ?? false,
+          };
         }
+        db.configs = newConfigs;
       }
 
       const fields: (keyof AiConfig)[] = [
@@ -247,24 +310,24 @@ function registerAitcPlugin(): void {
     icon: "🌐",
     getSchema: (): PanelSettingField[] => [
       {
-        key: "providersJson",
-        label: "供应商配置 (JSON)",
-        type: "json",
-        description: `格式：
-{
-  "my-openai": {
-    "name": "my-openai",
-    "base_url": "https://api.openai.com",
-    "api_key": "sk-xxx",
-    "model": "gpt-4o-mini",
-    "type": "openai",
-    "auth_method": "bearer_token"
-  }
-}`,
+        key: "providers",
+        label: "供应商配置",
+        type: "provider-list",
+        description:
+          "每行一个供应商，用 | 分隔：Name | Base URL | API Key | Model | Type | Auth Method\n示例：my-openai | https://api.openai.com | sk-xxx | gpt-4o-mini | openai | bearer_token\n留空 Key 表示保持原值不修改。Type: openai/gemini，Auth: bearer_token/api_key_header/query_param",
         required: true,
+        providerColumns: "name|base_url|api_key|model|type|auth_method",
+        providerAddLabel: "+ 添加供应商",
       },
       { key: "defaultProvider", label: "默认供应商", type: "string", placeholder: "my-openai" },
-      { key: "promptsJson", label: "自定义 Prompt 预设 (JSON)", type: "json", description: `格式：{ "简写": "完整 prompt 文本" }` },
+      {
+        key: "prompts",
+        label: "自定义 Prompt 预设",
+        type: "prompt-map",
+        description: "简写 -> 完整 Prompt 文本，一行一条",
+        promptKeyPlaceholder: "简写 (如: en2zh)",
+        promptValuePlaceholder: "Prompt 文本",
+      },
       { key: "temperature", label: "Temperature", type: "number", min: 0, max: 2, default: 0.2 },
       { key: "collapse", label: "折叠显示", type: "boolean", description: "AI 回答使用可折叠块引用" },
       { key: "timeout", label: "请求超时 (ms)", type: "number", min: 1000, max: 300000, default: 30000 },
@@ -280,18 +343,23 @@ function registerAitcPlugin(): void {
         const config: Record<string, string> = {};
         for (const r of rows) config[r.key] = r.value;
 
-        let providersRedacted = "{}";
+        let providersLines = "";
         if (config.aitc_providers) {
           try {
             const providers = JSON.parse(config.aitc_providers) as Record<string, AitcProviderConfig>;
-            providersRedacted = JSON.stringify(redactApiKeys(providers), null, 2);
+            const redacted = redactApiKeys(providers);
+            const columns = ["name", "base_url", "api_key", "model", "type", "auth_method"];
+            providersLines = Object.values(redacted).map((p) => {
+              const pp: ParsedProvider = { name: (p as any).name || "", base_url: (p as any).base_url || "", api_key: p.api_key || "••••••••", model: (p as any).model || "", type: (p as any).type || "", auth_method: (p as any).auth_method || "" };
+              return stringifyProvider(pp, columns);
+            }).join("\n");
           } catch { }
         }
 
         return {
-          providersJson: providersRedacted,
+          providers: providersLines,
           defaultProvider: config.aitc_default_provider || "",
-          promptsJson: config.aitc_prompts || "{}",
+          prompts: config.aitc_prompts || "{}",
           temperature: config.aitc_temperature || "0.2",
           collapse: config.aitc_collapse === "1",
           timeout: parseInt(config.aitc_timeout || "30000", 10),
@@ -310,27 +378,33 @@ function registerAitcPlugin(): void {
       `);
       const stmt = db.prepare("INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)");
 
-      if (typeof patch.providersJson === "string") {
-        try {
-          const newProviders = JSON.parse(patch.providersJson) as Record<string, AitcProviderConfig>;
-          const existingRow = db.prepare("SELECT value FROM config WHERE key = ?").get("aitc_providers") as { value: string } | undefined;
-          let existing: Record<string, AitcProviderConfig> = {};
-          if (existingRow) { try { existing = JSON.parse(existingRow.value); } catch { } }
-          for (const [name, cfg] of Object.entries(newProviders)) {
-            if (!cfg) continue;
-            const old = existing[name] || {};
-            if (cfg.api_key === "••••••••" || !cfg.api_key) cfg.api_key = old.api_key || "";
-            existing[name] = cfg;
-          }
-          stmt.run("aitc_providers", JSON.stringify(existing));
-        } catch (e) {
-          throw new Error("供应商配置 JSON 格式错误: " + (e as Error).message);
+      if (typeof patch.providers === "string") {
+        const lines = patch.providers.split("\n").filter((l) => l.trim());
+        const columns = ["name", "base_url", "api_key", "model", "type", "auth_method"];
+        const existingRow = db.prepare("SELECT value FROM config WHERE key = ?").get("aitc_providers") as { value: string } | undefined;
+        let existing: Record<string, AitcProviderConfig> = {};
+        if (existingRow) { try { existing = JSON.parse(existingRow.value); } catch { } }
+        const newProviders: Record<string, AitcProviderConfig> = {};
+        for (const line of lines) {
+          const parsed = parseProviderLine(line, columns);
+          if (!parsed || !parsed.name) continue;
+          const old = existing[parsed.name] || {};
+          if (parsed.api_key === "••••••••" || !parsed.api_key) parsed.api_key = old.api_key || "";
+          newProviders[parsed.name] = {
+            name: parsed.name,
+            base_url: parsed.base_url || "",
+            api_key: parsed.api_key || "",
+            model: parsed.model || "",
+            type: (parsed.type as "openai" | "gemini") || "openai",
+            auth_method: (parsed.auth_method as "bearer_token" | "api_key_header" | "query_param") || "bearer_token",
+          };
         }
+        stmt.run("aitc_providers", JSON.stringify(newProviders));
       }
 
       const simpleKeys: [string, string][] = [
         ["defaultProvider", "aitc_default_provider"],
-        ["promptsJson", "aitc_prompts"],
+        ["prompts", "aitc_prompts"],
         ["temperature", "aitc_temperature"],
         ["collapse", "aitc_collapse"],
         ["timeout", "aitc_timeout"],
@@ -359,18 +433,24 @@ function registerUaiPlugin(): void {
     icon: "📊",
     getSchema: (): PanelSettingField[] => [
       {
-        key: "providersJson",
-        label: "供应商配置 (JSON)",
-        type: "json",
-        description: `格式：
-{
-  "my-openai": { "name": "my-openai", "base_url": "https://api.openai.com", "api_key": "sk-xxx", "model": "gpt-4o", "type": "openai", "auth_method": "bearer_token" },
-  "my-gemini": { "name": "my-gemini", "base_url": "https://generativelanguage.googleapis.com", "api_key": "xxx", "model": "gemini-2.0-flash", "type": "gemini", "auth_method": "query_param" }
-}`,
+        key: "providers",
+        label: "供应商配置",
+        type: "provider-list",
+        description:
+          "每行一个供应商，用 | 分隔：Name | Base URL | API Key | Model | Type | Auth Method\n示例：my-openai | https://api.openai.com | sk-xxx | gpt-4o | openai | bearer_token\n留空 Key 表示保持原值不修改。Type: openai/gemini，Auth: bearer_token/api_key_header/query_param",
         required: true,
+        providerColumns: "name|base_url|api_key|model|type|auth_method",
+        providerAddLabel: "+ 添加供应商",
       },
       { key: "defaultProvider", label: "默认供应商", type: "string", placeholder: "my-openai" },
-      { key: "promptsJson", label: "自定义 Prompt (JSON)", type: "json", description: `格式：{ "简写": "prompt 文本" }，内置有 zj/fx` },
+      {
+        key: "prompts",
+        label: "自定义 Prompt",
+        type: "prompt-map",
+        description: "简写 -> Prompt 文本，一行一条。内置有 zj/fx",
+        promptKeyPlaceholder: "简写 (如: zj)",
+        promptValuePlaceholder: "Prompt 文本",
+      },
       { key: "collapse", label: "折叠显示 AI 回答", type: "boolean", default: true },
       { key: "timeout", label: "请求超时 (ms)", type: "number", min: 5000, max: 300000, default: 120000 },
     ],
@@ -379,10 +459,16 @@ function registerUaiPlugin(): void {
       try {
         const raw = JSON.parse(fs.readFileSync(DB_PATH, "utf-8")) as UaiConfig;
         const providers = redactApiKeys(raw.providers);
+        const columns = ["name", "base_url", "api_key", "model", "type", "auth_method"];
+        const lines = Object.values(providers).map((p: any) => {
+          const pp: ParsedProvider = { name: p.name || "", base_url: p.base_url || "", api_key: p.api_key || "••••••••", model: p.model || "", type: p.type || "", auth_method: p.auth_method || "" };
+          return stringifyProvider(pp, columns);
+        });
+
         return {
-          providersJson: JSON.stringify(providers, null, 2),
+          providers: lines.join("\n"),
           defaultProvider: raw.default_provider || "",
-          promptsJson: JSON.stringify(raw.prompts || {}, null, 2),
+          prompts: JSON.stringify(raw.prompts || {}, null, 2),
           collapse: raw.collapse ?? true,
           timeout: raw.timeout ?? 120000,
         };
@@ -396,25 +482,32 @@ function registerUaiPlugin(): void {
         db = { providers: {}, prompts: {}, timeout: 120000, collapse: true };
       }
 
-      if (typeof patch.providersJson === "string") {
-        try {
-          const newProviders = JSON.parse(patch.providersJson) as Record<string, UaiProviderConfig>;
-          for (const [name, cfg] of Object.entries(newProviders)) {
-            if (!cfg) continue;
-            const old = db.providers[name] || {};
-            if (cfg.api_key === "••••••••" || !cfg.api_key) cfg.api_key = old.api_key || "";
-            db.providers[name] = cfg;
-          }
-          if (!db.default_provider && Object.keys(db.providers).length > 0) {
-            db.default_provider = Object.keys(db.providers)[0];
-          }
-        } catch (e) {
-          throw new Error("供应商配置 JSON 格式错误: " + (e as Error).message);
+      if (typeof patch.providers === "string") {
+        const lines = patch.providers.split("\n").filter((l) => l.trim());
+        const columns = ["name", "base_url", "api_key", "model", "type", "auth_method"];
+        const newProviders: Record<string, UaiProviderConfig> = {};
+        for (const line of lines) {
+          const parsed = parseProviderLine(line, columns);
+          if (!parsed || !parsed.name) continue;
+          const old = db.providers[parsed.name] || {};
+          if (parsed.api_key === "••••••••" || !parsed.api_key) parsed.api_key = old.api_key || "";
+          newProviders[parsed.name] = {
+            name: parsed.name,
+            base_url: parsed.base_url || "",
+            api_key: parsed.api_key || "",
+            model: parsed.model || "",
+            type: (parsed.type as "openai" | "gemini") || "openai",
+            auth_method: (parsed.auth_method as "bearer_token" | "api_key_header" | "query_param") || "bearer_token",
+          };
+        }
+        db.providers = newProviders;
+        if (!db.default_provider && Object.keys(db.providers).length > 0) {
+          db.default_provider = Object.keys(db.providers)[0];
         }
       }
 
       if (typeof patch.defaultProvider === "string") db.default_provider = patch.defaultProvider;
-      if (typeof patch.promptsJson === "string") { try { db.prompts = JSON.parse(patch.promptsJson); } catch { db.prompts = {}; } }
+      if (typeof patch.prompts === "string") { try { db.prompts = JSON.parse(patch.prompts); } catch { db.prompts = {}; } }
       if (typeof patch.collapse === "boolean") db.collapse = patch.collapse;
       if (typeof patch.timeout === "number") db.timeout = patch.timeout;
 
@@ -436,25 +529,22 @@ function registerSumPlugin(): void {
     icon: "📋",
     getSchema: (): PanelSettingField[] => [
       {
-        key: "aiConfigJson",
-        label: "AI 供应商配置 (JSON)",
-        type: "json",
-        description: `完整 AI 配置。格式：
-{
-  "providers": {
-    "openai": { "name": "OpenAI", "base_url": "https://api.openai.com", "api_key": "sk-xxx", "model": "gpt-4o", "type": "auto" },
-    "gemini": { "name": "Gemini", "base_url": "https://generativelanguage.googleapis.com", "api_key": "xxx", "model": "gemini-2.5-flash", "type": "gemini" }
-  },
-  "default_provider": "openai",
-  "default_prompt": "自定义提示词或留空用内置",
-  "default_spoiler": false,
-  "default_timeout": 120000,
-  "reply_mode": false,
-  "max_output_length": 4000,
-  "link_preview": false
-}`,
+        key: "providers",
+        label: "AI 供应商配置",
+        type: "provider-list",
+        description:
+          "每行一个供应商，用 | 分隔：Name | Base URL | API Key | Model | Type\n示例：OpenAI | https://api.openai.com | sk-xxx | gpt-4o | auto\n留空 Key 表示保持原值不修改。Type: auto/chat/responses/gemini/anthropic/openai",
         required: true,
+        providerColumns: "name|base_url|api_key|model|type",
+        providerAddLabel: "+ 添加供应商",
       },
+      { key: "defaultProvider", label: "默认供应商", type: "string", placeholder: "OpenAI" },
+      { key: "defaultPrompt", label: "默认 Prompt", type: "textarea", description: "留空使用内置 Prompt" },
+      { key: "defaultSpoiler", label: "默认剧透模式", type: "boolean", default: false },
+      { key: "defaultTimeout", label: "默认超时 (ms)", type: "number", min: 5000, max: 300000, default: 120000 },
+      { key: "replyMode", label: "回复模式", type: "boolean", default: false, description: "以回复形式发送总结（而非新消息）" },
+      { key: "maxOutputLength", label: "最大输出长度", type: "number", min: 500, max: 10000, default: 4000 },
+      { key: "linkPreview", label: "链接预览", type: "boolean", default: false },
       { key: "defaultPushTarget", label: "默认推送目标", type: "string", placeholder: "@channel 或 -100xxxxxx", description: "总结结果默认推送到的聊天" },
     ],
     getValues: async () => {
@@ -463,19 +553,38 @@ function registerSumPlugin(): void {
         const db = await JSONFilePreset(DB_PATH, {
           seq: "0", tasks: [],
           aiConfig: {
-            providers: {
-              openai: { name: "OpenAI", base_url: "https://api.openai.com", api_key: "", model: "gpt-4o", type: "auto" },
-              gemini: { name: "Gemini", base_url: "https://generativelanguage.googleapis.com", api_key: "", model: "gemini-2.5-flash", type: "gemini" },
-            },
-            default_provider: "openai", default_prompt: "", default_spoiler: false,
+            providers: {},
+            default_provider: "OpenAI", default_prompt: "", default_spoiler: false,
             default_timeout: 120000, reply_mode: false, max_output_length: 4000, link_preview: false,
           },
           defaultPushTarget: "",
         });
 
+        // Initialize default providers if empty
+        if (Object.keys(db.data.aiConfig.providers).length === 0) {
+          db.data.aiConfig.providers = {
+            OpenAI: { name: "OpenAI", base_url: "https://api.openai.com", api_key: "", model: "gpt-4o", type: "auto" },
+            Gemini: { name: "Gemini", base_url: "https://generativelanguage.googleapis.com", api_key: "", model: "gemini-2.5-flash", type: "gemini" },
+          };
+          await db.write();
+        }
+
         const providers = redactApiKeys(db.data.aiConfig.providers);
+        const columns = ["name", "base_url", "api_key", "model", "type"];
+        const lines = Object.values(providers).map((p: any) => {
+          const pp: ParsedProvider = { name: p.name || "", base_url: p.base_url || "", api_key: p.api_key || "••••••••", model: p.model || "", type: p.type || "" };
+          return stringifyProvider(pp, columns);
+        });
+
         return {
-          aiConfigJson: JSON.stringify({ ...db.data.aiConfig, providers }, null, 2),
+          providers: lines.join("\n"),
+          defaultProvider: db.data.aiConfig.default_provider || "",
+          defaultPrompt: db.data.aiConfig.default_prompt || "",
+          defaultSpoiler: db.data.aiConfig.default_spoiler ?? false,
+          defaultTimeout: db.data.aiConfig.default_timeout ?? 120000,
+          replyMode: db.data.aiConfig.reply_mode ?? false,
+          maxOutputLength: db.data.aiConfig.max_output_length ?? 4000,
+          linkPreview: db.data.aiConfig.link_preview ?? false,
           defaultPushTarget: db.data.defaultPushTarget || "",
         };
       } catch { return {}; }
@@ -484,48 +593,62 @@ function registerSumPlugin(): void {
       const db = await JSONFilePreset(DB_PATH, {
         seq: "0", tasks: [],
         aiConfig: {
-          providers: {
-            openai: { name: "OpenAI", base_url: "https://api.openai.com", api_key: "", model: "gpt-4o", type: "auto" },
-            gemini: { name: "Gemini", base_url: "https://generativelanguage.googleapis.com", api_key: "", model: "gemini-2.5-flash", type: "gemini" },
-          },
-          default_provider: "openai", default_prompt: "", default_spoiler: false,
+          providers: {} as Record<string, SumCustomProvider>,
+          default_provider: "OpenAI", default_prompt: "", default_spoiler: false,
           default_timeout: 120000, reply_mode: false, max_output_length: 4000, link_preview: false,
         },
         defaultPushTarget: "",
       });
 
+      // Initialize default providers if empty
+      if (Object.keys(db.data.aiConfig.providers).length === 0) {
+        db.data.aiConfig.providers = {
+          OpenAI: { name: "OpenAI", base_url: "https://api.openai.com", api_key: "", model: "gpt-4o", type: "auto" },
+          Gemini: { name: "Gemini", base_url: "https://generativelanguage.googleapis.com", api_key: "", model: "gemini-2.5-flash", type: "gemini" },
+        };
+      }
+
+      if (typeof patch.providers === "string") {
+        const lines = patch.providers.split("\n").filter((l) => l.trim());
+        const columns = ["name", "base_url", "api_key", "model", "type"];
+        const oldProviders: Record<string, SumCustomProvider> = db.data.aiConfig.providers || {};
+        // Initialize defaults if empty
+        if (Object.keys(oldProviders).length === 0) {
+          oldProviders.OpenAI = { name: "OpenAI", base_url: "https://api.openai.com", api_key: "", model: "gpt-4o", type: "auto" };
+          oldProviders.Gemini = { name: "Gemini", base_url: "https://generativelanguage.googleapis.com", api_key: "", model: "gemini-2.5-flash", type: "gemini" };
+        }
+        const newProviders: Record<string, SumCustomProvider> = {};
+        for (const line of lines) {
+          const parsed = parseProviderLine(line, columns);
+          if (!parsed || !parsed.name) continue;
+          const old = oldProviders[parsed.name] || {};
+          if (parsed.api_key === "••••••••" || !parsed.api_key) parsed.api_key = old.api_key || "";
+          newProviders[parsed.name] = {
+            name: parsed.name,
+            base_url: parsed.base_url || "",
+            api_key: parsed.api_key || "",
+            model: parsed.model || "",
+            type: (parsed.type as "auto" | "chat" | "responses" | "gemini" | "anthropic" | "openai") || "auto",
+          };
+        }
+        db.data.aiConfig.providers = newProviders;
+      }
+
+      if (typeof patch.defaultProvider === "string") db.data.aiConfig.default_provider = patch.defaultProvider;
+      if (typeof patch.defaultPrompt === "string") db.data.aiConfig.default_prompt = patch.defaultPrompt;
+      if (typeof patch.defaultSpoiler === "boolean") db.data.aiConfig.default_spoiler = patch.defaultSpoiler;
+      if (typeof patch.defaultTimeout === "number") db.data.aiConfig.default_timeout = patch.defaultTimeout;
+      if (typeof patch.replyMode === "boolean") db.data.aiConfig.reply_mode = patch.replyMode;
+      if (typeof patch.maxOutputLength === "number") db.data.aiConfig.max_output_length = patch.maxOutputLength;
+      if (typeof patch.linkPreview === "boolean") db.data.aiConfig.link_preview = patch.linkPreview;
       if (typeof patch.defaultPushTarget === "string") db.data.defaultPushTarget = patch.defaultPushTarget;
 
-      if (typeof patch.aiConfigJson === "string") {
-        try {
-          const newCfg = JSON.parse(patch.aiConfigJson) as SumAIConfig;
-          if (newCfg.providers) {
-            const oldProviders: Record<string, SumCustomProvider> = db.data.aiConfig.providers as Record<string, SumCustomProvider> || {};
-            for (const [name, cfg] of Object.entries(newCfg.providers)) {
-              if (!cfg) continue;
-              const old = oldProviders[name] || {};
-              if (cfg.api_key === "••••••••" || !cfg.api_key) cfg.api_key = old.api_key || "";
-              oldProviders[name] = cfg;
-            }
-            db.data.aiConfig.providers = oldProviders as typeof db.data.aiConfig.providers;
-          }
-          if (newCfg.default_provider) db.data.aiConfig.default_provider = newCfg.default_provider;
-          if (newCfg.default_prompt !== undefined) db.data.aiConfig.default_prompt = newCfg.default_prompt;
-          if (typeof newCfg.default_spoiler === "boolean") db.data.aiConfig.default_spoiler = newCfg.default_spoiler;
-          if (typeof newCfg.default_timeout === "number") db.data.aiConfig.default_timeout = newCfg.default_timeout;
-          if (typeof newCfg.reply_mode === "boolean") db.data.aiConfig.reply_mode = newCfg.reply_mode;
-          if (typeof newCfg.max_output_length === "number") db.data.aiConfig.max_output_length = newCfg.max_output_length;
-          if (typeof newCfg.link_preview === "boolean") db.data.aiConfig.link_preview = newCfg.link_preview;
-        } catch (e) {
-          throw new Error("AI 配置 JSON 格式错误: " + (e as Error).message);
-        }
-      }
       await db.write();
     },
   });
 }
 
-// ============ Export registration ============
+// ============ Exports ============
 export function registerAiPanelProviders(): void {
   registerAiPlugin();
   registerAitcPlugin();
