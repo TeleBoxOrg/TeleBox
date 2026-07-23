@@ -6,6 +6,61 @@ import { readAppName } from "./teleboxInfoHelper";
 import { logger } from "./logger";
 import { initializeClientSession } from "./loginManager";
 
+// Read proxy from environment variables
+function getProxyFromEnv(): {
+  socksType: 4 | 5;
+  ip: string;
+  port: number;
+  username?: string;
+  password?: string;
+  timeout?: number;
+} | undefined {
+  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const allProxy = process.env.ALL_PROXY || process.env.all_proxy;
+  const socksProxy = process.env.SOCKS_PROXY || process.env.socks_proxy;
+
+  const proxyUrl = httpsProxy || httpProxy || allProxy || socksProxy;
+  if (!proxyUrl) return undefined;
+
+  try {
+    const url = new URL(proxyUrl);
+    const host = url.hostname;
+    const port = Number(url.port);
+    const username = url.username ? decodeURIComponent(url.username) : undefined;
+    const password = url.password ? decodeURIComponent(url.password) : undefined;
+
+    if (!host || !port) {
+      logger.warn("[RUNTIME] 环境变量代理 URL 格式无效，缺少 host 或 port:", proxyUrl);
+      return undefined;
+    }
+
+    const protocol = url.protocol.toLowerCase();
+
+    if (protocol === "socks5:") {
+      return { socksType: 5, ip: host, port, username, password, timeout: 10 };
+    }
+
+    if (protocol === "socks4:") {
+      return { socksType: 4, ip: host, port, username, password, timeout: 10 };
+    }
+
+    if (protocol === "http:" || protocol === "https:") {
+      // teleproto uses SOCKS for HTTP proxy too, but we can't directly use HTTP proxy
+      // For HTTP proxy with teleproto, we need to use a SOCKS wrapper or different approach
+      // For now, log a warning
+      logger.warn("[RUNTIME] teleproto 不直接支持 HTTP 代理，建议使用 SOCKS5 代理或配合外部工具");
+      return undefined;
+    }
+
+    logger.warn("[RUNTIME] 不支持的代理协议:", protocol);
+    return undefined;
+  } catch (e: unknown) {
+    logger.warn("[RUNTIME] 解析环境变量代理失败:", e);
+    return undefined;
+  }
+}
+
 // ── Fix teleproto main-DC media upload deadlock (upstream #24 still open) ──
 // teleproto through 1.228.2 still routes upload.SaveFilePart via MediaScheduler's
 // media sender even when dcId === session.dcId. On affected sessions that path
@@ -113,7 +168,10 @@ function logDrainResult(runtime: TeleBoxRuntime, reason: string, result: DrainRe
 
 async function createClient(): Promise<TelegramClient> {
   const api = await getApiConfig();
-  const proxy = api.proxy;
+  const configProxy = api.proxy;
+  const envProxy = getProxyFromEnv();
+  const proxy = configProxy ?? envProxy;
+
   if (proxy) {
     console.log("使用代理连接 Telegram:", proxy);
   }

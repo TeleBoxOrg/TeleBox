@@ -1,32 +1,19 @@
 import path from "path";
 import fs from "fs";
 import { isValidPlugin, Plugin } from "@utils/pluginBase";
-import { NewMessageEvent, NewMessage } from "teleproto/events";
+import type { PanelSettingsAdapter } from "@utils/pluginBase";
+import { Dispatcher, MessageContext } from "@mtcute/dispatcher";
 import { AliasDB } from "./aliasDB";
-import { Api } from "teleproto";
 import { cronManager } from "./cronManager";
-import {
-  EditedMessage,
-  EditedMessageEvent,
-} from "teleproto/events/EditedMessage";
+import { logger } from "./logger";
+import { getErrorMessage } from "./errorHelpers";
 import type { TeleBoxRuntime } from "./runtimeManager";
 import {
   getCurrentGeneration,
   getGlobalClient,
   reloadRuntime,
+  tryGetCurrentRuntime,
 } from "./runtimeAccess";
-
-type ClientEventBuilder = NonNullable<Parameters<TeleBoxRuntime["client"]["removeEventHandler"]>[1]>;
-
-type MessageWithText = Api.Message & {
-  text?: string;
-  savedPeerId?: unknown;
-};
-
-type MutableMessageWithText = MessageWithText & {
-  message: string;
-  text: string;
-};
 
 type PluginEntry = {
   original?: string;
@@ -76,7 +63,7 @@ if (envPrefixes.length > 0) {
 } else if (process.env.NODE_ENV === "development") {
   prefixes = ["!", "！"];
 }
-console.log(
+logger.info(
   `[PREFIXES] ${prefixes.join(" ")} (${envPrefixes.length > 0 ? "" : "可"}使用环境变量 TB_PREFIX 覆盖, 多个前缀用空格分隔)`
 );
 
@@ -137,8 +124,8 @@ function purgeModuleCache(modulePaths: Iterable<string>): void {
           idsToDelete.add(id);
         }
       }
-    } catch {
-      // ignore unresolved files during cleanup
+    } catch (e: unknown) {
+      logger.error("[pluginManager] operation failed:", e);
     }
   }
 
@@ -147,7 +134,7 @@ function purgeModuleCache(modulePaths: Iterable<string>): void {
   }
 
   if (idsToDelete.size > 0) {
-    console.log(`[RELOAD] Purged ${idsToDelete.size} module cache entries.`);
+    logger.info(`[RELOAD] Purged ${idsToDelete.size} module cache entries.`);
   }
 }
 
@@ -157,8 +144,16 @@ function dynamicRequireWithDeps(filePath: string) {
     loadedPluginFiles.add(normalized);
     delete require.cache[require.resolve(normalized)];
     return require(normalized);
-  } catch (err) {
-    console.error(`Failed to require ${filePath}:`, err);
+  } catch (err: unknown) {
+    // Downgrade to debug for known missing-module errors (e.g. teleproto-dependent
+    // plugins that haven't been migrated yet). Unexpected errors still log as errors.
+    const isMissingModule = err instanceof Error
+      && err.message?.startsWith("Cannot find module");
+    if (isMissingModule) {
+      logger.debug(`Skipped plugin ${filePath}: ${err.message}`);
+    } else {
+      logger.error(`Failed to require ${filePath}:`, err);
+    }
     return null;
   }
 }
@@ -172,7 +167,7 @@ async function setPlugins(basePath: string) {
   const aliasList = aliasDB.list();
   aliasDB.close();
 
-  for await (const file of files) {
+  for (const file of files) {
     const pluginPath = path.resolve(basePath, file);
     const mod = dynamicRequireWithDeps(pluginPath);
     if (!mod) continue;
@@ -218,14 +213,15 @@ function listCommands(): string[] {
 }
 
 function getCommandFromMessage(
-  msg: Api.Message | string,
+  msg: MessageContext | string,
   diyPrefixes?: string[]
 ): string | null {
   let pfs = getPrefixes();
   if (diyPrefixes && diyPrefixes.length > 0) {
     pfs = diyPrefixes;
   }
-  const text = typeof msg === "string" ? msg : msg.message;
+  const text = typeof msg === "string" ? msg : msg.text;
+  if (!text) return null;
 
   const matched = pfs.find((p) => text.startsWith(p));
   if (!matched) return null;
@@ -260,8 +256,8 @@ function getCommandFromMessage(
 async function dealCommandPluginWithMessage(param: {
   cmd: string;
   isEdited?: boolean;
-  msg: Api.Message;
-  trigger?: Api.Message;
+  msg: MessageContext;
+  trigger?: MessageContext;
 }) {
   const { cmd, msg, isEdited, trigger } = param;
   const pluginEntry = getPluginEntry(cmd);
@@ -275,12 +271,11 @@ async function dealCommandPluginWithMessage(param: {
 
     const original = pluginEntry.original;
     let targetCmd = original || cmd;
-    let targetMsg: Api.Message = msg;
+    let targetMsg: MessageContext = msg;
 
     if (original && pluginEntry.aliasFinal && pluginEntry.aliasFinal !== original) {
       const pfs = getPrefixes();
-      const base = msg as MessageWithText;
-      const text: string = base.message || base.text || "";
+      const text: string = msg.text || "";
       const matched = pfs.find((p) => text.startsWith(p)) || "";
       const rest = text.slice(matched.length).trim();
       const parts = rest.split(/\s+/).filter(Boolean);
@@ -296,21 +291,18 @@ async function dealCommandPluginWithMessage(param: {
         const newRest = [...finalParts, ...extraParts].join(" ");
         const newText = matched + newRest;
 
-        const newMsg = Object.create(Object.getPrototypeOf(base)) as MutableMessageWithText;
-        Object.assign(newMsg, base);
-
-        Object.defineProperty(newMsg, "message", {
-          value: newText,
-          writable: true,
-          configurable: true,
-        });
-        Object.defineProperty(newMsg, "text", {
-          value: newText,
-          writable: true,
-          configurable: true,
-        });
-
-        targetMsg = newMsg as Api.Message;
+        // mtcute Message.text is a class getter backed by raw.message, so we
+        // cannot Object.assign/defineProperty a fake message like gramjs did.
+        // Wrap the real MessageContext in a Proxy that overrides `text` while
+        // delegating every other property (and binding methods to the real
+        // context so `this` stays intact).
+        targetMsg = new Proxy(msg, {
+          get(target, prop, receiver) {
+            if (prop === "text") return newText;
+            const value = Reflect.get(target, prop, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        }) as MessageContext;
       }
     }
 
@@ -318,37 +310,44 @@ async function dealCommandPluginWithMessage(param: {
     if (handler) {
       await handler(targetMsg, trigger);
     }
-  } catch (error) {
-    console.error("Command handler error:", error);
-    const errorMsg = `处理命令时出错：${error instanceof Error ? error.message : String(error)}`;
+  } catch (error: unknown) {
+    logger.error("Command handler error:", error);
+    const errorMsg = `处理命令时出错：${getErrorMessage(error)}`;
     try {
       await msg.edit({ text: errorMsg });
-    } catch (editError) {
-      console.error("Failed to show command error message (client may be destroyed):", editError);
+    } catch (editError: unknown) {
+      logger.error("Failed to show command error message (client may be destroyed):", editError);
     }
   }
 }
 
 async function dealCommandPlugin(
-  event: NewMessageEvent | EditedMessageEvent
+  msg: MessageContext,
+  isEdited: boolean
 ): Promise<void> {
-  const msg = event.message;
-  const savedMessage = (msg as MessageWithText).savedPeerId;
-  if (msg.out || savedMessage) {
+  // gramjs exposed `msg.savedPeerId` to flag Saved Messages; mtcute has no such
+  // property, so that check was always undefined and effectively dead. In
+  // mtcute, a message is in Saved Messages when its chat id equals our own user
+  // id. Compare against the self id cached on the runtime at login (avoids an
+  // extra getMe() round-trip per message).
+  const meId = tryGetCurrentRuntime()?.meId;
+  const isSavedMessage = meId != null && String(msg.chat.id) === meId;
+  // gramjs `msg.out` → mtcute `msg.isOutgoing`. Only react to our own outgoing
+  // commands (or saved-messages), matching the userbot model.
+  if (msg.isOutgoing || isSavedMessage) {
     const cmd = getCommandFromMessage(msg);
     if (cmd) {
-      const isEdited = event instanceof EditedMessageEvent;
       await dealCommandPluginWithMessage({ cmd, msg, isEdited });
     }
   }
 }
 
-async function dealNewMsgEvent(event: NewMessageEvent): Promise<void> {
-  await dealCommandPlugin(event);
+async function dealNewMsgEvent(msg: MessageContext): Promise<void> {
+  await dealCommandPlugin(msg, false);
 }
 
-async function dealEditedMsgEvent(event: EditedMessageEvent): Promise<void> {
-  await dealCommandPlugin(event);
+async function dealEditedMsgEvent(msg: MessageContext): Promise<void> {
+  await dealCommandPlugin(msg, true);
 }
 
 const listenerHandleEdited =
@@ -356,7 +355,7 @@ const listenerHandleEdited =
     (p) => p.length > 0
   ) || [];
 
-console.log(
+logger.info(
   `[LISTENER_HANDLE_EDITED] 不忽略监听编辑的消息的插件: ${
     listenerHandleEdited.length === 0
       ? "未设置"
@@ -378,75 +377,60 @@ async function runPluginSetup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<
   );
 }
 
-function trackClientEventHandler<TEvent>(
-  runtime: TeleBoxRuntime,
-  handler: (event: TEvent) => void | Promise<void>,
-  eventBuilder: ClientEventBuilder,
-  label: string
-): void {
-  const { client } = runtime;
-  runtime.context.trackListener<TEvent>(
-    (trackedHandler) => client.addEventHandler(trackedHandler, eventBuilder),
-    (trackedHandler) => client.removeEventHandler(trackedHandler, eventBuilder),
-    (event) => {
-      if (runtime.generation !== getCurrentGeneration()) return;
-      return handler(event);
-    },
-    { label }
-  );
-}
-
-function dealListenMessagePlugin(runtime: TeleBoxRuntime): void {
+function dealListenMessagePlugin(runtime: TeleBoxRuntime, dispatcher: Dispatcher): void {
   for (const plugin of validPlugins) {
     const messageHandler = plugin.listenMessageHandler;
     if (messageHandler) {
-      trackClientEventHandler<NewMessageEvent>(
-        runtime,
-        async (event) => {
-          try {
-            await messageHandler(event.message);
-          } catch (error) {
-            console.log("listenMessageHandler NewMessage error:", error);
-          }
-        },
-        new NewMessage(),
-        `listener:${plugin.name || "unknown"}:new-message`
-      );
+      dispatcher.onNewMessage(async (msg: MessageContext) => {
+        if (runtime.generation !== getCurrentGeneration()) return;
+        try {
+          await messageHandler(msg);
+        } catch (error: unknown) {
+          logger.error("listenMessageHandler NewMessage error:", error);
+        }
+      });
 
       if (
         !plugin.listenMessageHandlerIgnoreEdited ||
         (plugin.name && listenerHandleEdited.includes(plugin.name))
       ) {
-        trackClientEventHandler<EditedMessageEvent>(
-          runtime,
-          async (event) => {
-            try {
-              await messageHandler(event.message, { isEdited: true });
-            } catch (error) {
-              console.log("listenMessageHandler EditedMessage error:", error);
-            }
-          },
-          new EditedMessage({}),
-          `listener:${plugin.name || "unknown"}:edited-message`
-        );
+        dispatcher.onEditMessage(async (msg: MessageContext) => {
+          if (runtime.generation !== getCurrentGeneration()) return;
+          try {
+            await messageHandler(msg, { isEdited: true });
+          } catch (error: unknown) {
+            logger.error("listenMessageHandler EditedMessage error:", error);
+          }
+        });
       }
     }
 
+    // Raw event handlers: pluginBase exposes them as { kind, handler } where
+    // handler receives the update context (typed unknown in the contract).
+    // pluginManager narrows per kind here and wires them to the dispatcher.
     const eventHandlers = plugin.eventHandlers;
     if (Array.isArray(eventHandlers) && eventHandlers.length > 0) {
-      for (const { event, handler } of eventHandlers) {
-        trackClientEventHandler(
-          runtime,
-          async (ev: unknown) => {
-            try {
-              await handler(ev);
-            } catch (error) {
-              console.log("eventHandler error:", error);
-            }
-          },
-          event || new NewMessage(),
-          `event:${plugin.name || "unknown"}`
-        );
+      for (const eh of eventHandlers) {
+        const safeHandler = async (ctx: unknown) => {
+          if (runtime.generation !== getCurrentGeneration()) return;
+          try {
+            await eh.handler(ctx);
+          } catch (error: unknown) {
+            logger.error("eventHandler error:", error);
+          }
+        };
+        switch (eh.kind) {
+          case "editMessage":
+            dispatcher.onEditMessage((msg: MessageContext) => safeHandler(msg));
+            break;
+          case "rawUpdate":
+            dispatcher.onRawUpdate((upd: unknown) => safeHandler(upd));
+            break;
+          case "newMessage":
+          default:
+            dispatcher.onNewMessage((msg: MessageContext) => safeHandler(msg));
+            break;
+        }
       }
     }
   }
@@ -477,8 +461,8 @@ async function runPluginCleanup(plugin: Plugin, runtime: TeleBoxRuntime): Promis
   // cleanup from executing and crashing the reload flow.
   try {
     await plugin.cleanup?.();
-  } catch (error) {
-    console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
+  } catch (error: unknown) {
+    logger.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
   }
 }
 
@@ -490,13 +474,11 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
     runtime.context.abort(`Unload generation ${runtime.generation}`);
   }
 
-  for (const plugin of oldPlugins) {
-    await runPluginCleanup(plugin, runtime);
-  }
+  // 并行清理所有旧插件
+  await Promise.all(oldPlugins.map((plugin) => runPluginCleanup(plugin, runtime)));
 
-  const handlerCount = runtime.client.listEventHandlers().length;
-  console.log(
-    `[RELOAD] Gen${runtime.generation} unloading plugins: ${handlerCount} client handlers to drain`
+  logger.info(
+    `[RELOAD] Gen${runtime.generation} unloading plugins`
   );
 
   validPlugins.length = 0;
@@ -519,38 +501,49 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
   // load order keep their cmdHandlers registered (setPlugins already populated
   // the `plugins` map) but never receive their lifecycle, so invoking them
   // raises "lifecycle is not initialized" until the next reload.
-  for (const plugin of validPlugins) {
+  await Promise.all(validPlugins.map(async (plugin) => {
     try {
       await runPluginSetup(plugin, runtime);
-    } catch (error) {
-      console.error(
+    } catch (error: unknown) {
+      logger.error(
         `[RELOAD] Plugin setup failed: ${plugin.name || "unknown"} (continuing with remaining plugins)`,
         error
       );
     }
-  }
+  }));
 
   const { client } = runtime;
-  trackClientEventHandler<NewMessageEvent>(
-    runtime,
-    dealNewMsgEvent,
-    new NewMessage(),
-    "root:new-message"
+
+  // One Dispatcher per runtime generation. mtcute's Dispatcher.for(client)
+  // owns all update handlers; on reload we call dispatcher.destroy() (tracked
+  // as a single lifecycle disposable) instead of removing handlers one by one.
+  const dispatcher = Dispatcher.for(client);
+  runtime.dispatcher = dispatcher;
+  runtime.context.trackDisposable(
+    async () => {
+      await dispatcher.destroy();
+    },
+    { label: `dispatcher:gen-${runtime.generation}` }
   );
-  trackClientEventHandler<EditedMessageEvent>(
-    runtime,
-    dealEditedMsgEvent,
-    new EditedMessage({}),
-    "root:edited-message"
-  );
-  dealListenMessagePlugin(runtime);
+
+  // Root command router: outgoing messages → command dispatch.
+  dispatcher.onNewMessage(async (msg: MessageContext) => {
+    if (runtime.generation !== getCurrentGeneration()) return;
+    await dealNewMsgEvent(msg);
+  });
+  dispatcher.onEditMessage(async (msg: MessageContext) => {
+    if (runtime.generation !== getCurrentGeneration()) return;
+    await dealEditedMsgEvent(msg);
+  });
+
+  dealListenMessagePlugin(runtime, dispatcher);
   dealCronPlugin(runtime);
-  console.log(`[RELOAD] Event handlers registered after reload: ${client.listEventHandlers().length}`);
+  logger.info("[RELOAD] Dispatcher + plugin handlers registered after reload.");
 }
 
 async function loadPlugins(): Promise<boolean> {
-  if (isPluginLoadInProgress()) {
-    console.warn(
+    if (isPluginLoadInProgress()) {
+    logger.warn(
       "[RELOAD] Skip nested plugin reload while plugins are still being required. Move loadPlugins() out of module top-level initialization."
     );
     return false;
@@ -567,13 +560,32 @@ async function loadPlugins(): Promise<boolean> {
     // the same aborted runtime) caused all runTask/trackDisposable calls in
     // the new load phase to immediately reject because the context was
     // already aborted, breaking plugin setup, event handlers, and cron tasks.
-    // Access via runtimeAccess (registered by runtimeManager) — no cycle.
     await reloadRuntime();
     return true;
-  } catch (error) {
-    console.error("[RELOAD] loadPlugins via reloadRuntime failed:", error);
+  } catch (error: unknown) {
+    logger.error("[RELOAD] loadPlugins via reloadRuntime failed:", error);
     return false;
   }
+}
+
+function getLoadedPlugins(): Plugin[] {
+  return [...validPlugins];
+}
+
+function listLoadedPlugins(): string[] {
+  return validPlugins
+    .filter(p => p.name)
+    .map(p => p.name!);
+}
+
+function getPluginPanelAdapters(): PanelSettingsAdapter[] {
+  const adapters: PanelSettingsAdapter[] = [];
+  for (const plugin of validPlugins) {
+    if (plugin.panelAdapter) {
+      adapters.push(plugin.panelAdapter);
+    }
+  }
+  return adapters;
 }
 
 export {
@@ -586,4 +598,7 @@ export {
   getPluginEntry,
   dealCommandPluginWithMessage,
   getCommandFromMessage,
+  getLoadedPlugins,
+  listLoadedPlugins,
+  getPluginPanelAdapters,
 };

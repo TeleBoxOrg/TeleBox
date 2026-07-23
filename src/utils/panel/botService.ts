@@ -23,6 +23,62 @@ function buildOpenKeyboard(baseUrl: string) {
   ]);
 }
 
+/**
+ * Get HTTP/HTTPS agent with proxy from environment variables.
+ * Supports HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and SOCKS_PROXY.
+ */
+function getProxyAgent(): any | undefined {
+  // Check standard env vars (case-insensitive)
+  const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+  const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+  const allProxy = process.env.ALL_PROXY || process.env.all_proxy;
+  const socksProxy = process.env.SOCKS_PROXY || process.env.socks_proxy;
+
+  // For HTTPS requests (Telegram Bot API uses HTTPS), prefer HTTPS_PROXY
+  const proxyUrl = httpsProxy || httpProxy || allProxy || socksProxy;
+  if (!proxyUrl) return undefined;
+
+  try {
+    const url = new URL(proxyUrl);
+    const host = url.hostname;
+    const port = Number(url.port);
+    const username = url.username ? decodeURIComponent(url.username) : undefined;
+    const password = url.password ? decodeURIComponent(url.password) : undefined;
+
+    if (!host || !port) {
+      logger.warn("[panel-bot] 环境变量代理 URL 格式无效，缺少 host 或 port:", proxyUrl);
+      return undefined;
+    }
+
+    const protocol = url.protocol.toLowerCase();
+
+    // For telegraf, we need an HTTP/HTTPS agent
+    // SOCKS proxies need special handling (e.g., socks-proxy-agent package)
+    if (protocol === "socks5:" || protocol === "socks4:") {
+      logger.warn(
+        "[panel-bot] SOCKS 代理需要 socks-proxy-agent 包支持，当前仅支持 HTTP/HTTPS 代理。建议配置 HTTP_PROXY/HTTPS_PROXY 环境变量。"
+      );
+      return undefined;
+    }
+
+    if (protocol === "http:" || protocol === "https:") {
+      const auth = username && password ? `${username}:${password}@` : "";
+      const proxyAddress = `${protocol}//${auth}${host}:${port}`;
+
+      // Use http-proxy-agent for HTTP/HTTPS proxy
+      const { HttpProxyAgent } = require("http-proxy-agent");
+
+      return new HttpProxyAgent(proxyAddress);
+    }
+
+    logger.warn("[panel-bot] 不支持的代理协议:", protocol);
+    return undefined;
+  } catch (e: unknown) {
+    logger.warn("[panel-bot] 解析环境变量代理失败:", e);
+    return undefined;
+  }
+}
+
 export function isBotRunning(): boolean {
   return !!bot;
 }
@@ -43,7 +99,14 @@ export async function startPanelBot(): Promise<void> {
   }
   await stopPanelBot();
 
-  const instance = new Telegraf(cfg.botToken);
+  const proxyAgent = getProxyAgent();
+  const instance = new Telegraf(cfg.botToken, {
+    telegram: proxyAgent
+      ? {
+          agent: proxyAgent,
+        }
+      : undefined,
+  });
   const token = cfg.botToken;
 
   instance.start(async (ctx) => {
@@ -54,7 +117,7 @@ export async function startPanelBot(): Promise<void> {
       const latest = await readPanelConfig();
       if (!gate.allowed) {
         await ctx.reply(
-          "⛔ 你没有 TeleBox Panel 管理权限。\n请联系 owner 使用 `.panel admin add <userid>` 授权。",
+          "⛔ 你没有 TeleBox Panel 管理权限。\n请联系 owner 使用 `.panel admin add <userid>` 授权。"
         );
         return;
       }
@@ -63,7 +126,7 @@ export async function startPanelBot(): Promise<void> {
           "⚠️ Panel 已启用，但未设置公网 HTTPS 地址。\n" +
             "请在 userbot 中执行：\n" +
             "`.panel url https://你的域名`\n" +
-            "Telegram 小程序要求公网 HTTPS。",
+            "Telegram 小程序要求公网 HTTPS。"
         );
         return;
       }
@@ -75,7 +138,7 @@ export async function startPanelBot(): Promise<void> {
         {
           parse_mode: "HTML",
           ...buildOpenKeyboard(latest.publicBaseUrl),
-        },
+        }
       );
     } catch (e: unknown) {
       logger.error("[panel-bot] /start failed", e);
@@ -112,7 +175,7 @@ export async function startPanelBot(): Promise<void> {
         `panelAdmin: ${gate.allowed ? "yes" : "no"}`,
         `isOwner: ${gate.isOwner ? "yes" : "no"}`,
         `ownerId: ${ownerId ?? "unknown"}`,
-      ].join("\n"),
+      ].join("\n")
     );
   });
 
@@ -127,7 +190,7 @@ export async function startPanelBot(): Promise<void> {
     },
     (e: unknown) => {
       logger.error("[panel-bot] launch failed", e);
-    },
+    }
   );
 
   bot = instance;
@@ -172,5 +235,5 @@ function escapeHtml(s: string): string {
     .replace(/&/g, "&")
     .replace(/</g, "<")
     .replace(/>/g, ">")
-    .replace(/"/g, '"');
+    .replace(/"/g, """);
 }

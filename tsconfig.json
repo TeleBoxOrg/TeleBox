@@ -15,6 +15,9 @@
     "outDir": "./dist",
     "paths": {
       "@utils/*": ["./src/utils/*"],
+      "@mtcute/html-parser": [
+        "./src/utils/html"
+      ],
       "*": ["./*"]
     }
   },
