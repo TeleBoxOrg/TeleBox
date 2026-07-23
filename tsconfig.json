@@ -4,19 +4,18 @@
     "target": "es2020",
     "lib": ["dom", "es7", "ES2019", "ES2020"],
     "sourceMap": false,
-    "downlevelIteration": true,
     "allowJs": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "outDir": "./dist",
-    "baseUrl": "./src",
     "paths": {
-      "@utils/*": ["utils/*"]
+      "@utils/*": ["./src/utils/*"],
+      "*": ["./*"]
     }
   },
   "exclude": ["node_modules", "dist", "temp", "temp/**/*"],
