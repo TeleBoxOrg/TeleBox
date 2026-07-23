@@ -183,11 +183,11 @@ function registerAiPlugin(): void {
   const DB_PATH = path.join(createDirectoryInAssets("ai"), "config.json");
 
   registerPanelSettings({
-    id: "ai",
-    title: "AI 插件",
-    description: "管理 AI 聊天/搜索/绘图/视频供应商配置",
-    category: "AI",
-    icon: "🤖",
+      id: "ai",
+      title: "AI 插件",
+      description: "管理 AI 聊天/搜索/绘图/视频供应商配置",
+      category: "插件配置",
+      icon: "🤖",
     getSchema: (): PanelSettingField[] => [
       {
         key: "providers",
@@ -306,7 +306,7 @@ function registerAitcPlugin(): void {
     id: "aitc",
     title: "AITC 翻译插件",
     description: "自定义 Prompt 的 AI 翻译/转写配置",
-    category: "AI",
+    category: "插件配置",
     icon: "🌐",
     getSchema: (): PanelSettingField[] => [
       {
@@ -429,7 +429,7 @@ function registerUaiPlugin(): void {
     id: "uai",
     title: "UAI 用户消息分析",
     description: "引用消息 AI 总结/分析，支持多供应商",
-    category: "AI",
+    category: "插件配置",
     icon: "📊",
     getSchema: (): PanelSettingField[] => [
       {
@@ -525,7 +525,7 @@ function registerSumPlugin(): void {
     id: "sum",
     title: "SUM 定时总结",
     description: "定时 AI 群聊总结任务与 AI 供应商配置",
-    category: "AI",
+    category: "插件配置",
     icon: "📋",
     getSchema: (): PanelSettingField[] => [
       {
@@ -706,7 +706,7 @@ function registerAgentPlugin(): void {
     id: "agent",
     title: "Agent 智能体",
     description: "TeleBox-Next 智能体配置：AI 供应商、工作区、对话上下文、权限",
-    category: "AI",
+    category: "系统",
     icon: "🤖",
     getSchema: (): PanelSettingField[] => [
       {

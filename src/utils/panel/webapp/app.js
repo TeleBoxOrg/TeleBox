@@ -607,8 +607,8 @@
           category: "权限",
         });
       }
-      // Sort categories: 系统 first, 权限 second, others after
-      const catOrder = { "系统": 0, "权限": 1 };
+      // Sort categories: 系统 first, 插件配置 second, 权限 third, others after
+      const catOrder = { "系统": 0, "插件配置": 1, "权限": 2 };
       const sortedCats = Object.keys(groups).sort((a, b) => (catOrder[a] ?? 99) - (catOrder[b] ?? 99));
       list.innerHTML = sortedCats.map((cat) => {
         const items = groups[cat];

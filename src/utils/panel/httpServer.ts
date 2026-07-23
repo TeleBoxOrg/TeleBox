@@ -382,13 +382,24 @@ async function routeApi(
 
   // ---- Settings hooks ----
   if (method === "GET" && p === "/api/settings") {
-    const list = listPanelSettingsProviders().map((x) => ({
-      id: x.id,
-      title: x.title,
-      description: x.description,
-      category: x.category || "其他",
-      icon: x.icon || "⚙️",
-    }));
+    // Only show settings for plugins that are currently loaded/installed
+    const loadedPlugins = await help.listLoadedPlugins();
+    const loadedPluginNames = new Set(loadedPlugins.map(p => p.name));
+    
+    const list = listPanelSettingsProviders()
+      .filter((x) => {
+        // System plugins always show
+        if (x.category === "系统") return true;
+        // Check if plugin is loaded
+        return loadedPluginNames.has(x.id);
+      })
+      .map((x) => ({
+        id: x.id,
+        title: x.title,
+        description: x.description,
+        category: x.category || "其他",
+        icon: x.icon || "⚙️",
+      }));
     return { status: 200, body: { items: list } };
   }
   if (method === "GET" && p.startsWith("/api/settings/")) {
