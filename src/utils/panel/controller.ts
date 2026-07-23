@@ -15,10 +15,6 @@ import {
   registerAiPanelProviders,
   unregisterAiPanelProviders,
 } from "./aiPanelProviders";
-import {
-  registerPluginPanelAdapters,
-  unregisterPluginPanelAdapters,
-} from "./settingsRegistry";
 import { startTunnel, stopTunnel, getTunnelUrl, isTunnelRunning } from "./cloudflareTunnel";
 
 let providersReady = false;
@@ -28,7 +24,6 @@ export function ensurePanelProviders(): void {
   if (providersReady) return;
   registerBuiltinPanelProviders();
   registerAiPanelProviders();
-  registerPluginPanelAdapters();
   providersReady = true;
 }
 
@@ -36,7 +31,6 @@ export function teardownPanelProviders(): void {
   if (!providersReady) return;
   unregisterBuiltinPanelProviders();
   unregisterAiPanelProviders();
-  unregisterPluginPanelAdapters();
   providersReady = false;
 }
 

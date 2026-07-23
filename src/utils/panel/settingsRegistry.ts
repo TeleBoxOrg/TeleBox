@@ -10,7 +10,6 @@
 
 import { logger } from "@utils/logger";
 import type { PanelSettingField, PanelSettingsProvider } from "./types";
-import { getPluginPanelAdapters } from "@utils/pluginManager";
 
 const providers = new Map<string, PanelSettingsProvider>();
 
@@ -98,30 +97,4 @@ export async function applyProviderValues(
 
 export function clearPanelSettingsProviders(): void {
   providers.clear();
-}
-
-/** Auto-register all plugin panel adapters (called from controller on startup) */
-export function registerPluginPanelAdapters(): void {
-  const adapters = getPluginPanelAdapters();
-  for (const adapter of adapters) {
-    // Wrap adapter into PanelSettingsProvider format
-    const provider: PanelSettingsProvider = {
-      id: adapter.id,
-      title: adapter.title,
-      description: adapter.description,
-      category: adapter.category || "插件配置",
-      icon: adapter.icon || "⚙️",
-      getSchema: adapter.getSchema.bind(adapter),
-      getValues: adapter.getValues.bind(adapter),
-      setValues: adapter.setValues.bind(adapter),
-    };
-    registerPanelSettings(provider);
-  }
-}
-
-export function unregisterPluginPanelAdapters(): void {
-  const adapters = getPluginPanelAdapters();
-  for (const adapter of adapters) {
-    unregisterPanelSettings(adapter.id);
-  }
 }

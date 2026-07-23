@@ -10,7 +10,7 @@ import path from "path";
 import { URL } from "url";
 import { logger } from "@utils/logger";
 import { readDisplayVersion } from "@utils/teleboxInfoHelper";
-import { listCommands, getPluginPanelAdapters } from "@utils/pluginManager";
+import { listCommands } from "@utils/pluginManager";
 import {
   readPanelConfig,
   updatePanelConfig,
@@ -382,33 +382,11 @@ async function routeApi(
 
   // ---- Settings hooks ----
   if (method === "GET" && p === "/api/settings") {
-    // Merge built-in providers + plugin-provided adapters
     // Only show settings for plugins that are currently loaded/installed
     const loadedPlugins = await help.listLoadedPlugins();
-    const loadedPluginNames = new Set(loadedPlugins.map((p) => p.name));
+    const loadedPluginNames = new Set(loadedPlugins.map(p => p.name));
     
-    // Get plugin adapters (auto-discovered from loaded plugins)
-    const pluginAdapters = getPluginPanelAdapters();
-    
-    // Build merged list: built-in providers + plugin adapters
-    const builtinProviders = listPanelSettingsProviders();
-    const allProviders = [...builtinProviders];
-    
-    // Add plugin adapters as virtual providers
-    for (const adapter of pluginAdapters) {
-      allProviders.push({
-        id: adapter.id,
-        title: adapter.title,
-        description: adapter.description,
-        category: adapter.category || "插件配置",
-        icon: adapter.icon || "⚙️",
-        getSchema: adapter.getSchema,
-        getValues: adapter.getValues,
-        setValues: adapter.setValues,
-      } as typeof builtinProviders[0]);
-    }
-    
-    const list = allProviders
+    const list = listPanelSettingsProviders()
       .filter((x) => {
         // System plugins always show
         if (x.category === "系统") return true;
