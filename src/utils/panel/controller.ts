@@ -11,6 +11,10 @@ import {
   registerBuiltinPanelProviders,
   unregisterBuiltinPanelProviders,
 } from "./builtinProviders";
+import {
+  registerAiPanelProviders,
+  unregisterAiPanelProviders,
+} from "./aiPanelProviders";
 import { startTunnel, stopTunnel, getTunnelUrl, isTunnelRunning } from "./cloudflareTunnel";
 
 let providersReady = false;
@@ -19,12 +23,14 @@ let applying: Promise<void> | null = null;
 export function ensurePanelProviders(): void {
   if (providersReady) return;
   registerBuiltinPanelProviders();
+  registerAiPanelProviders();
   providersReady = true;
 }
 
 export function teardownPanelProviders(): void {
   if (!providersReady) return;
   unregisterBuiltinPanelProviders();
+  unregisterAiPanelProviders();
   providersReady = false;
 }
 
