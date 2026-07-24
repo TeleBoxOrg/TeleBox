@@ -23,6 +23,63 @@ function buildOpenKeyboard(baseUrl: string) {
   ]);
 }
 
+/**
+ * Get HTTP/HTTPS agent with proxy from environment variables.
+ * Supports HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, and SOCKS_PROXY.
+ */
+function getProxyAgent(): any {
+  try {
+    // Check standard env vars (case-insensitive)
+    const httpProxy = process.env.HTTP_PROXY || process.env.http_proxy;
+    const httpsProxy = process.env.HTTPS_PROXY || process.env.https_proxy;
+    const allProxy = process.env.ALL_PROXY || process.env.all_proxy;
+    const socksProxy = process.env.SOCKS_PROXY || process.env.socks_proxy;
+
+    // For HTTPS requests (Telegram Bot API uses HTTPS), prefer HTTPS_PROXY
+    const proxyUrl = httpsProxy || httpProxy || allProxy || socksProxy;
+    if (!proxyUrl) return undefined;
+
+    const url = new URL(proxyUrl);
+    const host = url.hostname;
+    const port = Number(url.port);
+    const username = url.username ? decodeURIComponent(url.username) : undefined;
+    const password = url.password ? decodeURIComponent(url.password) : undefined;
+
+    if (!host || !port) {
+      logger.warn("[panel-bot] 环境变量代理 URL 格式无效，缺少 host 或 port:", proxyUrl);
+      return undefined;
+    }
+
+    const protocol = url.protocol.toLowerCase();
+
+    // For telegraf, we need an HTTP/HTTPS agent
+    // SOCKS proxies need special handling (e.g., socks-proxy-agent package)
+    if (protocol === "socks5:" || protocol === "socks4:") {
+      logger.warn(
+        "[panel-bot] SOCKS 代理需要 socks-proxy-agent 包支持，当前仅支持 HTTP/HTTPS 代理。建议配置 HTTP_PROXY/HTTPS_PROXY 环境变量。"
+      );
+      return undefined;
+    }
+
+    if (protocol === "http:" || protocol === "https:") {
+      const auth = username && password ? `${username}:${password}@` : "";
+      const proxyAddress = `${protocol}//${auth}${host}:${port}`;
+
+      // Telegram Bot API 使用 HTTPS，因此必须用 HttpsProxyAgent
+      // (HttpsProxyAgent 通过 CONNECT 隧道代理 HTTPS 请求)
+      const { HttpsProxyAgent } = require("https-proxy-agent");
+
+      return new HttpsProxyAgent(proxyAddress);
+    }
+
+    logger.warn("[panel-bot] 不支持的代理协议:", protocol);
+    return undefined;
+  } catch (e: unknown) {
+    logger.warn("[panel-bot] 解析环境变量代理失败:", e);
+    return undefined;
+  }
+}
+
 export function isBotRunning(): boolean {
   return !!bot;
 }
@@ -43,7 +100,14 @@ export async function startPanelBot(): Promise<void> {
   }
   await stopPanelBot();
 
-  const instance = new Telegraf(cfg.botToken);
+  const proxyAgent = getProxyAgent();
+  const instance = new Telegraf(cfg.botToken, {
+    telegram: proxyAgent
+        ? {
+            agent: proxyAgent,
+          }
+        : undefined,
+  });
   const token = cfg.botToken;
 
   instance.start(async (ctx) => {

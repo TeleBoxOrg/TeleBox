@@ -19,6 +19,70 @@ type PluginDescription =
   | ((...args: unknown[]) => string | void)
   | ((...args: unknown[]) => Promise<string | void>);
 
+/**
+ * Panel Settings Adapter interface.
+ * Plugins can implement this to provide their own settings UI in the Panel.
+ * The adapter is auto-discovered when the plugin is loaded.
+ */
+export interface PanelSettingsAdapter {
+  /** Unique ID for this adapter (typically plugin name) */
+  id: string;
+  /** Human-readable title shown in Panel settings list */
+  title: string;
+  /** Optional description */
+  description?: string;
+  /** Category for grouping: "系统" | "插件配置" | "权限" | "其他" */
+  category?: string;
+  /** Optional icon emoji */
+  icon?: string;
+  /** Return the JSON schema for settings form */
+  getSchema(): PanelSettingField[] | Promise<PanelSettingField[]>;
+  /** Return current values (secrets should be masked) */
+  getValues(): Record<string, unknown> | Promise<Record<string, unknown>>;
+  /** Apply partial updates */
+  setValues(patch: Record<string, unknown>): void | Promise<void>;
+}
+
+/** Field definition for panel settings form */
+export interface PanelSettingField {
+  key: string;
+  label: string;
+  type: PanelFieldType;
+  description?: string;
+  placeholder?: string;
+  options?: Array<{ value: string; label: string }>;
+  default?: unknown;
+  secret?: boolean;
+  required?: boolean;
+  min?: number;
+  max?: number;
+  /** For provider-list: pipe-separated columns */
+  providerColumns?: string;
+  /** For provider-list: add button label */
+  providerAddLabel?: string;
+  /** For prompt-map: placeholder for key/short name */
+  promptKeyPlaceholder?: string;
+  /** For prompt-map: placeholder for value/prompt */
+  promptValuePlaceholder?: string;
+  /** For tag-list: placeholder */
+  tagPlaceholder?: string;
+  /** For tag-list: whether tags can be duplicated */
+  tagAllowDuplicates?: boolean;
+}
+
+/** Supported field types */
+export type PanelFieldType =
+  | "string"
+  | "number"
+  | "boolean"
+  | "select"
+  | "textarea"
+  | "json"
+  | "password"
+  | "provider-list"
+  | "prompt-map"
+  | "tag-list";
+
 type PluginEventHandler = {
   event?: EventBuilder;
   handler: (event: unknown) => Promise<void>;
@@ -60,6 +124,9 @@ abstract class Plugin {
   cronTasks?: Record<string, CronTask>;
   setup?(context: PluginRuntimeContext): Promise<void> | void;
   cleanup?(): Promise<void> | void;
+
+  /** Optional: Panel settings adapter. If provided, auto-registers with Panel. */
+  panelAdapter?: PanelSettingsAdapter;
 }
 
 function isValidPlugin(obj: unknown): obj is Plugin {
@@ -105,7 +172,12 @@ function isValidPlugin(obj: unknown): obj is Plugin {
     return false;
   }
 
+  if (candidate.panelAdapter && typeof candidate.panelAdapter !== "object") {
+    return false;
+  }
+
   return true;
 }
 
 export { Plugin, isValidPlugin };
+export type { PluginEventHandler, CronTask, PluginDescription };

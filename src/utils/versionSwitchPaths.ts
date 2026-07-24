@@ -70,26 +70,14 @@ function findNestedEdition(home: string, version: TeleBoxVersion): string | null
 
 const TELEPROTO_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox.git";
 const MTCUTE_CLONE_URL = "https://github.com/TeleBoxOrg/TeleBox-Next.git";
-const TELEPROTO_PLUGIN_CLONE_URL =
-  "https://github.com/TeleBoxOrg/TeleBox-Plugins.git";
-const MTCUTE_PLUGIN_CLONE_URL =
-  "https://github.com/TeleBoxOrg/TeleBox-Next-Plugins.git";
 
 const PATH_CACHE_FILE = path.join(DEFAULT_SWITCH_HOME, "paths.json");
+const PLUGIN_REPOS_DIR = path.join(DEFAULT_SWITCH_HOME, "plugin-repos");
 
 /** Names that must stay at runtime home during flat→nested move. */
 const HOME_RESERVED = new Set([
   PEER_DIR_NAME.teleproto,
   PEER_DIR_NAME.mtcute,
-  "TeleBox-Plugins",
-  "TeleBox_Plugins", // legacy underscore
-  "TeleBox-Next-Plugins",
-  "TeleBox-Next_Plugins", // legacy dir name after rebrand
-  "TeleBox_M_Plugins",
-  "telebox_plugins",
-  "telebox_m_plugins",
-  "telebox-next_plugins",
-  "telebox-next-plugins",
 ]);
 
 interface PathCache {
@@ -693,7 +681,7 @@ function isPluginIndex(file: string): boolean {
   return Boolean(raw && typeof raw === "object" && !Array.isArray(raw));
 }
 
-export function resolvePluginIndexPath(version: TeleBoxVersion): string {
+export function resolvePluginIndexPath(version: TeleBoxVersion): string | null {
   const envKey =
     version === "teleproto"
       ? "TELEBOX_TELEPROTO_PLUGINS"
@@ -737,6 +725,7 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
         ];
 
   const candidates = [
+    ...names.map((n) => path.join(PLUGIN_REPOS_DIR, n, "plugins.json")),
     ...names.map((n) => path.join(home, n, "plugins.json")),
     ...names.map((n) => path.join(path.dirname(home), n, "plugins.json")),
   ];
@@ -747,30 +736,8 @@ export function resolvePluginIndexPath(version: TeleBoxVersion): string {
     }
   }
 
-  const defaultName =
-    version === "teleproto" ? "TeleBox-Plugins" : "TeleBox-Next-Plugins";
-  const cloneTarget = path.join(home, defaultName);
-  if (!fs.existsSync(cloneTarget)) {
-    console.log(`[versionSwitch] 克隆插件索引 → ${cloneTarget}`);
-    const url =
-      version === "teleproto"
-        ? TELEPROTO_PLUGIN_CLONE_URL
-        : MTCUTE_PLUGIN_CLONE_URL;
-    const clone = spawnSync(
-      "git",
-      ["clone", "--depth", "1", url, cloneTarget],
-      { stdio: "inherit", timeout: 300_000 },
-    );
-    if (clone.status !== 0) {
-      throw new Error(`自动下载插件索引失败: ${url}`);
-    }
-  }
-  const index = path.join(cloneTarget, "plugins.json");
-  if (!isPluginIndex(index)) {
-    throw new Error(`插件索引无效: ${index}`);
-  }
-  savePathCache({ [cacheKey]: index });
-  return index;
+  // No plugin index found — that's fine, plugins are managed by TPM, not switch.
+  return null;
 }
 
 function runTsxCli(repoRoot: string): string {

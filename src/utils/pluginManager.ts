@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { isValidPlugin, Plugin } from "@utils/pluginBase";
+import { isValidPlugin, Plugin, type PanelSettingsAdapter } from "@utils/pluginBase";
 import { NewMessageEvent, NewMessage } from "teleproto/events";
 import { AliasDB } from "./aliasDB";
 import { Api } from "teleproto";
@@ -494,9 +494,8 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
     await runPluginCleanup(plugin, runtime);
   }
 
-  const handlerCount = runtime.client.listEventHandlers().length;
   console.log(
-    `[RELOAD] Gen${runtime.generation} unloading plugins: ${handlerCount} client handlers to drain`
+    `[RELOAD] Gen${runtime.generation} unloading plugins`
   );
 
   validPlugins.length = 0;
@@ -545,7 +544,17 @@ async function loadPluginsForRuntime(runtime: TeleBoxRuntime) {
   );
   dealListenMessagePlugin(runtime);
   dealCronPlugin(runtime);
-  console.log(`[RELOAD] Event handlers registered after reload: ${client.listEventHandlers().length}`);
+  console.log(`[RELOAD] Event handlers registered after reload`);
+}
+
+function getPluginPanelAdapters(): PanelSettingsAdapter[] {
+  const adapters: PanelSettingsAdapter[] = [];
+  for (const plugin of validPlugins) {
+    if (plugin.panelAdapter) {
+      adapters.push(plugin.panelAdapter);
+    }
+  }
+  return adapters;
 }
 
 async function loadPlugins(): Promise<boolean> {
@@ -586,4 +595,5 @@ export {
   getPluginEntry,
   dealCommandPluginWithMessage,
   getCommandFromMessage,
+  getPluginPanelAdapters,
 };

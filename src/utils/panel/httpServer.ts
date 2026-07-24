@@ -382,11 +382,18 @@ async function routeApi(
 
   // ---- Settings hooks ----
   if (method === "GET" && p === "/api/settings") {
-    // Only show settings for plugins that are currently loaded/installed
+    // Show only settings for plugins that are currently loaded/installed.
+    // Plugin adapters are already registered via registerPluginPanelAdapters()
+    // during ensurePanelProviders(), so listPanelSettingsProviders() already
+    // includes them. DO NOT also add getPluginPanelAdapters() here — that
+    // would duplicate every plugin adapter entry.
     const loadedPlugins = await help.listLoadedPlugins();
     const loadedPluginNames = new Set(loadedPlugins.map(p => p.name));
     
-    const list = listPanelSettingsProviders()
+    const builtinProviders = listPanelSettingsProviders();
+    const allProviders = [...builtinProviders];
+    
+    const list = allProviders
       .filter((x) => {
         // System plugins always show
         if (x.category === "系统") return true;

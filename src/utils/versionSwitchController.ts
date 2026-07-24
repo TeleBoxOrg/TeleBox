@@ -25,6 +25,7 @@ import {
 import {
   buildCompatibilityReport,
   matchPlugins,
+  type MatchedPlugin,
   type PluginIndexEntry,
 } from "./versionSwitchCore";
 import {
@@ -62,7 +63,7 @@ import path from "path";
 let REPO_ROOTS = resolveRepoRoots({ prepareMissing: false });
 const NESTED = ensureNestedLayout({ prepareMissing: false });
 REPO_ROOTS = NESTED.roots;
-const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string> = {
+const PLUGIN_INDEX_PATHS: Record<"teleproto" | "mtcute", string | null> = {
   teleproto: resolvePluginIndexPath("teleproto"),
   mtcute: resolvePluginIndexPath("mtcute"),
 };
@@ -145,9 +146,15 @@ function isPm2Online(name: string): boolean {
   return proc?.pm2_env?.status === "online" && proc.pid > 0;
 }
 
-function loadPluginIndex(version: "teleproto" | "mtcute"): Record<string, PluginIndexEntry> {
-  const raw = fs.readFileSync(PLUGIN_INDEX_PATHS[version], "utf8");
-  return JSON.parse(raw) as Record<string, PluginIndexEntry>;
+function loadPluginIndex(version: "teleproto" | "mtcute"): Record<string, PluginIndexEntry> | null {
+  const idxPath = PLUGIN_INDEX_PATHS[version];
+  if (!idxPath) return null;
+  try {
+    const raw = fs.readFileSync(idxPath, "utf8");
+    return JSON.parse(raw) as Record<string, PluginIndexEntry>;
+  } catch {
+    return null;
+  }
 }
 
 function listInstalledPlugins(version: "teleproto" | "mtcute"): string[] {
@@ -325,32 +332,40 @@ async function main(): Promise<void> {
   }
 
   // ── Step 2: Match and install plugins ────────────────────────────────
-  console.log("[controller] Step 2: Matching plugins...");
-  await progress.set("plugins", "running");
-  const sourceIndex = loadPluginIndex(source);
-  const targetIndex = loadPluginIndex(target);
-  const sourceInstalled = listInstalledPlugins(source);
-  const targetPluginRepo = PLUGIN_INDEX_PATHS[target].replace(/\/plugins\.json$/, "");
-  const targetAvailable = listTargetNativePluginNames(targetPluginRepo);
-  const matched = matchPlugins(
-    sourceInstalled,
-    sourceIndex,
-    targetIndex,
-    targetAvailable,
-  );
-  // kitt (and similar) ship as system plugins — do not install/archive user copies
-  // or merge their assets (see SKIP_PLUGIN_DATA_MIGRATION).
-  const install = matched.install.filter((m) => !SYSTEM_PROVIDED_PLUGINS.has(m.name));
-  const unavailable = matched.unavailable.filter((n) => !SYSTEM_PROVIDED_PLUGINS.has(n));
-  dropUserSpaceSystemPlugins(REPO_ROOTS[source]);
-  dropUserSpaceSystemPlugins(REPO_ROOTS[target]);
+    console.log("[controller] Step 2: Matching plugins...");
+    await progress.set("plugins", "running");
+    const sourceIndex = loadPluginIndex(source);
+    const targetIndex = loadPluginIndex(target);
+    const sourceInstalled = listInstalledPlugins(source);
+    const targetPluginRepo = PLUGIN_INDEX_PATHS[target]!.replace("/plugins.json", "");
+    const targetAvailable = listTargetNativePluginNames(targetPluginRepo);
 
-  const txId = state.pendingTransaction ?? String(Date.now());
+    let install: MatchedPlugin[] = [];
+    let unavailable: string[] = [];
+    let archivedCount = 0;
+    let pluginJournal: InstalledPluginJournal | null = null;
+    let dataJournal: PluginDataJournal | null = null;
+
+    if (sourceIndex && targetIndex) {
+      const matched = matchPlugins(
+        sourceInstalled,
+        sourceIndex,
+        targetIndex,
+        targetAvailable,
+      );
+      // kitt (and similar) ship as system plugins — do not install/archive user copies
+      // or merge their assets (see SKIP_PLUGIN_DATA_MIGRATION).
+      install = matched.install.filter((m) => !SYSTEM_PROVIDED_PLUGINS.has(m.name));
+      unavailable = matched.unavailable.filter((n) => !SYSTEM_PROVIDED_PLUGINS.has(n));
+      dropUserSpaceSystemPlugins(REPO_ROOTS[source]);
+      dropUserSpaceSystemPlugins(REPO_ROOTS[target]);
+    } else {
+      console.log("[controller] 插件索引不可用，跳过插件迁移（插件由 TPM 管理）");
+    }
+
+    const txId = state.pendingTransaction ?? String(Date.now());
   const backupRoot = path.join(DEFAULT_SWITCH_HOME, "backups", txId);
   const archiveRoot = path.join(DEFAULT_SWITCH_HOME, "archives", `${source}-to-${target}`, txId);
-  let pluginJournal: InstalledPluginJournal | null = null;
-  let dataJournal: PluginDataJournal | null = null;
-  let archivedCount = 0;
 
   console.log(
     `[controller] Plugins: ${install.length} install, ${unavailable.length} unavailable (archive)`,
