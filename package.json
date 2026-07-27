@@ -33,7 +33,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/cron": "^2.0.1",
+    "@types/cron": "^2.4.3",
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.20",
     "@types/lowdb": "^2.0.3",
