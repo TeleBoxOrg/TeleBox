@@ -347,7 +347,7 @@ async function disposeRuntime(
     await destroyClient(runtime.client);
   } catch (error) {
     console.error(`[RUNTIME] Failed to destroy generation ${runtime.generation} client:`, error);
-    throw error;
+    // 不抛出错误，避免阻塞后续流程
   }
   return drainResult;
 }
@@ -432,6 +432,12 @@ export async function reloadRuntime(): Promise<TeleBoxRuntime> {
       await disposeRuntime(oldRuntime, "Runtime reload");
     } catch (error) {
       oldRuntime.state = "failed";
+      // 即使 unload/dispose 失败，也要尝试销毁客户端防止泄漏
+      try {
+        await destroyClient(oldRuntime.client);
+      } catch (destroyError) {
+        console.error(`[RUNTIME] Failed to destroy old client after reload error:`, destroyError);
+      }
       throw error;
     }
 
@@ -444,11 +450,16 @@ export async function reloadRuntime(): Promise<TeleBoxRuntime> {
       return newRuntime;
     } catch (error) {
       console.error("[RUNTIME] Failed to load plugins after reload, keeping runtime alive:", error);
-      // Keep the new runtime alive: it has a working client, only plugins failed.
-      // Setting currentRuntime = null previously made the bot completely dead
-      // (getGlobalClient() throws, all commands fail, no message delivery).
+      // 即使插件加载失败，新 runtime 的 client 是可用的
+      // 但需要标记为 failed 状态
       newRuntime.state = "failed";
       currentRuntime = newRuntime;
+      // 尝试清理新 runtime 避免资源泄漏
+      try {
+        await disposeRuntime(newRuntime, "Plugin load failed after reload");
+      } catch (disposeError) {
+        console.error(`[RUNTIME] Failed to dispose new runtime after plugin load error:`, disposeError);
+      }
       throw error;
     }
   })();
