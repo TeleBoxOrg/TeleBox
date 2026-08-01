@@ -470,13 +470,15 @@ function dealCronPlugin(runtime: TeleBoxRuntime): void {
 }
 
 async function runPluginCleanup(plugin: Plugin, runtime: TeleBoxRuntime): Promise<void> {
-  if (typeof plugin.cleanup !== "function") return;
+  const cleanup = typeof plugin.cleanup === "function"
+    ? plugin.cleanup.bind(plugin)
+    : async () => {};
   // Do NOT wrap cleanup in runTask — by the time cleanup runs, the runtime
   // context has already been aborted, so runTask would reject immediately
   // with "Unload generation N" / "Runtime reload", preventing all plugin
   // cleanup from executing and crashing the reload flow.
   try {
-    await plugin.cleanup?.();
+    await cleanup();
   } catch (error) {
     console.error(`[RELOAD] Plugin cleanup failed: ${plugin.name || "unknown"}`, error);
   }
@@ -494,6 +496,8 @@ async function unloadPluginsForRuntime(runtime: TeleBoxRuntime) {
     await runPluginCleanup(plugin, runtime);
   }
 
+  // 兜底：显式清理所有插件注册的事件处理器
+  // 即使插件没有 cleanup()，也通过 generation context 的 trackListener 机制清理
   console.log(
     `[RELOAD] Gen${runtime.generation} unloading plugins`
   );
