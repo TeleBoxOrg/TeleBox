@@ -6,6 +6,8 @@
 // - trackDisposable() → 注册清理回调（timer、interval、child_process、event listener）
 // - trackTask()         → 追踪进行中的异步任务，drain() 等待它们全部完成
 // - AsyncLocalStorage   → 隐式传递当前 generation，drain() 排除自身避免死锁
+// - FinalizationRegistry → 兜底清理：若 drain() 未被调用，GC 时自动释放资源
+// - using 声明 (TS 5.2+) → 作用域绑定自动 dispose，彻底杜绝漏调
 //
 // 简化说明（vs 旧版约 550 行）：
 // - 移除了 ResourceKind 统计框架（10 种资源类型 × 5 个计数器 = 50 个指标）——纯探测用，无业务价值
@@ -46,6 +48,30 @@ type IntervalHandle = ReturnType<typeof setInterval>;
 
 const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
 
+// FinalizationRegistry 兜底：若 drain() 未被显式调用，GC 时自动尝试清理
+const FinalizationRegistryCtor = (globalThis as any).FinalizationRegistry;
+const finalizationRegistry = new FinalizationRegistryCtor((ctx: GenerationContext) => {
+  if (ctx["lifecycleState"] !== "disposed") {
+    console.warn(`[GEN ${ctx.generation}] FinalizationRegistry triggered — generation was not properly disposed, cleaning up...`);
+    // 同步清理：只能清理同步资源，异步资源无法 await
+    const disposables = ctx["disposables"] as Set<DisposableEntry>;
+    const tasks = ctx["tasks"] as Set<TaskEntry>;
+    for (const entry of disposables) {
+      try {
+        const result = entry.dispose();
+        if (result && typeof (result as Promise<void>).then === "function") {
+          // 异步清理无法 await，只能 fire-and-forget
+          (result as Promise<void>).catch((e) => console.error(`[GEN ${ctx.generation}] Late async disposable failed:`, e));
+        }
+      } catch (e) {
+        console.error(`[GEN ${ctx.generation}] Late disposable failed:`, e);
+      }
+    }
+    disposables.clear();
+    tasks.clear();
+  }
+});
+
 function toError(reason: unknown): Error {
   if (reason instanceof Error) return reason;
   if (typeof reason === "string") return new Error(reason);
@@ -72,6 +98,8 @@ export class GenerationContext {
   constructor(generation: number) {
     this.generation = generation;
     this.createdAt = Date.now();
+    // 注册 FinalizationRegistry 兜底清理
+    finalizationRegistry.register(this, this);
   }
 
   get signal(): AbortSignal {
@@ -338,6 +366,9 @@ export class GenerationContext {
       ? Math.max(0, this.tasks.size - 1)
       : this.tasks.size;
 
+    // 从 FinalizationRegistry 注销，避免重复清理
+    finalizationRegistry.unregister(this);
+
     return {
       completed: !timedOut && errors.length === 0,
       timedOut,
@@ -354,4 +385,36 @@ export class GenerationContext {
 
 export function createGenerationContext(generation: number): GenerationContext {
   return new GenerationContext(generation);
+}
+
+// ── using 支持 (TS 5.2+) ──
+// 使用方式：
+//   using ctx = createGenerationContext(gen);
+//   using disposable = ctx.trackDisposable(() => cleanup());
+// 作用域结束自动调用 dispose()，彻底杜绝漏调
+
+export interface DisposableLike {
+  [Symbol.dispose](): void;
+}
+
+export function toDisposable(dispose: () => void | Promise<void>): DisposableLike {
+  return {
+    [Symbol.dispose]() {
+      const result = dispose();
+      if (result && typeof (result as Promise<void>).then === "function") {
+        // 同步 dispose 中无法 await，fire-and-forget
+        (result as Promise<void>).catch((e) => console.error("[using] Async dispose failed:", e));
+      }
+    },
+  };
+}
+
+// 为 trackDisposable 返回的清理函数添加 Symbol.dispose 支持
+export function trackDisposableWithUsing(
+  ctx: GenerationContext,
+  dispose: Disposable,
+  options?: TrackOptions
+): DisposableLike {
+  const cleanup = ctx.trackDisposable(dispose, options);
+  return toDisposable(cleanup);
 }
