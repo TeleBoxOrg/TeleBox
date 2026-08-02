@@ -1617,6 +1617,7 @@ class TpmPlugin extends Plugin {
 
 <b>🔄 更新插件:</b>
 • <code>${mainPrefix}tpm update</code> (别名: <code>updateAll</code>, <code>ua</code>) - 一键更新所有已安装的远程插件
+• <code>${mainPrefix}tpm update -f</code> - 强制更新（覆盖本地修改过的插件）
 
 <b>🗑️ 卸载插件:</b>
 • <code>${mainPrefix}tpm rm [插件名]</code> (别名: <code>remove</code>, <code>uninstall</code>, <code>un</code>) - 卸载单个插件
