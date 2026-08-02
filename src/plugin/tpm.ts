@@ -1396,7 +1396,7 @@ export async function updateAllPlugins(
     let updatedCount = 0;
     let failedCount = 0;
     let skipCount = 0;
-    let localModifiedCount = 0;
+    
     const failedPlugins: string[] = [];
 
     if (canEdit) {
@@ -1413,7 +1413,7 @@ export async function updateAllPlugins(
         if (canEdit && ([0, dbPlugins.length - 1].includes(i) || i % 2 === 0)) {
           canEdit = await updateProgressMessage(statusMsg, `📦 正在更新插件: ${codeTag(pluginName)}\n\n${progressBar}\n🔄 进度: ${
               i + 1
-            }/${totalPlugins} (${progress}%)\n✅ 成功: ${updatedCount}\n⏭️ 跳过: ${skipCount}\n🛡 本地已改: ${localModifiedCount}\n❌ 失败: ${failedCount}`, { parseMode: "html" });
+            }${totalPlugins} (${progress}%)\\n✅ 成功: ${updatedCount}\\n⏭️ 跳过: ${skipCount}\\n❌ 失败: ${failedCount}`, { parseMode: "html" });
         }
 
         if (!pluginRecord.url) {
@@ -1460,7 +1460,6 @@ export async function updateAllPlugins(
         }
 
         if (!force && isLocallyModifiedPlugin(filePath, currentContent, pluginRecord)) {
-          localModifiedCount++;
           skipCount++;
           console.log(`[TPM] 跳过更新插件 ${pluginName}: 检测到本地修改，保留本地版本`);
           continue;
@@ -1505,11 +1504,7 @@ export async function updateAllPlugins(
       return { failedCount: 0, statusPeerId: skipPeerId, statusMsgId: skipMsgId };
     }
 
-    const localModTip =
-      localModifiedCount > 0
-        ? `\n🛡 本地已改保留 ${localModifiedCount} 个（未覆盖）\n💡 强制覆盖: <code>${mainPrefix}tpm update -f</code>`
-        : "";
-    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)${localModTip}`;
+    const finalText = `✅ 更新完成 (成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个)${skipCount > 0 ? `\\n💡 跳过含本地已修改的插件，强制覆盖: <code>${mainPrefix}tpm update -f</code>` : ""}`;
     const statusPeerId =
       statusMsg.chatId != null ? String(statusMsg.chatId) : statusMsg.peerId;
     const statusMsgId = statusMsg.id;
@@ -1525,7 +1520,7 @@ export async function updateAllPlugins(
     } else {
       await reloadAndFinalize(statusMsg, finalText, { parseMode: "html" });
     }
-    console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 本地已改${localModifiedCount}个, 失败${failedCount}个`);
+    console.log(`[TPM] 更新完成。统计: 成功${updatedCount}个, 跳过${skipCount}个, 失败${failedCount}个`);
     return { failedCount, statusPeerId, statusMsgId };
   } catch (error) {
     console.error("[TPM] 一键更新失败:", error);
