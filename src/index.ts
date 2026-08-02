@@ -3,6 +3,7 @@ import axios from "axios";
 import { logger } from "@utils/logger"; // 引入 logger 以便尽早初始化
 import { startRuntime, shutdownRuntime } from "@utils/runtimeManager";
 import { initPluginBaseConfig } from "@utils/pluginBase";
+import { cleanCoreDumps } from "@utils/coreDumpCleaner";
 import "./hook/patches/telegram.patch";
 
 initPluginBaseConfig();
@@ -43,6 +44,9 @@ if (httpProxy || httpsProxy) {
   console.log("[PROXY] 未检测到代理环境变量，使用直连");
 }
 
+
+// 启动时自动清理工作目录下的 core dump 文件
+cleanCoreDumps();
 
 // Global error handlers to prevent unhandled rejections and exceptions
 // from crashing the process silently. These log the error for debugging.
