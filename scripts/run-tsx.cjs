@@ -33,17 +33,12 @@ if (entryArgs.length === 0) {
 
 const env = { ...process.env };
 
-// V8 heap cap + expose gc for health plugin manual GC
-const v8Flags = ['--max-old-space-size=768', '--expose-gc'];
-
 // Only add --localstorage-file for Node.js 22+
 if (majorVersion >= 22) {
-  v8Flags.push(`--localstorage-file=${lsFile}`);
+  const flag = `--localstorage-file=${lsFile}`;
+  const existing = (env.NODE_OPTIONS || '').trim();
+  env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
 }
-
-const existing = (env.NODE_OPTIONS || '').trim();
-const allFlags = v8Flags.join(' ');
-env.NODE_OPTIONS = existing ? `${existing} ${allFlags}` : allFlags;
 
 const r = spawnSync(
   process.execPath,
