@@ -67,7 +67,8 @@ const T = {
       ``,
       `在 TeleBox 和 TeleBox-Next 之间切换。`,
       `session 直接转换，不用重新登录。`,
-      `两版都放在原安装目录下：telebox/telebox-classic 与 telebox/telebox-next。`,
+      `两版默认放在同级目录：telebox 与 telebox-next（或 telebox-classic）。`,
+      `也兼容嵌套布局：telebox/telebox-classic 与 telebox/telebox-next。`,
       ``,
       `两个子命令：`,
       ``,
@@ -271,7 +272,7 @@ const plugin = new (class extends Plugin {
           ``,
           message,
           ``,
-          `会在原运行时目录下使用 telebox-classic / telebox-next 子目录；`,
+          `会在同级目录或原运行时目录下使用 telebox / telebox-next 子目录；`,
           `没有的那一版会自动创建并下载。`,
         ].join("\n"),
       });

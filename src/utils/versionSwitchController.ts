@@ -489,7 +489,7 @@ async function main(): Promise<void> {
     } catch { /* ignore */ }
     await progress.set("stop", "done", "源 bot 已离线，后续由目标版完成通知");
 
-    // Flatten → nested: move live edition into home/telebox-xx after process stopped
+    // Flatten → nested: move live edition into home/telebox-xx after process stopped (nested layout only)
     const nestState = ensureNestedLayout();
     if (nestState.pendingNest) {
       await progress.set("nest", "running");
@@ -510,7 +510,7 @@ async function main(): Promise<void> {
       await progress.set("nest", "done");
     } else {
       REPO_ROOTS = resolveRepoRoots();
-      await progress.set("nest", "skip", "已是嵌套布局");
+      await progress.set("nest", "skip", nestState.flat ? "扁平布局，无需整理" : "已是嵌套布局");
     }
 
     // ── Step 5: Start target (PM2 --cwd = nested edition dir) ─────────

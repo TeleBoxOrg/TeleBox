@@ -1,14 +1,18 @@
 /**
  * Path + process helpers for version switch.
  *
- * Layout (after first .switch go):
- *   <runtimeHome>/                 e.g. ~/telebox  (original install path)
- *     telebox-classic/             TeleBox (teleproto)
- *     telebox-next/                TeleBox-Next (mtcute)
+ * Default layout (flat / sibling dirs):
+ *   /root/telebox          TeleBox (teleproto)
+ *   /root/telebox-next     TeleBox-Next (mtcute)
  *
- * Flat installs (code at runtimeHome root) are restructured on first switch:
- * current edition moves into telebox-classic|telebox-next; peer is cloned
- * as the sibling. PM2 --cwd always points at the edition subdir, not home.
+ * Legacy nested layout (still supported):
+ *   <runtimeHome>/         e.g. ~/telebox
+ *     telebox-classic/     TeleBox (teleproto)
+ *     telebox-next/        TeleBox-Next (mtcute)
+ *
+ * Flat installs are the default — no restructuring needed. If a user has an
+ * old nested layout, it is detected and used as-is. PM2 --cwd always points
+ * at the edition root, whether flat or nested.
  *
  * Never spawn bare "npx"/"tsx" from PATH — use process.execPath + run-tsx.cjs.
  */
@@ -36,6 +40,29 @@ const LEGACY_PEER_DIR_NAMES: Record<TeleBoxVersion, string[]> = {
   teleproto: ["telebox-teleproto", "telebox-classic"],
   mtcute: ["telebox-mtcute", "telebox_mtcute", "TeleBox_M", "telebox-next"],
 };
+
+/** Canonical flat directory names for each edition (sibling dirs, not under a runtime home). */
+const FLAT_DIR_NAMES: Record<TeleBoxVersion, string[]> = {
+  teleproto: ["telebox", "telebox-classic"],
+  mtcute: ["telebox-next", "telebox_mtcute"],
+};
+
+/** Check if a directory name is a flat install name for an edition. */
+function isFlatDirName(base: string, version: TeleBoxVersion): boolean {
+  return FLAT_DIR_NAMES[version].includes(base);
+}
+
+/** Find a flat (sibling) peer edition by scanning parent directory. */
+function findFlatPeerEdition(currentRepo: string, peerVersion: TeleBoxVersion): string | null {
+  const parent = path.dirname(currentRepo);
+  const currentBase = path.basename(currentRepo);
+  for (const name of FLAT_DIR_NAMES[peerVersion]) {
+    if (name === currentBase) continue; // can't be own peer
+    const candidate = path.join(parent, name);
+    if (isValidRepo(candidate, peerVersion)) return candidate;
+  }
+  return null;
+}
 
 function isEditionSubdirName(base: string): boolean {
   return (
@@ -86,19 +113,24 @@ interface PathCache {
   mtcute?: string;
   teleprotoPlugins?: string;
   mtcutePlugins?: string;
-  /** Flat install still needs move into PEER_DIR_NAME after PM2 stop. */
+  /** Nested layout: flat install still needs move into PEER_DIR_NAME after PM2 stop. */
   pendingNest?: {
     version: TeleBoxVersion;
     from: string;
   } | null;
 }
 
-export interface NestedLayout {
+export interface EditionLayout {
   home: string;
   roots: Record<TeleBoxVersion, string>;
-  /** Call after source PM2 is stopped if set. */
+  /** Call after source PM2 is stopped if set (nested layout only). */
   pendingNest: PathCache["pendingNest"] | null;
+  /** true = sibling dirs (flat), false = nested under home. */
+  flat: boolean;
 }
+
+/** Backward-compat alias. */
+export type NestedLayout = EditionLayout;
 
 function readJsonSafe(file: string): Record<string, unknown> | null {
   try {
@@ -264,26 +296,56 @@ function listPm2Cwds(): string[] {
 }
 
 /**
- * Runtime home = original user install directory that owns both editions.
- * Example: ~/telebox containing telebox-classic + telebox-next.
+ * Runtime home = directory that owns both editions.
+ * - Nested: ~/telebox containing telebox-classic + telebox-next
+ * - Flat:   /root containing telebox + telebox-next (home = parent)
  */
 export function resolveRuntimeHome(): string {
   const cache = loadPathCache();
   if (cache.runtimeHome && fs.existsSync(cache.runtimeHome)) {
-    return cache.runtimeHome;
+    // Validate cached home: check if it has nested edition subdirs or flat siblings
+    const nestedTele = findNestedEdition(cache.runtimeHome, "teleproto");
+    const nestedMtcute = findNestedEdition(cache.runtimeHome, "mtcute");
+    if (nestedTele || nestedMtcute) {
+      // Nested layout confirmed — cached home is correct
+      return cache.runtimeHome;
+    }
+    // Check if home itself is a flat edition (old cache pointed at flat root)
+    const homeEdition = detectEdition(cache.runtimeHome);
+    if (homeEdition) {
+      const base = path.basename(cache.runtimeHome);
+      if (isFlatDirName(base, homeEdition)) {
+        // Flat install — home should be parent, not the repo itself
+        const parent = path.dirname(cache.runtimeHome);
+        savePathCache({ runtimeHome: parent });
+        return parent;
+      }
+      // Not a recognized flat name — keep as-is (could be a custom dir)
+      return cache.runtimeHome;
+    }
+    // Cached home has no editions — check if cached edition paths are valid flat siblings
+    if (cache.teleproto && isValidRepo(cache.teleproto, "teleproto") &&
+        cache.mtcute && isValidRepo(cache.mtcute, "mtcute")) {
+      // Both cached paths are valid — keep cached home if both paths are under it
+      // or if they're siblings under the parent
+      return cache.runtimeHome;
+    }
+    // Cache is stale — fall through to detection
   }
 
   const current = findCurrentInstallRoot();
   if (current) {
     const base = path.basename(current);
     if (isEditionSubdirName(base)) {
+      // Nested layout: home is parent
       const home = path.dirname(current);
       savePathCache({ runtimeHome: home });
       return home;
     }
-    // Flat install: home IS the current root
-    savePathCache({ runtimeHome: current });
-    return current;
+    // Flat install: home is parent (so both siblings are under it)
+    const home = path.dirname(current);
+    savePathCache({ runtimeHome: home });
+    return home;
   }
 
   for (const cwd of listPm2Cwds()) {
@@ -295,8 +357,10 @@ export function resolveRuntimeHome(): string {
       savePathCache({ runtimeHome: home });
       return home;
     }
-    savePathCache({ runtimeHome: cwd });
-    return cwd;
+    // Flat install: home is parent
+    const home = path.dirname(cwd);
+    savePathCache({ runtimeHome: home });
+    return home;
   }
 
   throw new Error("无法定位 TeleBox 运行时目录（runtime home）");
@@ -380,8 +444,9 @@ function ensureNpmInstall(repo: string, label: string): void {
 }
 
 /**
- * Move flat runtime home contents into home/telebox-xx.
+ * Move flat runtime home contents into home/telebox-xx (nested layout only).
  * Must run only when no process is using the flat root as cwd (after pm2 stop).
+ * For flat layout, this is never called (pendingNest is null).
  */
 export function completePendingNest(
   pending: NonNullable<PathCache["pendingNest"]>,
@@ -440,28 +505,117 @@ export function completePendingNest(
 }
 
 /**
- * Ensure dual-edition nested layout under original runtime home.
- * Does NOT move a live flat install until completePendingNest (after pm2 stop).
+ * Ensure dual-edition layout (flat or nested) under runtime home.
+ *
+ * Flat layout (default): editions are sibling directories under home.
+ *   e.g. /root/telebox + /root/telebox-next (home = /root)
+ * No pendingNest is set for flat — no restructuring needed.
+ *
+ * Nested layout (legacy): editions are subdirs under home.
+ *   e.g. ~/telebox/telebox-classic + ~/telebox/telebox-next
+ * If the current install is still flat at home root, pendingNest is set
+ * and completePendingNest() moves it into a subdir after PM2 stop.
  */
 export function ensureNestedLayout(
   options: { prepareMissing?: boolean } = {},
-): NestedLayout {
+): EditionLayout {
   const prepareMissing = options.prepareMissing === true;
   const home = resolveRuntimeHome();
   const cache = loadPathCache();
   let pendingNest: PathCache["pendingNest"] | null = cache.pendingNest ?? null;
 
+  // ── Detect layout: flat (sibling dirs) vs nested (subdirs under home) ──
+
+  // Check for nested editions under home
   const nestedTele =
     findNestedEdition(home, "teleproto") ??
     path.join(home, PEER_DIR_NAME.teleproto);
   const nestedMtcute =
     findNestedEdition(home, "mtcute") ?? path.join(home, PEER_DIR_NAME.mtcute);
 
-  const homeEdition = detectEdition(home);
   const teleReady = isValidRepo(nestedTele, "teleproto");
   const mtcuteReady = isValidRepo(nestedMtcute, "mtcute");
 
-  // Flat install still at home root
+  // Check for flat editions: home itself could be a flat edition root,
+  // or editions could be sibling dirs under home.
+  const homeEdition = detectEdition(home);
+
+  // Find flat peer editions by scanning home dir for sibling repos
+  const flatTele = findFlatPeerEdition(path.join(home, "__probe__"), "teleproto");
+  const flatMtcute = findFlatPeerEdition(path.join(home, "__probe__"), "mtcute");
+  // Also check if home itself is a flat edition
+  const flatHomeTele = homeEdition === "teleproto" ? home : null;
+  const flatHomeMtcute = homeEdition === "mtcute" ? home : null;
+
+  // Determine the actual flat paths for each edition
+  const flatTeleRoot = flatTele ?? flatHomeTele;
+  const flatMtcuteRoot = flatMtcute ?? flatHomeMtcute;
+
+  // Is this a flat layout? (at least one edition found as a flat sibling/home)
+  const isFlat =
+    Boolean(flatTeleRoot || flatMtcuteRoot) &&
+    !(teleReady || mtcuteReady); // not nested
+
+  // ── Flat layout: no nesting needed ──
+  if (isFlat) {
+    // Determine roots: flat paths for found editions, sibling paths for missing
+    const roots: Record<TeleBoxVersion, string> = {
+      teleproto: flatTeleRoot ?? path.join(home, FLAT_DIR_NAMES.teleproto[0]),
+      mtcute: flatMtcuteRoot ?? path.join(home, FLAT_DIR_NAMES.mtcute[0]),
+    };
+
+    // Fix roots from cache if valid
+    const latest = loadPathCache();
+    if (latest.teleproto && isValidRepo(latest.teleproto, "teleproto")) {
+      roots.teleproto = latest.teleproto;
+    }
+    if (latest.mtcute && isValidRepo(latest.mtcute, "mtcute")) {
+      roots.mtcute = latest.mtcute;
+    }
+
+    // Clear any stale pendingNest from a previous nested attempt
+    if (pendingNest) {
+      pendingNest = null;
+      savePathCache({ pendingNest: null });
+    }
+
+    savePathCache({
+      runtimeHome: home,
+      teleproto: roots.teleproto,
+      mtcute: roots.mtcute,
+    });
+
+    // Prepare missing editions as flat siblings if requested
+    if (prepareMissing) {
+      for (const version of ["teleproto", "mtcute"] as const) {
+        if (isValidRepo(roots[version], version)) continue;
+        const flatDest = path.join(home, FLAT_DIR_NAMES[version][0]);
+        if (isValidRepo(flatDest, version)) {
+          roots[version] = flatDest;
+          savePathCache({ [version]: flatDest, runtimeHome: home });
+          continue;
+        }
+        if (!fs.existsSync(flatDest) || fs.readdirSync(flatDest).length === 0) {
+          console.log(
+            `[versionSwitch] 准备 ${FLAT_DIR_NAMES[version][0]} → ${flatDest}`,
+          );
+          cloneEdition(version, flatDest);
+          ensureNpmInstall(flatDest, FLAT_DIR_NAMES[version][0]);
+        } else if (fs.existsSync(path.join(flatDest, "package.json"))) {
+          ensureNpmInstall(flatDest, FLAT_DIR_NAMES[version][0]);
+        }
+        if (isValidRepo(flatDest, version)) {
+          roots[version] = flatDest;
+          savePathCache({ [version]: flatDest, runtimeHome: home });
+        }
+      }
+    }
+
+    return { home, roots, pendingNest: null, flat: true };
+  }
+
+  // ── Nested layout (legacy) ──
+  // Flat install still at home root — needs nesting after PM2 stop
   if (homeEdition && !teleReady && !mtcuteReady) {
     pendingNest = { version: homeEdition, from: home };
     savePathCache({
@@ -531,9 +685,7 @@ export function ensureNestedLayout(
       ? nestedTele
       : homeEdition === "teleproto"
         ? home
-        : isValidRepo(nestedTele, "teleproto")
-          ? nestedTele
-          : nestedTele,
+        : nestedTele,
     mtcute: isValidRepo(nestedMtcute, "mtcute")
       ? nestedMtcute
       : homeEdition === "mtcute"
@@ -573,7 +725,7 @@ export function ensureNestedLayout(
     ...(pendingNest ? { pendingNest } : {}),
   });
 
-  return { home, roots, pendingNest };
+  return { home, roots, pendingNest, flat: false };
 }
 
 /**
@@ -602,32 +754,54 @@ export function resolveRepoRoot(
 
   const layout = ensureNestedLayout({ prepareMissing: false });
   const root = layout.roots[version];
-  // Source edition is usually the flat home or nested — must already exist
+  // Source edition is usually the flat sibling or nested — must already exist
   if (isValidRepo(root, version)) return root;
-  // Target may not exist yet — return expected nested path (controller prepares)
+  // Target may not exist yet — return expected path (controller prepares)
+  if (layout.flat) {
+    return path.join(layout.home, FLAT_DIR_NAMES[version][0]);
+  }
   return path.join(layout.home, PEER_DIR_NAME[version]);
 }
 
 /**
- * Clone (if needed) + npm install edition under runtime home.
+ * Clone (if needed) + npm install edition.
+ * For flat layout: clones as sibling directory (e.g. /root/telebox-next).
+ * For nested layout: clones under home/telebox-xx.
  * Safe to call from controller with progress; never from the live bot hot path.
  */
 export function prepareEdition(version: TeleBoxVersion): string {
   const home = resolveRuntimeHome();
-  const dest = path.join(home, PEER_DIR_NAME[version]);
   const cache = loadPathCache();
   const pending = cache.pendingNest;
+
+  // Determine layout to choose clone target
+  const layout = ensureNestedLayout({ prepareMissing: false });
+  const isFlat = layout.flat;
+
+  // For flat layout, dest is a sibling directory
+  const dest = isFlat
+    ? path.join(home, FLAT_DIR_NAMES[version][0])
+    : path.join(home, PEER_DIR_NAME[version]);
+  const destLabel = isFlat ? FLAT_DIR_NAMES[version][0] : PEER_DIR_NAME[version];
+
   const isPendingFlat =
+    !isFlat &&
     pending?.version === version &&
     path.resolve(pending.from) === path.resolve(home);
 
   if (isPendingFlat) {
-    // Still flat at home until nest after pm2 stop
+    // Still flat at home until nest after pm2 stop (nested layout only)
     if (isValidRepo(home, version)) {
       ensureNpmInstall(home, PEER_DIR_NAME[version]);
       savePathCache({ [version]: home, runtimeHome: home });
       return home;
     }
+  }
+
+  // For flat layout, check if the flat dest is already valid
+  if (isFlat && isRunnableRepo(dest, version)) {
+    savePathCache({ [version]: dest, runtimeHome: home });
+    return dest;
   }
 
   if (isRunnableRepo(dest, version)) {
@@ -636,7 +810,7 @@ export function prepareEdition(version: TeleBoxVersion): string {
   }
 
   if (isValidRepo(dest, version)) {
-    ensureNpmInstall(dest, PEER_DIR_NAME[version]);
+    ensureNpmInstall(dest, destLabel);
     savePathCache({ [version]: dest, runtimeHome: home });
     return dest;
   }
@@ -649,7 +823,7 @@ export function prepareEdition(version: TeleBoxVersion): string {
       console.log(`[versionSwitch] 删除不完整目录 ${dest}`);
       fs.rmSync(dest, { recursive: true, force: true });
     } else if (hasGit && !hasUsableNodeModules(dest)) {
-      ensureNpmInstall(dest, PEER_DIR_NAME[version]);
+      ensureNpmInstall(dest, destLabel);
       if (isRunnableRepo(dest, version)) {
         savePathCache({ [version]: dest, runtimeHome: home });
         return dest;
@@ -657,9 +831,9 @@ export function prepareEdition(version: TeleBoxVersion): string {
     }
   }
 
-  console.log(`[versionSwitch] 准备 ${PEER_DIR_NAME[version]} → ${dest}`);
+  console.log(`[versionSwitch] 准备 ${destLabel} → ${dest}`);
   cloneEdition(version, dest);
-  ensureNpmInstall(dest, PEER_DIR_NAME[version]);
+  ensureNpmInstall(dest, destLabel);
   if (!isRunnableRepo(dest, version)) {
     throw new Error(`准备 ${version} 失败: ${dest}`);
   }
