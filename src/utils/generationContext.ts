@@ -50,9 +50,12 @@ const DEFAULT_DRAIN_TIMEOUT_MS = 15_000;
 
 // FinalizationRegistry 兜底：若 drain() 未被显式调用，GC 时自动尝试清理
 const FinalizationRegistryCtor = (globalThis as any).FinalizationRegistry;
-const finalizationRegistry = new FinalizationRegistryCtor((ctx: GenerationContext) => {
+// held value must NOT be the same as target (Node 24+ throws: "target and holdings must not be same")
+// Use a lightweight holder object instead of `this`
+const finalizationRegistry = new FinalizationRegistryCtor((holder: { ctx: GenerationContext; gen: number }) => {
+  const ctx = holder.ctx;
   if (ctx["lifecycleState"] !== "disposed") {
-    console.warn(`[GEN ${ctx.generation}] FinalizationRegistry triggered — generation was not properly disposed, cleaning up...`);
+    console.warn(`[GEN ${holder.gen}] FinalizationRegistry triggered — generation was not properly disposed, cleaning up...`);
     // 同步清理：只能清理同步资源，异步资源无法 await
     const disposables = ctx["disposables"] as Set<DisposableEntry>;
     const tasks = ctx["tasks"] as Set<TaskEntry>;
@@ -61,10 +64,10 @@ const finalizationRegistry = new FinalizationRegistryCtor((ctx: GenerationContex
         const result = entry.dispose();
         if (result && typeof (result as Promise<void>).then === "function") {
           // 异步清理无法 await，只能 fire-and-forget
-          (result as Promise<void>).catch((e) => console.error(`[GEN ${ctx.generation}] Late async disposable failed:`, e));
+          (result as Promise<void>).catch((e) => console.error(`[GEN ${holder.gen}] Late async disposable failed:`, e));
         }
       } catch (e) {
-        console.error(`[GEN ${ctx.generation}] Late disposable failed:`, e);
+        console.error(`[GEN ${holder.gen}] Late disposable failed:`, e);
       }
     }
     disposables.clear();
@@ -94,12 +97,18 @@ export class GenerationContext {
   private readonly currentTaskStorage = new AsyncLocalStorage<TaskEntry>();
   private lifecycleState: GenerationLifecycleState = "active";
   private abortCause: unknown;
+  // FinalizationRegistry unregister token (holder object passed as 3rd arg to register)
+  private readonly _frHolder: { ctx: GenerationContext; gen: number };
 
   constructor(generation: number) {
     this.generation = generation;
     this.createdAt = Date.now();
     // 注册 FinalizationRegistry 兜底清理
-    finalizationRegistry.register(this, this);
+    // held value must NOT be the same as target (Node 24+ throws)
+    // Use a lightweight holder object with ctx reference and gen number
+    const holder = { ctx: this, gen: generation };
+    this._frHolder = holder;
+    finalizationRegistry.register(this, holder, holder);
   }
 
   get signal(): AbortSignal {
@@ -367,7 +376,8 @@ export class GenerationContext {
       : this.tasks.size;
 
     // 从 FinalizationRegistry 注销，避免重复清理
-    finalizationRegistry.unregister(this);
+    // Use holder as unregister token (same object passed as 3rd arg to register)
+    finalizationRegistry.unregister(this._frHolder);
 
     return {
       completed: !timedOut && errors.length === 0,
