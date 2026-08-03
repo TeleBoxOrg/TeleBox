@@ -44,6 +44,7 @@ import {
   spawnTsxSync,
   ensureNestedLayout,
   completePendingNest,
+  convertNestedToFlat,
   pm2StartEdition,
   prepareEdition,
   PEER_DIR_NAME,
@@ -488,6 +489,25 @@ async function main(): Promise<void> {
       );
     } catch { /* ignore */ }
     await progress.set("stop", "done", "源 bot 已离线，后续由目标版完成通知");
+
+    // Nested → flat: convert legacy nested layout to flat sibling dirs after process stopped
+    const layoutState = ensureNestedLayout();
+    if (!layoutState.flat) {
+      await progress.set("flatten", "running");
+      console.log(`[controller] Converting nested layout to flat…`);
+      const flatLayout = convertNestedToFlat(layoutState.home);
+      REPO_ROOTS = flatLayout.roots;
+      console.log(
+        `[controller] Flat layout ready: teleproto=${REPO_ROOTS.teleproto} mtcute=${REPO_ROOTS.mtcute}`,
+      );
+      // Re-inject session into (possibly moved) target path
+      const afterFlat = loadSwitchState(DEFAULT_SWITCH_HOME);
+      const sess = afterFlat.sessions[target];
+      if (sess.kind === "external" && sess.path) {
+        injectSessionConfig(target, sess.path);
+      }
+      await progress.set("flatten", "done");
+    }
 
     // Flatten → nested: move live edition into home/telebox-xx after process stopped (nested layout only)
     const nestState = ensureNestedLayout();

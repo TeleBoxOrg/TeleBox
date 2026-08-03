@@ -505,6 +505,118 @@ export function completePendingNest(
 }
 
 /**
+ * Convert nested layout to flat layout.
+ * Moves edition subdirs (home/telebox-classic, home/telebox-next) up one level
+ * to become sibling dirs under home's parent.
+ * e.g. ~/telebox/telebox-classic + ~/telebox/telebox-next
+ *      → ~/telebox-classic + ~/telebox-next (or ~/telebox + ~/telebox-next)
+ * Must run when no process is using the nested dirs as cwd (after pm2 stop).
+ */
+export function convertNestedToFlat(home: string): EditionLayout {
+  const cache = loadPathCache();
+  const parent = path.dirname(home);
+  
+  // Find nested editions
+  const nestedTele = findNestedEdition(home, "teleproto");
+  const nestedMtcute = findNestedEdition(home, "mtcute");
+  
+  if (!nestedTele && !nestedMtcute) {
+    // Not a nested layout, nothing to convert
+    return ensureNestedLayout({ prepareMissing: false });
+  }
+
+  console.log(`[versionSwitch] 检测到嵌套布局，转换为扁平布局: ${home}`);
+
+  const newRoots: Record<TeleBoxVersion, string> = {
+    teleproto: "",
+    mtcute: "",
+  };
+
+  // Move teleproto edition up
+  if (nestedTele && isValidRepo(nestedTele, "teleproto")) {
+    // Pick a flat dest that doesn't conflict with the home directory itself
+    let flatDest = path.join(parent, FLAT_DIR_NAMES.teleproto[0]); // "telebox"
+    if (flatDest === home && FLAT_DIR_NAMES.teleproto.length > 1) {
+      flatDest = path.join(parent, FLAT_DIR_NAMES.teleproto[1]); // "telebox-classic"
+    }
+    if (nestedTele !== flatDest) {
+      console.log(`[versionSwitch] 移动 teleproto: ${nestedTele} → ${flatDest}`);
+      if (fs.existsSync(flatDest)) {
+        // Flat target already exists — use it, remove stale nested copy
+        console.log(`[versionSwitch] 扁平目标已存在，使用它并清理嵌套副本: ${flatDest}`);
+        newRoots.teleproto = flatDest;
+        // Remove stale nested directory to avoid future confusion
+        try {
+          fs.rmSync(nestedTele, { recursive: true, force: true });
+          console.log(`[versionSwitch] 已清理嵌套副本: ${nestedTele}`);
+        } catch (e) {
+          console.log(`[versionSwitch] 清理嵌套副本失败 (非致命): ${nestedTele}`);
+        }
+      } else {
+        fs.renameSync(nestedTele, flatDest);
+        newRoots.teleproto = flatDest;
+      }
+    } else {
+      newRoots.teleproto = nestedTele;
+    }
+  }
+
+  // Move mtcute edition up
+  if (nestedMtcute && isValidRepo(nestedMtcute, "mtcute")) {
+    let flatDest = path.join(parent, FLAT_DIR_NAMES.mtcute[0]); // "telebox-next"
+    if (flatDest === home && FLAT_DIR_NAMES.mtcute.length > 1) {
+      flatDest = path.join(parent, FLAT_DIR_NAMES.mtcute[1]); // "telebox_mtcute"
+    }
+    if (nestedMtcute !== flatDest) {
+      console.log(`[versionSwitch] 移动 mtcute: ${nestedMtcute} → ${flatDest}`);
+      if (fs.existsSync(flatDest)) {
+        console.log(`[versionSwitch] 扁平目标已存在，使用它并清理嵌套副本: ${flatDest}`);
+        newRoots.mtcute = flatDest;
+        try {
+          fs.rmSync(nestedMtcute, { recursive: true, force: true });
+          console.log(`[versionSwitch] 已清理嵌套副本: ${nestedMtcute}`);
+        } catch (e) {
+          console.log(`[versionSwitch] 清理嵌套副本失败 (非致命): ${nestedMtcute}`);
+        }
+      } else {
+        fs.renameSync(nestedMtcute, flatDest);
+        newRoots.mtcute = flatDest;
+      }
+    } else {
+      newRoots.mtcute = nestedMtcute;
+    }
+  }
+
+  // If home directory is now empty (except maybe plugin-repos), we could remove it
+  // but better to leave it to avoid breaking anything
+
+  // Update cache with new flat paths
+  savePathCache({
+    runtimeHome: parent,
+    teleproto: newRoots.teleproto || path.join(parent, FLAT_DIR_NAMES.teleproto[0]),
+    mtcute: newRoots.mtcute || path.join(parent, FLAT_DIR_NAMES.mtcute[0]),
+    pendingNest: null,
+  });
+
+  // Clear any stale pendingNest
+  if (cache.pendingNest) {
+    savePathCache({ pendingNest: null });
+  }
+
+  console.log(`[versionSwitch] 嵌套→扁平转换完成: teleproto=${newRoots.teleproto}, mtcute=${newRoots.mtcute}`);
+
+  return {
+    home: parent,
+    roots: {
+      teleproto: newRoots.teleproto || path.join(parent, FLAT_DIR_NAMES.teleproto[0]),
+      mtcute: newRoots.mtcute || path.join(parent, FLAT_DIR_NAMES.mtcute[0]),
+    },
+    pendingNest: null,
+    flat: true,
+  };
+}
+
+/**
  * Ensure dual-edition layout (flat or nested) under runtime home.
  *
  * Flat layout (default): editions are sibling directories under home.
@@ -552,9 +664,17 @@ export function ensureNestedLayout(
   const flatMtcuteRoot = flatMtcute ?? flatHomeMtcute;
 
   // Is this a flat layout? (at least one edition found as a flat sibling/home)
+  // If flat path equals nested path for a version, it's not a nested edition.
+  // If BOTH flat and nested exist for a version, prefer flat (flat is the default).
+  const flatTeleEqualsNested = flatTeleRoot === nestedTele;
+  const flatMtcuteEqualsNested = flatMtcuteRoot === nestedMtcute;
+  const hasFlatTele = Boolean(flatTeleRoot);
+  const hasFlatMtcute = Boolean(flatMtcuteRoot);
+  const teleReadyEffective = teleReady && !flatTeleEqualsNested && !hasFlatTele;
+  const mtcuteReadyEffective = mtcuteReady && !flatMtcuteEqualsNested && !hasFlatMtcute;
   const isFlat =
     Boolean(flatTeleRoot || flatMtcuteRoot) &&
-    !(teleReady || mtcuteReady); // not nested
+    !(teleReadyEffective || mtcuteReadyEffective); // not nested
 
   // ── Flat layout: no nesting needed ──
   if (isFlat) {
@@ -564,12 +684,17 @@ export function ensureNestedLayout(
       mtcute: flatMtcuteRoot ?? path.join(home, FLAT_DIR_NAMES.mtcute[0]),
     };
 
-    // Fix roots from cache if valid
+    // Prefer flat paths over cached paths: if a flat edition was found,
+    // use it. Only fall back to cache if no flat edition exists.
     const latest = loadPathCache();
-    if (latest.teleproto && isValidRepo(latest.teleproto, "teleproto")) {
+    if (flatTeleRoot && isValidRepo(flatTeleRoot, "teleproto")) {
+      roots.teleproto = flatTeleRoot;
+    } else if (latest.teleproto && isValidRepo(latest.teleproto, "teleproto")) {
       roots.teleproto = latest.teleproto;
     }
-    if (latest.mtcute && isValidRepo(latest.mtcute, "mtcute")) {
+    if (flatMtcuteRoot && isValidRepo(flatMtcuteRoot, "mtcute")) {
+      roots.mtcute = flatMtcuteRoot;
+    } else if (latest.mtcute && isValidRepo(latest.mtcute, "mtcute")) {
       roots.mtcute = latest.mtcute;
     }
 
@@ -584,6 +709,27 @@ export function ensureNestedLayout(
       teleproto: roots.teleproto,
       mtcute: roots.mtcute,
     });
+
+    // Clean up stale nested directories when flat layout is active
+    // e.g. if /root/telebox (flat) is used, remove stale /root/telebox-classic (nested)
+    for (const version of ["teleproto", "mtcute"] as const) {
+      const nestedPath = path.join(home, PEER_DIR_NAME[version]);
+      const flatPath = roots[version];
+      if (
+        nestedPath !== flatPath &&
+        fs.existsSync(nestedPath) &&
+        isValidRepo(nestedPath, version)
+      ) {
+        console.log(
+          `[versionSwitch] 清理过时的嵌套目录: ${nestedPath} (扁平版已用 ${flatPath})`,
+        );
+        try {
+          fs.rmSync(nestedPath, { recursive: true, force: true });
+        } catch (e) {
+          console.log(`[versionSwitch] 清理失败 (非致命): ${nestedPath}`);
+        }
+      }
+    }
 
     // Prepare missing editions as flat siblings if requested
     if (prepareMissing) {
