@@ -31,7 +31,7 @@
     }
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@types/archiver": "^8.0.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/cron": "^2.4.3",
@@ -43,8 +43,8 @@
     "@types/qrcode-terminal": "^0.12.2",
     "@vitalets/google-translate-api": "^9.2.1",
     "archiver": "^8.0.0",
-    "axios": "^1.11.0",
-    "better-sqlite3": "^13.0.1",
+    "axios": "^1.19.0",
+    "better-sqlite3": "^13.0.2",
     "canvas": "^3.2.1",
     "cheerio": "^1.2.0",
     "cron": "^4.3.3",
