@@ -1,4 +1,3 @@
-#!/usr/bin/env npx tsx
 /**
  * teleproto (gramjs) login helper for version switching — polling mode.
  *

@@ -18,7 +18,6 @@ updates:
         patterns:
           - "@types/*"
           - "typescript"
-          - "tsx"
           - "vitest"
           - "eslint*"
           - "prettier*"
@@ -34,7 +33,6 @@ updates:
         exclude-patterns:
           - "@types/*"
           - "typescript"
-          - "tsx"
           - "vitest"
           - "eslint*"
           - "prettier*"

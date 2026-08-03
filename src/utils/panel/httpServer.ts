@@ -34,6 +34,7 @@ import {
 import * as tpm from "./tpmService";
 import * as help from "./helpService";
 import type { PanelSession, PanelStatusSnapshot } from "./types";
+import { getMenuButtonState } from "./menuButton";
 
 const WEBAPP_DIR = path.join(__dirname, "webapp");
 const MIME: Record<string, string> = {
@@ -148,6 +149,7 @@ async function buildStatus(): Promise<PanelStatusSnapshot> {
   const cfg = await readPanelConfig();
   const ownerId = await getOwnerId();
   const { isBotRunning } = require("./botService");
+  const mb = getMenuButtonState();
   return {
     enabled: cfg.enabled,
     botConfigured: !!cfg.botToken,
@@ -160,6 +162,9 @@ async function buildStatus(): Promise<PanelStatusSnapshot> {
     version: readDisplayVersion(),
     pluginCount: (await help.listLoadedPlugins()).length,
     commandCount: listCommands().length,
+    menuButtonBound: mb.bound,
+    menuButtonUrl: mb.url,
+    menuButtonError: mb.error,
   };
 }
 

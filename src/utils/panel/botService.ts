@@ -8,13 +8,15 @@ import { logger } from "@utils/logger";
 import { readPanelConfig } from "./configStore";
 import { isPanelAdminUser } from "./auth";
 import { getOwnerId } from "./owner";
+import { webAppUrl } from "./menuButton";
 
 let bot: Telegraf | null = null;
 let botTokenRunning = "";
 let launchPromise: Promise<void> | null = null;
 
-function webAppUrl(base: string): string {
-  return base.replace(/\/+$/, "") + "/";
+/** 暴露当前运行的 Telegraf 实例（供 menuButton 模块按需调用 Bot API）。 */
+export function getTelegrafInstance(): Telegraf | null {
+  return bot;
 }
 
 function buildOpenKeyboard(baseUrl: string) {
