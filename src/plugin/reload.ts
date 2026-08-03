@@ -279,7 +279,7 @@ class ReloadPlugin extends Plugin {
         const runtime = await reloadRuntime();
         const loadTime = Date.now() - startTime;
         try {
-          const { noteReloadCompleted } = require("./health");
+          const { noteReloadCompleted } = require("./memory");
           await noteReloadCompleted();
         } catch (e) {
           console.warn("[RELOAD] noteReloadCompleted:", e);
