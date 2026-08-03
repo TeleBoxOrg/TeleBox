@@ -261,7 +261,7 @@
               <div class="info-value">@${escape(me.username || "-")} <span class="muted">(${escape(String(me.id))})</span></div>
             </div>
             <div class="info-row">
-              <div class="info-icon"><span class="material-icons-round">shield_person</span></div>
+              <div class="info-icon"><span class="material-icons-round">verified_user</span></div>
               <div class="info-label">角色</div>
               <div class="info-value">${me.isOwner ? '<span class="badge ok">Owner</span>' : '<span class="badge">Admin</span>'}</div>
             </div>
