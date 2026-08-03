@@ -278,7 +278,7 @@ async function startFreshRuntime(): Promise<TeleBoxRuntime> {
     // progress before the restart.
     void (async () => {
       try {
-        const mod = require("../plugin/autofix") as {
+        const mod = require("../plugin/update") as {
           resumeAutofix?: () => Promise<void>;
         };
         await mod.resumeAutofix?.();
