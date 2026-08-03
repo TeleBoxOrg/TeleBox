@@ -11,8 +11,13 @@ import { logger } from "@utils/logger";
 
 let tunnelProc: ChildProcess | null = null;
 let capturedUrl: string | null = null;
-let urlResolve: ((url: string) => void) | null = null;
 let starting = false;
+let stopping = false;
+let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let autoReconnectAttempt = 0;
+let lastPort = 8787;
+const AUTO_RECONNECT_BASE_MS = 5000;
+const AUTO_RECONNECT_MAX_MS = 60000;
 
 const ASSETS_DIR = path.join(process.cwd(), "assets", "panel", "cloudflared");
 const BINARY_PATH = path.join(ASSETS_DIR, "cloudflared");
@@ -149,8 +154,10 @@ export async function startTunnel(port: number): Promise<string> {
     return capturedUrl;
   }
 
+  lastPort = port;
   starting = true;
   stopTunnel(); // Clean up any old process
+  stopping = false; // 必须在 stopTunnel() 之后置 false，否则会被 stopTunnel 重新设回 true，导致 exit 时误判为主动停止、跳过自动重连
 
   const bin = await ensureCloudflared();
   logger.info(`[panel-tunnel] starting cloudflared on port ${port} via ${bin}`);
@@ -183,6 +190,9 @@ export async function startTunnel(port: number): Promise<string> {
 
 async function startTunnelOnce(bin: string, port: number): Promise<string> {
   return new Promise((resolve, reject) => {
+    // 局部 urlResolve：避免模块级单例被上一次启动的 30s 超时回调误清，
+    // 导致新隧道捕获 URL 后 Promise 不 resolve、新链接无法及时持久化/绑定。
+    let urlResolve: ((url: string) => void) | null = null;
     const urlPromise = new Promise<string>((res) => {
       urlResolve = res;
     });
@@ -214,7 +224,15 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
             url = url.replace(/^.*\|\s*/, "").replace(/\s*\|.*$/, "");
             if (url.startsWith("https://")) {
               capturedUrl = url;
+              autoReconnectAttempt = 0;
               logger.info(`[panel-tunnel] captured URL from ${source}: ${capturedUrl}`);
+              // 无论从 data 事件还是 buffer 轮询捕获，都立即 resolve，
+              // 否则 Promise 会一直挂起（要等 30s 超时才继续），
+              // 导致新 URL 不能及时持久化、miniapp 按钮不更新。
+              if (urlResolve) {
+                urlResolve(capturedUrl);
+                urlResolve = null;
+              }
               return true;
             }
           }
@@ -272,6 +290,17 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
         if (!capturedUrl && urlResolve) {
           urlResolve = null;
           reject(new Error(`cloudflared exited with code ${code}`));
+        } else if (capturedUrl) {
+          // 运行中进程意外退出：清掉旧 URL，避免 getTunnelUrl/isTunnelRunning
+          // 返回失效链接，导致下一次 applyPanelRuntimeFromConfig 因 capturedUrl
+          // 非空而误判隧道仍可用，从而不重绑 miniapp 按钮。
+          logger.warn(`[panel-tunnel] tunnel process exited, clearing stale URL: ${capturedUrl}`);
+          capturedUrl = null;
+        }
+        // 意外退出（非主动 stopTunnel）时自动重连，并在拿到新 URL 后由
+        // controller 统一重绑 miniapp 按钮，无需手动执行命令。
+        if (!stopping) {
+          scheduleAutoReconnect();
         }
       });
 
@@ -325,6 +354,11 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
 }
 
 export function stopTunnel(): void {
+  stopping = true;
+  if (autoReconnectTimer) {
+    clearTimeout(autoReconnectTimer);
+    autoReconnectTimer = null;
+  }
   if (tunnelProc && !tunnelProc.killed) {
     try {
       tunnelProc.kill("SIGTERM");
@@ -335,6 +369,33 @@ export function stopTunnel(): void {
   }
   capturedUrl = null;
   starting = false;
+}
+
+/** 意外退出后按退避间隔调度自动重连（通过 controller 重启隧道并重绑按钮） */
+function scheduleAutoReconnect(): void {
+  if (autoReconnectTimer) return;
+  const delay = Math.min(
+    AUTO_RECONNECT_BASE_MS * Math.pow(2, autoReconnectAttempt),
+    AUTO_RECONNECT_MAX_MS,
+  );
+  autoReconnectAttempt++;
+  logger.warn(
+    `[panel-tunnel] scheduling auto-reconnect in ${delay}ms (attempt ${autoReconnectAttempt})`,
+  );
+  autoReconnectTimer = setTimeout(() => {
+    autoReconnectTimer = null;
+    autoReconnectAttempt = 0;
+    try {
+      const { applyPanelRuntimeFromConfig } = require("./controller");
+      applyPanelRuntimeFromConfig().catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.error(`[panel-tunnel] auto-reconnect apply failed: ${msg}`);
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error(`[panel-tunnel] auto-reconnect scheduling failed: ${msg}`);
+    }
+  }, delay);
 }
 
 export function getTunnelUrl(): string | null {

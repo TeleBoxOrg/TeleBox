@@ -143,7 +143,11 @@ export async function applyPanelRuntimeFromConfig(): Promise<{
     // startPanelBot 在 botTokenRunning === cfg.botToken 时会早返回（URL 改了但
     // token 没改），而我们仍然需要重绑 ☰ 按钮。同时也覆盖 enabled=true 路径下的
     // 首次绑定 / 清空 URL 退化为清除 / 非 https 校验失败状态。
-    await applyMenuButton(getTelegrafInstance(), cfg);
+    // 注意：startTunnelRobust 可能在步骤 4 通过 persistTunnelUrl 更新了
+    // publicBaseUrl（隧道 URL 变动后），这里必须重新读取最新配置，否则
+    // applyMenuButton 会继续用旧 URL 绑定按钮，导致 miniapp 入口不更新。
+    const latestCfg = await readPanelConfig();
+    await applyMenuButton(getTelegrafInstance(), latestCfg);
 
     const meta = getHttpMeta();
     return {

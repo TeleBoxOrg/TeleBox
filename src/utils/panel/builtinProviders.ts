@@ -229,14 +229,17 @@ function registerAlias(): void {
         const { AliasDB } = require("@utils/aliasDB") as {
           AliasDB: new () => {
             list: () => Array<{ original: string; final: string }>;
-            add: (o: string, f: string) => void;
-            remove: (o: string) => void;
+            set: (o: string, f: string) => void;
+            del: (o: string) => boolean;
             close: () => void;
           };
         };
         const db = new AliasDB();
         try {
-          return { entries: JSON.stringify(db.list(), null, 2) };
+          const list = db.list();
+          const entriesMap: Record<string, string> = {};
+          for (const e of list) entriesMap[e.original] = e.final;
+          return { entries: JSON.stringify(entriesMap, null, 2) };
         } finally {
           db.close();
         }
@@ -249,8 +252,8 @@ function registerAlias(): void {
         const { AliasDB } = require("@utils/aliasDB") as {
           AliasDB: new () => {
             list: () => Array<{ original: string; final: string }>;
-            add: (o: string, f: string) => void;
-            remove: (o: string) => void;
+            set: (o: string, f: string) => void;
+            del: (o: string) => boolean;
             close: () => void;
           };
         };
@@ -259,9 +262,9 @@ function registerAlias(): void {
           const entries = JSON.parse(String(patch.entries || "{}")) as Record<string, string>;
           // Clear and rebuild
           const current = db.list();
-          current.forEach((e) => db.remove(e.original));
+          current.forEach((e) => db.del(e.original));
           Object.entries(entries).forEach(([o, f]) => {
-            if (typeof f === "string") db.add(o, f);
+            if (typeof f === "string") db.set(o, f);
           });
         } finally {
           db.close();
