@@ -125,7 +125,7 @@ function registerPanelSelf(): void {
       }
       await updatePanelConfig(next as Parameters<typeof updatePanelConfig>[0]);
       // Hot-apply runtime via controller (dynamic import avoids cycle).
-      const { applyPanelRuntimeFromConfig } = await import("./controller");
+      const { applyPanelRuntimeFromConfig } = require("./controller");
       await applyPanelRuntimeFromConfig();
     },
   });
@@ -423,7 +423,7 @@ function registerTpm(): void {
     ],
     getValues: async () => {
       try {
-        const { tpmGetSource } = await import("./tpmService");
+        const { tpmGetSource } = require("./tpmService");
         const src = await tpmGetSource();
         return { customSourceUrl: src.custom || "", clearCustomSource: false };
       } catch {
@@ -431,7 +431,7 @@ function registerTpm(): void {
       }
     },
     setValues: async (patch: Record<string, unknown>) => {
-      const { tpmSetSource, tpmClearSource } = await import("./tpmService");
+      const { tpmSetSource, tpmClearSource } = require("./tpmService");
       const url = String(patch.customSourceUrl || "").trim();
       if (patch.clearCustomSource === true) {
         await tpmClearSource();

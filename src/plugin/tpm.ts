@@ -1511,7 +1511,7 @@ export async function updateAllPlugins(
     if (silent) {
       if (updatedCount > 0) {
         try {
-          const { loadPlugins } = await import("@utils/pluginManager");
+          const { loadPlugins } = require("@utils/pluginManager");
           await loadPlugins();
         } catch (e) {
           console.error("[TPM] silent reload failed:", e);

@@ -147,7 +147,7 @@ async function requireSession(
 async function buildStatus(): Promise<PanelStatusSnapshot> {
   const cfg = await readPanelConfig();
   const ownerId = await getOwnerId();
-  const { isBotRunning } = await import("./botService");
+  const { isBotRunning } = require("./botService");
   return {
     enabled: cfg.enabled,
     botConfigured: !!cfg.botToken,
@@ -225,7 +225,7 @@ async function persistTunnelUrl(tunnelUrl: string, cfgPort: number): Promise<voi
 /** Robust tunnel start with retries and URL persistence */
 export async function startTunnelRobust(port: number, attempt = 1): Promise<string | null> {
   try {
-    const { startTunnel } = await import("./cloudflareTunnel");
+    const { startTunnel } = require("./cloudflareTunnel");
     const url = await startTunnel(port);
     if (url) {
       await persistTunnelUrl(url, port);
@@ -455,7 +455,7 @@ async function routeApi(
   // ---- Panel config (owner) ----
   if (method === "GET" && p === "/api/config") {
     const cfg = await readPanelConfig();
-    const { isTunnelRunning, getTunnelUrl } = await import("./cloudflareTunnel");
+    const { isTunnelRunning, getTunnelUrl } = require("./cloudflareTunnel");
     return {
       status: 200,
       body: {
@@ -486,9 +486,9 @@ async function routeApi(
     const cfg = await updatePanelConfig(
       body as Parameters<typeof updatePanelConfig>[0],
     );
-    const { applyPanelRuntimeFromConfig } = await import("./controller");
+    const { applyPanelRuntimeFromConfig } = require("./controller");
     await applyPanelRuntimeFromConfig();
-    const { isTunnelRunning, getTunnelUrl } = await import("./cloudflareTunnel");
+    const { isTunnelRunning, getTunnelUrl } = require("./cloudflareTunnel");
     return {
       status: 200,
       body: {

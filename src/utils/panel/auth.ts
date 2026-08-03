@@ -156,7 +156,7 @@ export async function isPanelAdminUser(userId: number): Promise<{
   isOwner: boolean;
   reason?: string;
 }> {
-  const { getOwnerId } = await import("./owner");
+  const { getOwnerId } = require("./owner");
   const ownerId = await getOwnerId();
   if (ownerId != null && userId === ownerId) {
     return { allowed: true, isOwner: true };

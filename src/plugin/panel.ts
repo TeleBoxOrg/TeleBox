@@ -75,7 +75,7 @@ async function statusText(): Promise<string> {
   const cfg = await readPanelConfig();
   const ownerId = await getOwnerId();
   const meta = getHttpMeta();
-  const { isTunnelRunning, getTunnelUrl } = await import("@utils/panel/cloudflareTunnel");
+  const { isTunnelRunning, getTunnelUrl } = require("@utils/panel/cloudflareTunnel");
   const tunnelRunning = isTunnelRunning();
   const tunnelUrl = getTunnelUrl();
   const lines = [
@@ -262,7 +262,7 @@ class PanelPlugin extends Plugin {
           }
           if (action === "status" || action === "st" || !action) {
             const cfg = await readPanelConfig();
-            const { isTunnelRunning, getTunnelUrl } = await import("@utils/panel/cloudflareTunnel");
+            const { isTunnelRunning, getTunnelUrl } = require("@utils/panel/cloudflareTunnel");
             const running = isTunnelRunning();
             const url = getTunnelUrl();
             await msg.edit({

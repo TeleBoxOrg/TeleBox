@@ -97,7 +97,7 @@ export async function applyPanelRuntimeFromConfig(): Promise<{
     // Only proceed with tunnel/bot if botToken is configured
     if (cfg.botToken) {
       // Import startTunnelRobust dynamically to avoid circular dependency
-      const { startTunnelRobust } = await import("./httpServer");
+      const { startTunnelRobust } = require("./httpServer");
       
       if (cfg.tunnelMode === "cloudflare") {
         // Start tunnel robustly with retries
