@@ -5,6 +5,7 @@ import { promisify } from "util";
 import { Api } from "teleproto";
 import { npm_install_project_dependencies } from "@utils/npm_install";
 import { getGlobalClient } from "@utils/runtimeManager";
+import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import { executeExit } from "./reload";
 import { updateAllPlugins } from "./tpm";
 import * as fs from "fs";
@@ -41,6 +42,48 @@ function saveAutoUpdateState(state: AutoUpdateState): void {
     fs.writeFileSync(AUTO_UPDATE_STATE_FILE, JSON.stringify(state), "utf8");
   } catch (e: any) {
     console.error("[auto-update] 保存状态文件失败:", e?.message || e);
+  }
+}
+
+// ── Autofix state (cross-restart) ───────────────────────────────────────
+// autofix spans a restart: steps 1-3 (dedupe / reset / restart) run on the
+// OLD process; steps 4-5 (plugin update / summary) run on the NEW process.
+const AUTOFIX_STATE_FILE = path.join(os.homedir(), ".telebox", "autofix.json");
+
+interface AutofixState {
+  chatId: string;
+  msgId: number;
+  startTime: number;
+  removed: string[];
+}
+
+function saveAutofixState(state: AutofixState): void {
+  try {
+    fs.mkdirSync(path.dirname(AUTOFIX_STATE_FILE), { recursive: true });
+    fs.writeFileSync(AUTOFIX_STATE_FILE, JSON.stringify(state), "utf8");
+  } catch (e) {
+    console.error("[autofix] 保存状态失败:", e);
+  }
+}
+
+function loadAutofixState(): AutofixState | null {
+  try {
+    if (!fs.existsSync(AUTOFIX_STATE_FILE)) return null;
+    const raw = JSON.parse(fs.readFileSync(AUTOFIX_STATE_FILE, "utf8"));
+    if (raw && typeof raw.chatId === "string" && typeof raw.msgId === "number") {
+      return raw as AutofixState;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function clearAutofixState(): void {
+  try {
+    if (fs.existsSync(AUTOFIX_STATE_FILE)) fs.unlinkSync(AUTOFIX_STATE_FILE);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -109,6 +152,246 @@ function getErrorMessage(error: any): string {
   if (!error) return "未知错误";
   const errObj = error as Record<string, unknown>;
   return (errObj.stderr as string) || (errObj.message as string) || String(error);
+}
+
+// ── Version check ──────────────────────────────────────────────────────
+const EDITION_LABEL = "TeleBox";
+
+/** true=有更新, false=已最新, null=无法检测 */
+async function checkMainRepoUpdate(): Promise<boolean | null> {
+  try {
+    const branchInfo = await findMainBranch();
+    if (!branchInfo) return null;
+    const { remote, branch } = branchInfo;
+    await gitExec(["fetch", remote, branch]);
+    const { stdout } = await gitExec(["rev-list", "--count", `HEAD..${remote}/${branch}`]);
+    const behind = parseInt(stdout.trim(), 10);
+    if (Number.isNaN(behind)) return null;
+    return behind > 0;
+  } catch {
+    return null;
+  }
+}
+
+// ── Plugin freshness ───────────────────────────────────────────────────
+interface PluginRecord {
+  url: string;
+  desc?: string;
+  _updatedAt?: number;
+}
+
+function loadPluginDb(): Record<string, PluginRecord> {
+  try {
+    const dbPath = path.join(process.cwd(), "assets", "tpm", "plugins.json");
+    if (!fs.existsSync(dbPath)) return {};
+    return JSON.parse(fs.readFileSync(dbPath, "utf8")) || {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeGithubUrl(input: string): string {
+  try {
+    const parsed = new URL(input);
+    if (parsed.hostname === "github.com") {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 5 && parts[2] === "blob") {
+        const [owner, repo, , branch, ...rest] = parts;
+        return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${rest.join("/")}`;
+      }
+      return input;
+    }
+    if (parsed.hostname === "raw.githubusercontent.com") {
+      parsed.search = "";
+      return parsed.toString();
+    }
+    return input;
+  } catch {
+    return input;
+  }
+}
+
+async function fetchText(url: string, timeoutMs = 15000): Promise<string | null> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), timeoutMs);
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      headers: { "User-Agent": "TeleBox-Version/1.0" },
+    });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
+
+/** true=有更新, false=已最新, null=无法检测 */
+async function checkPluginsUpdate(): Promise<boolean | null> {
+  const db = loadPluginDb();
+  const pending = Object.keys(db).filter((n) => db[n]?.url);
+  if (pending.length === 0) return false;
+
+  let outdated = false;
+  let checked = 0;
+  let hadError = false;
+  let idx = 0;
+
+  const worker = async (): Promise<void> => {
+    while (idx < pending.length && !outdated) {
+      const name = pending[idx++];
+      const rec = db[name];
+      const filePath = path.join(process.cwd(), "plugins", `${name}.ts`);
+      if (!fs.existsSync(filePath)) continue;
+      const remote = await fetchText(normalizeGithubUrl(rec.url));
+      if (remote == null) {
+        hadError = true;
+        continue;
+      }
+      checked++;
+      const local = fs.readFileSync(filePath, "utf8");
+      if (local !== remote) {
+        outdated = true;
+        return;
+      }
+    }
+  };
+
+  const CONCURRENCY = 6;
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, pending.length) }, () => worker()),
+  );
+
+  if (outdated) return true;
+  if (checked === 0 && hadError) return null;
+  return false;
+}
+
+async function handleVersion(msg: Api.Message): Promise<void> {
+  await msg.edit({ text: "🔍 正在检查版本..." });
+
+  const display = readDisplayVersion();
+  const [mainUpdate, pluginUpdate] = await Promise.all([
+    checkMainRepoUpdate(),
+    checkPluginsUpdate(),
+  ]);
+
+  const mainLine =
+    mainUpdate === true
+      ? `本体有更新可用，使用 <code>${mainPrefix}update</code> 更新`
+      : mainUpdate === false
+        ? "本体已是最新版本"
+        : "本体更新状态未知（请检查网络或 git 远程）";
+
+  const pluginLine =
+    pluginUpdate === true
+      ? `插件有更新可用，使用 <code>${mainPrefix}tpm update</code> 更新`
+      : pluginUpdate === false
+        ? "插件已是最新版本"
+        : "插件更新状态未知";
+
+  const text =
+    `<b>${EDITION_LABEL} v${display}</b>\n\n` +
+    `${mainLine}\n\n` +
+    `${pluginLine}`;
+
+  await msg.edit({ text, parseMode: "html" });
+}
+
+// ── Autofix: remove colliding plugins ──────────────────────────────────
+function removeCollidingPlugins(): string[] {
+  const userDir = path.join(process.cwd(), "plugins");
+  const sysDir = path.join(process.cwd(), "src", "plugin");
+  if (!fs.existsSync(userDir) || !fs.existsSync(sysDir)) return [];
+
+  const sysNames = new Set(
+    fs.readdirSync(sysDir)
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => path.basename(f, ".ts")),
+  );
+
+  const removed: string[] = [];
+  for (const f of fs.readdirSync(userDir)) {
+    if (!f.endsWith(".ts")) continue;
+    const name = path.basename(f, ".ts");
+    if (sysNames.has(name)) {
+      try {
+        fs.unlinkSync(path.join(userDir, f));
+        removed.push(name);
+        console.log(`[autofix] 移除与系统插件重名的插件: ${name}`);
+      } catch (e) {
+        console.warn(`[autofix] 移除插件 ${name} 失败:`, e);
+      }
+    }
+  }
+  return removed;
+}
+
+// ── Autofix: post-restart resume (steps 4-5) ───────────────────────────
+/** Called from runtimeManager once the new runtime is fully online. */
+export async function resumeAutofix(): Promise<void> {
+  const state = loadAutofixState();
+  if (!state) return;
+  clearAutofixState();
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const fakeMsg = { chatId: state.chatId, id: state.msgId } as any;
+    await updateAllPlugins(fakeMsg, { silent: true });
+
+    const elapsedMs = Date.now() - state.startTime;
+    const client = await getGlobalClient();
+    await client.editMessage(state.chatId, {
+      message: state.msgId,
+      text: `✅ 修复成功，用时 ${elapsedMs}ms`,
+    });
+    console.log(`[autofix] 修复完成，用时 ${elapsedMs}ms`);
+  } catch (e) {
+    console.error("[autofix] 重启后续步骤失败:", e);
+    try {
+      const client = await getGlobalClient();
+      await client.editMessage(state.chatId, {
+        message: state.msgId,
+        text: `❌ 修复过程出错：${getErrorMessage(e) || String(e)}`,
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+// ── Autofix: command entry (steps 1-3) ─────────────────────────────────
+async function handleAutofix(msg: Api.Message): Promise<void> {
+  const startTime = Date.now();
+  await msg.edit({ text: "🔧 正在修复：移除重名插件…" });
+
+  try {
+    const removed = removeCollidingPlugins();
+
+    await msg.edit({ text: "🔧 正在修复：同步远程代码…" });
+    await gitExec(["fetch", "origin"]);
+    await gitExec(["reset", "--hard", "origin/main"]);
+
+    const chatId = msg.chatId != null ? String(msg.chatId) : (msg.peerId != null ? String(msg.peerId) : null);
+    if (chatId == null || msg.id == null) {
+      throw new Error("无法定位当前消息，无法记录修复状态");
+    }
+    saveAutofixState({ chatId, msgId: msg.id, startTime, removed });
+
+    await msg.edit({ text: "🔧 代码已同步，正在重启并更新插件…" });
+    console.log("[autofix] 步骤 1-3 完成，重启进程…");
+    process.exit(0);
+  } catch (error: unknown) {
+    clearAutofixState();
+    const detail = getErrorMessage(error) || String(error);
+    console.error("[autofix] 修复失败:", detail);
+    try {
+      await msg.edit({ text: `❌ 修复失败：${detail}` });
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 
@@ -504,11 +787,23 @@ class UpdatePlugin extends Plugin {
   description: string =
     `更新项目：拉取最新代码并安装依赖\n` +
     `<code>${mainPrefix}update -f/-force</code> 强制更新（package.json 变更时自动启用）\n` +
-    `<code>${mainPrefix}update auto on</code> / <code>off</code> 自动更新开关（默认关闭）`;
+    `<code>${mainPrefix}update auto on</code> / <code>off</code> 自动更新开关（默认关闭）\n` +
+    `<code>${mainPrefix}update autofix</code> 一键修复：移除重名插件 → 硬同步远程代码 → 重启 → 更新插件\n` +
+    `<code>${mainPrefix}update ver</code> / <code>version</code> 查看当前版本`;
 
   cmdHandlers: Record<string, (msg: Api.Message) => Promise<void>> = {
     update: async (msg) => {
       const parts = msg.message.slice(1).split(" ").slice(1);
+
+      if (parts[0] === "autofix") {
+        await handleAutofix(msg);
+        return;
+      }
+
+      if (parts[0] === "ver" || parts[0] === "version") {
+        await handleVersion(msg);
+        return;
+      }
 
       if (parts[0] === "auto") {
         const sub = parts[1]?.toLowerCase();
