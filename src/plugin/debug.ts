@@ -323,7 +323,7 @@ class DebugPlugin extends Plugin {
           })
         );
       }
-      await msg.delete();
+      await msg.delete({ revoke: false });
     },
   };
 }

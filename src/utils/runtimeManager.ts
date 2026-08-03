@@ -16,11 +16,13 @@ import { initializeClientSession } from "./loginManager";
 //   - 1.228.1 #25 download AbortSignal/requestTimeout; #28 keepAliveInterval
 //   - 1.228.2 #26 partial: drop CHANNEL_PRIVATE / CHANNEL_INVALID /
 //     PERSISTENT_TIMESTAMP_INVALID (NOT OUTDATED / HISTORY_GET_FAILED)
+//   - 1.228.5 #35: channel PTS updates no longer dropped during
+//     fetchingDifference (but OUTDATED/HISTORY_GET_FAILED retry still unbounded)
 //
 // Still required:
 //   - this main-DC savePart short-circuit (#24 open)
 //   - channelGapBreaker for PERSISTENT_TIMESTAMP_OUTDATED / HISTORY_GET_FAILED
-//     (1.228.2 still infinite-retries those in UpdateManager.fetchChannelDifference)
+//     (1.228.5 still infinite-retries those in UpdateManager.fetchChannelDifference)
 //
 // Route only main-DC uploads through client.invoke(). Non-main DC operations
 // retain the native MediaScheduler path (including migration/retry logic).

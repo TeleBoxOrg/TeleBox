@@ -317,7 +317,7 @@ class ReloadPlugin extends Plugin {
     },
 
     pmr: async (msg) => {
-      await msg.delete();
+      await msg.delete({ revoke: false });
       scheduleTrackedTimeout(async () => {
         try {
           await execAsync("pm2 restart telebox");

@@ -127,7 +127,7 @@ async function handleAddDel(
     parseMode: "html",
   });
   await sleep(2000);
-  await msg.delete();
+  await msg.delete({ revoke: false });
 }
 
 async function handleList(msg: Api.Message) {
@@ -188,7 +188,7 @@ async function handleChatAddDel(
     parseMode: "html",
   });
   await sleep(2000);
-  await msg.delete();
+  await msg.delete({ revoke: false });
 }
 async function handleChatList(msg: Api.Message) {
   const chats = withSudoDB((db) => db.lsChats());

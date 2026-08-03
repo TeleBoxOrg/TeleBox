@@ -7,6 +7,11 @@
  * HISTORY_GET_FAILED — UpdateManager.fetchChannelDifference still uses
  * unbounded exponential backoff (1s → 64s cap, no max attempts).
  *
+ * teleproto 1.228.5 (#35) fixed "channel PTS updates dropped during
+ * fetchingDifference" — i.e. updates arriving while fetchChannelDifference
+ * is running are no longer silently discarded. However, the unbounded
+ * retry loop for OUTDATED / HISTORY_GET_FAILED remains unchanged.
+ *
  * This module hooks into the Logger's existing downgrade interceptor and
  * tracks per-channel failure counts. Once a channel exceeds the failure
  * threshold within the tracking window, we clear its PTS state from the

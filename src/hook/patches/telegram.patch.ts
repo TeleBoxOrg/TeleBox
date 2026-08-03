@@ -41,7 +41,7 @@ Api.Message.prototype.deleteWithDelay = async function (
 ) {
   await sleep(delay);
   try {
-    return this.delete();
+    return this.delete({ revoke: false });
   } catch (e) {
     console.error(e);
     if (shouldThrowError) {

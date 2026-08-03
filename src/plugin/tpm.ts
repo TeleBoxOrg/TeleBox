@@ -1064,9 +1064,9 @@ async function uploadPlugin(args: string[], msg: Api.Message) {
   await msg.client?.sendFile(msg.peerId, sendOptions);
   
   if (statusMsg.id !== msg.id) {
-    await statusMsg.delete();
+    await statusMsg.delete({ revoke: false });
   } else {
-    await msg.delete();
+    await msg.delete({ revoke: false });
   }
 }
 
