@@ -24,7 +24,7 @@ fs.mkdirSync(path.dirname(lsFile), { recursive: true });
 const nodeVersion = process.versions.node.split('.').map(Number);
 const majorVersion = nodeVersion[0];
 
-const tsxCli = path.join(root, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+const esbuildRegister = path.join(__dirname, 'esbuild-register.cjs');
 const entryArgs = process.argv.slice(2);
 if (entryArgs.length === 0) {
   console.error('usage: node scripts/run-tsx.cjs <script.ts> [args...]');
@@ -40,9 +40,29 @@ if (majorVersion >= 22) {
   env.NODE_OPTIONS = existing ? `${existing} ${flag}` : flag;
 }
 
+// Limit V8 heap to 192 MB and expose gc() for the health plugin.
+// Without this, V8 can grow heap unbounded during active channel hours.
+const heapFlags = '--max-old-space-size=192 --expose-gc';
+const existingOpts = (env.NODE_OPTIONS || '').trim();
+env.NODE_OPTIONS = existingOpts ? `${existingOpts} ${heapFlags}` : heapFlags;
+
+// Use esbuild-register instead of tsx to eliminate heap waste from
+// inline source maps, CJS polyfill duplication, and source string retention.
+// Precompile plugins to shared-helpers cache if cache is missing.
+const cacheDir = path.join(root, '.plugin-cache');
+if (!fs.existsSync(path.join(cacheDir, 'cjs-helpers.js'))) {
+  console.log('[run-tsx] Plugin cache missing, precompiling...');
+  const pre = spawnSync(process.execPath, [path.join(__dirname, 'precompile-plugins.cjs')], {
+    cwd: root, stdio: 'inherit',
+  });
+  if (pre.status !== 0) {
+    console.error('[run-tsx] Precompile failed, continuing with on-the-fly compilation');
+  }
+}
+
 const r = spawnSync(
   process.execPath,
-  [tsxCli, '-r', 'tsconfig-paths/register', ...entryArgs],
+  ['-r', 'tsconfig-paths/register', '-r', esbuildRegister, ...entryArgs],
   { cwd: root, env, stdio: 'inherit' }
 );
 process.exit(r.status === null ? 1 : r.status);
