@@ -66,6 +66,9 @@ const CACHE_PURGE_EXCLUDE = new Set<string>([
   // referenced different module instances.
   path.resolve(PROJECT_ROOT, "src/utils/channelGapBreaker.ts"),
   path.resolve(PROJECT_ROOT, "src/utils/channelGapBreaker.js"),
+  // Shared CJS helpers used by precompiled plugins. Purging this on reload
+  // is harmless (stateless) but wasteful — every plugin re-require()s it.
+  path.resolve(PROJECT_ROOT, "scripts/cjs-helpers.js"),
 ]);
 
 let prefixes = [".", "。", "$"];
