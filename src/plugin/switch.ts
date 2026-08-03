@@ -68,7 +68,7 @@ const T = {
       `在 TeleBox 和 TeleBox-Next 之间切换。`,
       `session 直接转换，不用重新登录。`,
       `两版默认放在同级目录：telebox 与 telebox-next（或 telebox-classic）。`,
-      `也兼容嵌套布局：telebox/telebox-classic 与 telebox/telebox-next。`,
+      `嵌套布局会在切换时自动转为扁平同级目录。`,
       ``,
       `两个子命令：`,
       ``,
