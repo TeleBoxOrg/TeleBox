@@ -44,7 +44,6 @@
     "@vitalets/google-translate-api": "^9.2.1",
     "archiver": "^8.0.0",
     "axios": "^1.19.0",
-    "esbuild": "^0.28.1",
     "better-sqlite3": "^13.0.2",
     "canvas": "^3.2.1",
     "cheerio": "^1.2.0",
@@ -52,6 +51,7 @@
     "dayjs": "^1.11.18",
     "dotenv": "^17.2.2",
     "emoji-db": "^16.0.1",
+    "esbuild": "^0.28.1",
     "jimp": "^1.6.1",
     "js-yaml": "^5.2.1",
     "lodash": "^4.17.21",
@@ -70,5 +70,9 @@
     "teleproto": "^1.228.4",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^7.0.2"
+  },
+  "devDependencies": {
+    "esbuild-register": "^3.6.0",
+    "tsx": "^4.23.5"
   }
 }
