@@ -175,39 +175,103 @@
     try {
       const [status, me, config] = await Promise.all([get("/status"), get("/me"), get("/config")]);
       const card = $("#home-status");
+
+      // Status icon class
+      let statusClass = "err", statusText = "关闭";
+      if (status.enabled) {
+        if (status.botRunning && status.httpRunning) { statusClass = "ok"; statusText = "全部运行中"; }
+        else if (status.botRunning) { statusClass = "warn"; statusText = "Bot运行 / HTTP停止"; }
+        else if (status.httpRunning) { statusClass = "warn"; statusText = "HTTP运行 / Bot停止"; }
+        else { statusClass = "err"; statusText = "已启用但服务未运行"; }
+      }
+
+      // Tunnel info
+      let tunnelText = "关闭";
+      if (config.tunnelRunning && (config.tunnelCurrentUrl || config.tunnelUrl)) {
+        tunnelText = config.tunnelCurrentUrl || config.tunnelUrl;
+      } else if (config.tunnelMode === "cloudflare") {
+        tunnelText = "启动中…";
+      } else if (config.tunnelMode === "manual") {
+        tunnelText = "手动模式";
+      }
+
       const stats = [
         { label: "版本", value: escape(status.version || "-") },
         { label: "命令数", value: status.commandCount ?? "-" },
         { label: "插件数", value: status.pluginCount ?? "-" },
         { label: "管理员", value: status.adminCount ?? "-" },
-        { label: "Owner", value: status.ownerId ? escape(String(status.ownerId)) : "未知" },
       ].map(s => `<div class="stat"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join("");
 
-      // Merge Tunnel/Panel/Bot/HTTP into one "面板运行状态"
-      let panelStatus = "❌ 关闭";
-      if (status.enabled) {
-        if (status.botRunning && status.httpRunning) panelStatus = "✅ 全部运行中";
-        else if (status.botRunning) panelStatus = "⚠️ Bot运行 HTTP停止";
-        else if (status.httpRunning) panelStatus = "⚠️ HTTP运行 Bot停止";
-        else panelStatus = "❌ 面板开启但服务未跑";
-      }
-      const tunnelInfo = config.tunnelRunning ? ` 🌐 ${config.tunnelCurrentUrl || config.tunnelUrl}` : (config.tunnelMode === "cloudflare" ? " ⏳ 启动中" : (config.tunnelMode === "manual" ? " 🔧 手动模式" : " ❌ 关闭"));
-
-      const detail = [
-        `HTTP:  ${status.bind || "-"}`,
-        `公网:  ${status.publicBaseUrl || "-"}`,
-        `Bot:   ${status.botConfigured ? "已配置" : "未配置"} ${status.botRunning ? "运行中" : ""}`,
-        `Tunnel: ${config.tunnelMode}${tunnelInfo}`,
-        "",
-        `用户:  @${me.username || "-"} (${me.id})`,
-        me.isOwner ? "角色:  Owner" : "角色:  Admin",
-      ].join("\n");
-
       card.innerHTML = `
-        <div class="card-title">概览</div>
-        <div class="stats">${stats}</div>
-        <div class="card-title" style="margin-top:16px">面板运行状态: ${panelStatus}</div>
-        <pre class="mono">${escape(detail)}</pre>
+        <!-- Hero -->
+        <div class="hero-card">
+          <div class="hero-row">
+            <img src="/logo-circle.png" alt="" class="hero-logo" width="56" height="56" />
+            <div class="hero-info">
+              <div class="hero-title">${escape(status.displayName || "TeleBox Panel")}</div>
+              <div class="hero-sub">@${escape(me.username || "-")} · ${me.isOwner ? "Owner" : "Admin"}</div>
+            </div>
+          </div>
+          <div class="hero-status">
+            <span class="status-dot ${statusClass}"></span>
+            ${escape(statusText)}
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="card info-card elevation-1">
+          <div class="info-section-title">系统概览</div>
+          <div class="stats">${stats}</div>
+        </div>
+
+        <!-- Service Info -->
+        <div class="card info-card elevation-1">
+          <div class="info-section-title">服务状态</div>
+          <div class="info-rows">
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">lan</span></div>
+              <div class="info-label">HTTP</div>
+              <div class="info-value mono">${escape(status.bind || "-")}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">public</span></div>
+              <div class="info-label">公网</div>
+              <div class="info-value mono">${escape(status.publicBaseUrl || "-")}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">smart_toy</span></div>
+              <div class="info-label">Bot</div>
+              <div class="info-value">${status.botConfigured ? "已配置" : "未配置"} · ${status.botRunning ? '<span class="badge ok">运行中</span>' : '<span class="badge err">停止</span>'}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">vpn_lock</span></div>
+              <div class="info-label">Tunnel</div>
+              <div class="info-value mono">${escape(config.tunnelMode || "-")} · ${escape(tunnelText)}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- User Info -->
+        <div class="card info-card elevation-1">
+          <div class="info-section-title">用户信息</div>
+          <div class="info-rows">
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">person</span></div>
+              <div class="info-label">用户</div>
+              <div class="info-value">@${escape(me.username || "-")} <span class="muted">(${escape(String(me.id))})</span></div>
+            </div>
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">shield_person</span></div>
+              <div class="info-label">角色</div>
+              <div class="info-value">${me.isOwner ? '<span class="badge ok">Owner</span>' : '<span class="badge">Admin</span>'}</div>
+            </div>
+            <div class="info-row">
+              <div class="info-icon"><span class="material-icons-round">key</span></div>
+              <div class="info-label">Owner</div>
+              <div class="info-value mono">${status.ownerId ? escape(String(status.ownerId)) : "未知"}</div>
+            </div>
+          </div>
+        </div>
       `;
 
       $("#app-title").textContent = status.displayName || "TeleBox Panel";
