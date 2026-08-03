@@ -13,6 +13,18 @@ import { htmlEscape } from "@utils/htmlEscape";
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
 
+// Bounded cache limits to prevent unbounded memory growth
+const LAST_EDIT_MAX = 5000;
+const CHAT_NAME_MAX = 2000;
+
+function setBounded<K, V>(map: Map<K, V>, key: K, value: V, max: number) {
+  if (map.size >= max) {
+    const firstKey = map.keys().next().value;
+    if (firstKey !== undefined) map.delete(firstKey);
+  }
+  map.set(key, value);
+}
+
 interface UserConfig {
   target: string;
   showSource: boolean;
@@ -228,10 +240,10 @@ class SavePlugin extends Plugin {
         (entity as any)?.username;
 
       const resolvedName = title ? String(title) : chatId;
-      this.chatDisplayNameCache.set(chatId, resolvedName);
+      setBounded(this.chatDisplayNameCache, chatId, resolvedName, CHAT_NAME_MAX);
       return resolvedName;
     } catch {
-      this.chatDisplayNameCache.set(chatId, chatId);
+      setBounded(this.chatDisplayNameCache, chatId, chatId, CHAT_NAME_MAX);
       return chatId;
     }
   }
@@ -365,10 +377,10 @@ class SavePlugin extends Plugin {
 
     try {
       await msg.edit({ text: safeText, parseMode: 'html' });
-      this.lastEditText.set(msgId, safeText);
+      setBounded(this.lastEditText, msgId, safeText, LAST_EDIT_MAX);
     } catch (err: any) {
       if (err.message?.includes('MESSAGE_NOT_MODIFIED')) {
-        this.lastEditText.set(msgId, safeText);
+        setBounded(this.lastEditText, msgId, safeText, LAST_EDIT_MAX);
         return;
       }
       throw err;
