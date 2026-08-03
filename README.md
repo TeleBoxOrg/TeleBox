@@ -187,7 +187,7 @@ abstract class Plugin {
 | 语言 | TypeScript | `^5.9.2` |
 | Telegram | Teleproto | `^1.228.2` |
 | 数据库 | better-sqlite3 · lowdb | `^12.2.0` · `^7.0.1` |
-| 运行 | tsx | `^4.22.4` |
+| 运行 | esbuild-register (自研) | 见 `scripts/run-tsx.cjs` |
 | HTTP / 图像 / 工具 | axios · sharp · lodash · cron | 见 `package.json` |
 
 ## 🚀 快速开始

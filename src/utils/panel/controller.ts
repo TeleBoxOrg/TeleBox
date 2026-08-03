@@ -5,8 +5,9 @@
 
 import { logger } from "@utils/logger";
 import { readPanelConfig, updatePanelConfig } from "./configStore";
-import { startHttpServer, stopHttpServer, isHttpRunning, getHttpMeta } from "./httpServer";
-import { startPanelBot, stopPanelBot, isBotRunning } from "./botService";
+import { startHttpServer, stopHttpServer, isHttpRunning, getHttpMeta, startTunnelRobust } from "./httpServer";
+import { startPanelBot, stopPanelBot, isBotRunning, getTelegrafInstance } from "./botService";
+import { applyMenuButton, clearMenuButton } from "./menuButton";
 import {
   registerBuiltinPanelProviders,
   unregisterBuiltinPanelProviders,
@@ -65,6 +66,9 @@ export async function applyPanelRuntimeFromConfig(): Promise<{
     stopTunnel();
 
     if (!cfg.enabled) {
+      // Panel 关闭 → 主动清掉 Chat Menu Button，恢复 Telegram 默认。
+      // 必须在 stopPanelBot 之前调，clearMenuButton 内部会通过 getTelegrafInstance 拿活实例。
+      await clearMenuButton(getTelegrafInstance());
       await stopPanelBot();
       await stopHttpServer();
       return {
@@ -96,9 +100,8 @@ export async function applyPanelRuntimeFromConfig(): Promise<{
     // 4) Handle tunnel mode - robust start with retries + URL persistence
     // Only proceed with tunnel/bot if botToken is configured
     if (cfg.botToken) {
-      // Import startTunnelRobust dynamically to avoid circular dependency
-      const { startTunnelRobust } = require("./httpServer");
-      
+      // startTunnelRobust lives in httpServer to keep tunnel helpers together,
+      // but the controller already imports httpServer above — no runtime cycle.
       if (cfg.tunnelMode === "cloudflare") {
         // Start tunnel robustly with retries
         const tunnelUrl = await startTunnelRobust(cfg.bindPort || 8787);
@@ -135,6 +138,12 @@ export async function applyPanelRuntimeFromConfig(): Promise<{
         logger.error("[panel] bot start failed", e);
       }
     }
+
+    // 6) 显式同步 Chat Menu Button。它必须在 startPanelBot 之外调用，因为
+    // startPanelBot 在 botTokenRunning === cfg.botToken 时会早返回（URL 改了但
+    // token 没改），而我们仍然需要重绑 ☰ 按钮。同时也覆盖 enabled=true 路径下的
+    // 首次绑定 / 清空 URL 退化为清除 / 非 https 校验失败状态。
+    await applyMenuButton(getTelegrafInstance(), cfg);
 
     const meta = getHttpMeta();
     return {

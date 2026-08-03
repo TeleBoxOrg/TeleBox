@@ -36,6 +36,7 @@ import { getOwnerId } from "@utils/panel/owner";
 import { isBotRunning } from "@utils/panel/botService";
 import { isHttpRunning, getHttpMeta } from "@utils/panel/httpServer";
 import { startTunnel, stopTunnel, getTunnelUrl, isTunnelRunning } from "@utils/panel/cloudflareTunnel";
+import { getMenuButtonState } from "@utils/panel/menuButton";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -75,9 +76,14 @@ async function statusText(): Promise<string> {
   const cfg = await readPanelConfig();
   const ownerId = await getOwnerId();
   const meta = getHttpMeta();
-  const { isTunnelRunning, getTunnelUrl } = require("@utils/panel/cloudflareTunnel");
   const tunnelRunning = isTunnelRunning();
   const tunnelUrl = getTunnelUrl();
+  const mb = getMenuButtonState();
+  const menuBtnLine = mb.bound
+    ? `✅ ${htmlEscape(mb.url)}`
+    : mb.error
+      ? `❌ ${htmlEscape(mb.error)}`
+      : "未启用";
   const lines = [
     `<b>🎛️ Panel 状态</b>`,
     `• 开关: ${cfg.enabled ? "✅ 开" : "❌ 关"}`,
@@ -85,6 +91,7 @@ async function statusText(): Promise<string> {
     `• HTTP: ${isHttpRunning() ? `✅ ${meta?.host}:${meta?.port}` : "❌ 未运行"}`,
     `• Tunnel: ${cfg.tunnelMode === "cloudflare" ? (tunnelRunning ? `✅ ${tunnelUrl}` : "⏳ 启动中") : cfg.tunnelMode === "manual" ? "手动模式" : "关闭"}`,
     `• 公网: ${cfg.publicBaseUrl ? htmlEscape(cfg.publicBaseUrl) : "未设置"}`,
+    `• 菜单按钮: ${menuBtnLine}`,
     `• 显示名: ${htmlEscape(cfg.displayName || "TeleBox Panel")}`,
     `• Owner: ${ownerId ?? "未知"}`,
     `• 额外管理员: ${cfg.admins.length} 人`,
@@ -262,7 +269,6 @@ class PanelPlugin extends Plugin {
           }
           if (action === "status" || action === "st" || !action) {
             const cfg = await readPanelConfig();
-            const { isTunnelRunning, getTunnelUrl } = require("@utils/panel/cloudflareTunnel");
             const running = isTunnelRunning();
             const url = getTunnelUrl();
             await msg.edit({

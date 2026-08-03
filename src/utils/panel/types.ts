@@ -106,6 +106,12 @@ export interface PanelStatusSnapshot {
   version: string;
   pluginCount: number;
   commandCount: number;
+  /** 最近一次 setChatMenuButton 是否成功 */
+  menuButtonBound: boolean;
+  /** 已绑定的 https URL；未绑定时为空字符串 */
+  menuButtonUrl: string;
+  /** 最近一次失败原因（成功时无） */
+  menuButtonError?: string;
 }
 
 export interface TpmRemotePlugin {
