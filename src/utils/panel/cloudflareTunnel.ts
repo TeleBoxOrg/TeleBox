@@ -2,6 +2,7 @@
  * TeleBox Panel — Cloudflare Tunnel (cloudflared) manager.
  * Auto-starts cloudflared, captures the trycloudflare.com URL.
  * Auto-downloads cloudflared binary if not present.
+ * Auto-restarts on unexpected exit with exponential backoff.
  */
 
 import { spawn, ChildProcess } from "child_process";
@@ -11,18 +12,58 @@ import { logger } from "@utils/logger";
 
 let tunnelProc: ChildProcess | null = null;
 let capturedUrl: string | null = null;
+let urlResolve: ((url: string) => void) | null = null;
 let starting = false;
-let stopping = false;
-let autoReconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let autoReconnectAttempt = 0;
-let lastPort = 8787;
-const AUTO_RECONNECT_BASE_MS = 5000;
-const AUTO_RECONNECT_MAX_MS = 60000;
+let intentionalStop = false;
+let restartAttempts = 0;
+let restartTimeout: NodeJS.Timeout | null = null;
+const MAX_RESTART_ATTEMPTS = 10;
+const BASE_RESTART_DELAY_MS = 5000;
+const MAX_RESTART_DELAY_MS = 300000; // 5 minutes
 
 const ASSETS_DIR = path.join(process.cwd(), "assets", "panel", "cloudflared");
 const BINARY_PATH = path.join(ASSETS_DIR, "cloudflared");
 const VERSION_FILE = path.join(ASSETS_DIR, "version.txt");
 const DOWNLOAD_URL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64";
+
+/**
+ * Kill orphaned cloudflared tunnel processes from previous bot instances.
+ * When the bot is OOM-killed or crashes, child cloudflared processes are
+ * left running indefinitely, accumulating memory. This scans for any
+ * cloudflared process spawned from our assets directory and kills it.
+ */
+function killOrphanedCloudflared(): void {
+  try {
+    const { execFileSync } = require("child_process");
+    // pgrep matches full command line; our cloudflared is invoked as
+    // "<assets>/panel/cloudflared/cloudflared tunnel --url http://localhost:..."
+    let pids: string[] = [];
+    try {
+      const out = execFileSync("pgrep", ["-f", `${BINARY_PATH} tunnel`], {
+        encoding: "utf-8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+      if (out) pids = out.split("\n").filter(Boolean);
+    } catch {
+      // pgrep returns non-zero when no matches — that's fine
+      return;
+    }
+    const ownPid = process.pid;
+    for (const pidStr of pids) {
+      const pid = parseInt(pidStr, 10);
+      if (pid && pid !== ownPid) {
+        try {
+          process.kill(pid, "SIGTERM");
+          logger.info(`[panel-tunnel] killed orphaned cloudflared PID: ${pid}`);
+        } catch {
+          // Process may have already exited
+        }
+      }
+    }
+  } catch {
+    // Non-fatal — best-effort cleanup
+  }
+}
 
 function ensureAssetsDir(): void {
   if (!fs.existsSync(ASSETS_DIR)) {
@@ -134,6 +175,30 @@ async function ensureCloudflared(): Promise<string> {
   return downloadCloudflared();
 }
 
+function scheduleRestart(port: number): void {
+  if (restartTimeout) {
+    clearTimeout(restartTimeout);
+  }
+  if (restartAttempts >= MAX_RESTART_ATTEMPTS) {
+    logger.error(`[panel-tunnel] Max restart attempts (${MAX_RESTART_ATTEMPTS}) reached, giving up`);
+    capturedUrl = null;
+    return;
+  }
+  restartAttempts++;
+  const delay = Math.min(BASE_RESTART_DELAY_MS * Math.pow(2, restartAttempts - 1), MAX_RESTART_DELAY_MS);
+  logger.info(`[panel-tunnel] Scheduling restart attempt ${restartAttempts}/${MAX_RESTART_ATTEMPTS} in ${delay}ms`);
+  restartTimeout = setTimeout(() => {
+    restartTimeout = null;
+    if (!intentionalStop) {
+      logger.info(`[panel-tunnel] Attempting auto-restart...`);
+      startTunnel(port).catch((err) => {
+        logger.error("[panel-tunnel] Auto-restart failed:", err);
+        // scheduleRestart will be called again from the exit handler
+      });
+    }
+  }, delay);
+}
+
 export async function startTunnel(port: number): Promise<string> {
   if (starting) {
     // Wait for existing start to complete
@@ -154,10 +219,10 @@ export async function startTunnel(port: number): Promise<string> {
     return capturedUrl;
   }
 
-  lastPort = port;
   starting = true;
-  stopTunnel(); // Clean up any old process
-  stopping = false; // 必须在 stopTunnel() 之后置 false，否则会被 stopTunnel 重新设回 true，导致 exit 时误判为主动停止、跳过自动重连
+  intentionalStop = false; // Allow auto-restart for new tunnel
+  killOrphanedCloudflared(); // Kill leftover cloudflared from previous crashes/OOMs
+  stopTunnel(); // Clean up any old process reference
 
   const bin = await ensureCloudflared();
   logger.info(`[panel-tunnel] starting cloudflared on port ${port} via ${bin}`);
@@ -172,6 +237,7 @@ export async function startTunnel(port: number): Promise<string> {
       const url = await startTunnelOnce(bin, port);
       if (url) {
         starting = false;
+        restartAttempts = 0; // Reset restart attempts on successful start
         return url;
       }
     } catch (e: unknown) {
@@ -224,7 +290,6 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
             url = url.replace(/^.*\|\s*/, "").replace(/\s*\|.*$/, "");
             if (url.startsWith("https://")) {
               capturedUrl = url;
-              autoReconnectAttempt = 0;
               logger.info(`[panel-tunnel] captured URL from ${source}: ${capturedUrl}`);
               // 无论从 data 事件还是 buffer 轮询捕获，都立即 resolve，
               // 否则 Promise 会一直挂起（要等 30s 超时才继续），
@@ -290,17 +355,11 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
         if (!capturedUrl && urlResolve) {
           urlResolve = null;
           reject(new Error(`cloudflared exited with code ${code}`));
-        } else if (capturedUrl) {
-          // 运行中进程意外退出：清掉旧 URL，避免 getTunnelUrl/isTunnelRunning
-          // 返回失效链接，导致下一次 applyPanelRuntimeFromConfig 因 capturedUrl
-          // 非空而误判隧道仍可用，从而不重绑 miniapp 按钮。
-          logger.warn(`[panel-tunnel] tunnel process exited, clearing stale URL: ${capturedUrl}`);
-          capturedUrl = null;
         }
-        // 意外退出（非主动 stopTunnel）时自动重连，并在拿到新 URL 后由
-        // controller 统一重绑 miniapp 按钮，无需手动执行命令。
-        if (!stopping) {
-          scheduleAutoReconnect();
+
+        // Auto-restart on unexpected exit (not intentional stop)
+        if (!intentionalStop && capturedUrl) {
+          scheduleRestart(port);
         }
       });
 
@@ -354,10 +413,10 @@ async function startTunnelOnce(bin: string, port: number): Promise<string> {
 }
 
 export function stopTunnel(): void {
-  stopping = true;
-  if (autoReconnectTimer) {
-    clearTimeout(autoReconnectTimer);
-    autoReconnectTimer = null;
+  intentionalStop = true;
+  if (restartTimeout) {
+    clearTimeout(restartTimeout);
+    restartTimeout = null;
   }
   if (tunnelProc && !tunnelProc.killed) {
     try {
@@ -369,33 +428,7 @@ export function stopTunnel(): void {
   }
   capturedUrl = null;
   starting = false;
-}
-
-/** 意外退出后按退避间隔调度自动重连（通过 controller 重启隧道并重绑按钮） */
-function scheduleAutoReconnect(): void {
-  if (autoReconnectTimer) return;
-  const delay = Math.min(
-    AUTO_RECONNECT_BASE_MS * Math.pow(2, autoReconnectAttempt),
-    AUTO_RECONNECT_MAX_MS,
-  );
-  autoReconnectAttempt++;
-  logger.warn(
-    `[panel-tunnel] scheduling auto-reconnect in ${delay}ms (attempt ${autoReconnectAttempt})`,
-  );
-  autoReconnectTimer = setTimeout(() => {
-    autoReconnectTimer = null;
-    autoReconnectAttempt = 0;
-    try {
-      const { applyPanelRuntimeFromConfig } = require("./controller");
-      applyPanelRuntimeFromConfig().catch((e: unknown) => {
-        const msg = e instanceof Error ? e.message : String(e);
-        logger.error(`[panel-tunnel] auto-reconnect apply failed: ${msg}`);
-      });
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      logger.error(`[panel-tunnel] auto-reconnect scheduling failed: ${msg}`);
-    }
-  }, delay);
+  restartAttempts = 0;
 }
 
 export function getTunnelUrl(): string | null {
