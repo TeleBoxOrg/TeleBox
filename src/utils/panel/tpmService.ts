@@ -20,7 +20,7 @@ export const tpmUpdateEmitter = new EventEmitter();
 export const TPM_UPDATE_EVENT = "progress";
 
 const PLUGINS_INDEX_URL =
-  "https://raw.githubusercontent.com/TeleBoxOrg/TeleBox-Next-Plugins/main/plugins.json";
+  "https://raw.githubusercontent.com/TeleBoxOrg/TeleBox_Plugins/main/plugins.json";
 const PLUGIN_PATH = path.join(process.cwd(), "plugins");
 const REQUEST_TIMEOUT_MS = 20000;
 const MAX_RETRIES = 4;
