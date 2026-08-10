@@ -44,7 +44,7 @@
     "@vitalets/google-translate-api": "^9.2.1",
     "archiver": "^8.0.0",
     "axios": "^1.19.0",
-    "better-sqlite3": "^13.0.2",
+    "better-sqlite3": "^13.0.3",
     "canvas": "^3.2.1",
     "cheerio": "^1.2.0",
     "cron": "^4.3.3",
@@ -53,7 +53,7 @@
     "emoji-db": "^16.0.1",
     "esbuild": "^0.28.1",
     "jimp": "^1.6.1",
-    "js-yaml": "^5.2.1",
+    "js-yaml": "^5.2.3",
     "lodash": "^4.17.21",
     "lowdb": "^7.0.1",
     "lru-cache": "^11.5.2",
@@ -73,6 +73,6 @@
   },
   "devDependencies": {
     "esbuild-register": "^3.6.0",
-    "tsx": "^4.23.5"
+    "tsx": "^4.23.9"
   }
 }
