@@ -36,7 +36,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/cron": "^2.4.3",
     "@types/js-yaml": "^4.0.9",
-    "@types/lodash": "^4.17.20",
+    "@types/lodash": "^4.17.25",
     "@types/lowdb": "^2.0.3",
     "@types/node": "^26.1.2",
     "@types/opencc-js": "^1.0.3",
