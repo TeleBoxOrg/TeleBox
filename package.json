@@ -38,7 +38,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/lodash": "^4.17.25",
     "@types/lowdb": "^2.0.3",
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.1",
     "@types/opencc-js": "^1.0.3",
     "@types/qrcode-terminal": "^0.12.2",
     "@vitalets/google-translate-api": "^9.2.1",
