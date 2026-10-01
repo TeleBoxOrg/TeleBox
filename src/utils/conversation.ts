@@ -221,12 +221,16 @@ class Conversation {
       throw new Error("按钮索引超出范围");
     }
 
-    const button = rows[rowIndex].buttons[colIndex];
+    // layer 229：按钮为 KeyboardInlineButton，回调数据在 button.type（InlineButtonTypeCallback）上
+    const { type } = rows[rowIndex].buttons[colIndex];
+    if (!(type instanceof Api.InlineButtonTypeCallback)) {
+      throw new Error(`该按钮不是回调按钮: ${type.className}`);
+    }
     await this.client.invoke(
       new Api.messages.GetBotCallbackAnswer({
         peer: this.peer,
         msgId: message.id,
-        data: (button as Api.KeyboardButtonCallback).data,
+        data: type.data,
       })
     );
   }
