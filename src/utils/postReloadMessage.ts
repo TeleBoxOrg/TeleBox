@@ -10,7 +10,8 @@
  * to marked ids ("-100…") and retry; on final failure queue for next boot.
  */
 
-import type { Api } from "teleproto";
+import { Api } from "teleproto";
+import bigInt from "big-integer";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
@@ -173,6 +174,61 @@ export function normalizeDeletePeer(peerId: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * JSON-safe InputPeer (id + access_hash). After a process restart the session
+ * knows no peers; a bare id only resolves for self / contacts. Bots and other
+ * non-contact users need their access_hash, so persist it alongside the id.
+ */
+export type PersistedInputPeer =
+  | { kind: "user"; id: string; accessHash: string }
+  | { kind: "channel"; id: string; accessHash: string }
+  | { kind: "chat"; id: string }
+  | { kind: "self" };
+
+/** Resolve msg's chat to a persistable InputPeer while its client is still live. */
+export async function snapshotInputPeer(msg: Api.Message): Promise<PersistedInputPeer | undefined> {
+  let peer: unknown;
+  try {
+    peer = await msg.getInputChat();
+  } catch (e) {
+    console.debug("[MSG] snapshotInputPeer: getInputChat failed:", e);
+    return undefined;
+  }
+  if (peer instanceof Api.InputPeerUser) {
+    return { kind: "user", id: peer.userId.toString(), accessHash: peer.accessHash.toString() };
+  }
+  if (peer instanceof Api.InputPeerChannel) {
+    return { kind: "channel", id: peer.channelId.toString(), accessHash: peer.accessHash.toString() };
+  }
+  if (peer instanceof Api.InputPeerChat) {
+    return { kind: "chat", id: peer.chatId.toString() };
+  }
+  if (peer instanceof Api.InputPeerSelf) {
+    return { kind: "self" };
+  }
+  return undefined;
+}
+
+export function restoreInputPeer(snap: unknown): Api.TypeInputPeer | undefined {
+  if (!snap || typeof snap !== "object") return undefined;
+  const p = snap as Partial<{ kind: string; id: string; accessHash: string }>;
+  try {
+    switch (p.kind) {
+      case "user":
+        return new Api.InputPeerUser({ userId: bigInt(p.id!), accessHash: bigInt(p.accessHash!) });
+      case "channel":
+        return new Api.InputPeerChannel({ channelId: bigInt(p.id!), accessHash: bigInt(p.accessHash!) });
+      case "chat":
+        return new Api.InputPeerChat({ chatId: bigInt(p.id!) });
+      case "self":
+        return new Api.InputPeerSelf();
+    }
+  } catch (e) {
+    console.debug("[MSG] restoreInputPeer: invalid snapshot:", e);
+  }
+  return undefined;
 }
 
 function loadPendingDeletes(): PendingDelete[] {

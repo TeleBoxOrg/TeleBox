@@ -11,7 +11,11 @@ import { promisify } from "util";
 import { getCurrentGenerationContext } from "@utils/runtimeManager";
 import { reloadRuntime } from "@utils/runtimeManager";
 import { htmlEscape } from "@utils/htmlEscape";
-import { normalizeDeletePeer } from "@utils/postReloadMessage";
+import {
+  normalizeDeletePeer,
+  restoreInputPeer,
+  snapshotInputPeer,
+} from "@utils/postReloadMessage";
 
 const prefixes = getPrefixes();
 const mainPrefix = prefixes[0];
@@ -122,6 +126,7 @@ const editExitMsg = async () => {
   let payload: {
     messageId?: number;
     chatId?: unknown;
+    inputPeer?: unknown;
     time?: number;
     successText?: string;
     parseMode?: "html" | "markdown";
@@ -140,6 +145,9 @@ const editExitMsg = async () => {
 
   const messageId = Number(payload.messageId);
   const rawChatId = payload.chatId;
+  // Bare ids only resolve for self/contacts after restart; prefer the
+  // persisted InputPeer (carries access_hash) so bot/user chats work too.
+  const inputPeer = restoreInputPeer(payload.inputPeer);
   // Normalize legacy Peer* objects that may already be on disk
   const chatId =
     normalizeDeletePeer(rawChatId) ||
@@ -173,9 +181,9 @@ const editExitMsg = async () => {
         lastErr = new Error("client not ready");
         continue;
       }
-      // Prefer marked/numeric id (session can resolve); avoid Peer* without accessHash
+      // Prefer InputPeer with access_hash; fall back to marked/numeric id
       try {
-        await client.editMessage(chatId, {
+        await client.editMessage(inputPeer ?? chatId, {
           message: messageId,
           text,
           ...(parseMode ? { parseMode } : {}),
@@ -207,7 +215,7 @@ const editExitMsg = async () => {
   try {
     const client = await getGlobalClient();
     if (client) {
-      await client.sendMessage(chatId, {
+      await client.sendMessage(inputPeer ?? chatId, {
         message: text,
         ...(parseMode ? { parseMode } : {}),
       });
@@ -276,12 +284,16 @@ export async function executeExit(
     msg,
     result && typeof result === "object" ? (result as Api.Message) : undefined,
   );
+  const inputPeer = await snapshotInputPeer(
+    result && typeof result === "object" ? (result as Api.Message) : msg,
+  ) ?? await snapshotInputPeer(msg);
   if (Number.isFinite(messageId) && chatId) {
     fs.writeFileSync(
       exitFile,
       JSON.stringify({
         messageId,
         chatId, // always a marked/numeric string — never Peer* object
+        inputPeer,
         time: Date.now(),
         successText: options?.successText,
         parseMode: options?.parseMode,

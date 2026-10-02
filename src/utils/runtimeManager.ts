@@ -180,12 +180,38 @@ async function persistSessionIfAuthorized(client: TelegramClient, label: string)
   }
 }
 
+/**
+ * StringSession keeps resolved peers (id → access_hash) only in memory, and
+ * createClient() builds a brand-new session from the config string — so a
+ * rebuilt client starts with zero known peers. Peers without a server-side
+ * fallback (bots, non-contact users, channels: users.getUsers / getChannels
+ * with access_hash=0 fail) then become unresolvable:
+ *   Could not find the input entity for {"userId":"…","className":"PeerUser"}
+ * Carry the old session's peer rows into the new client across reloads.
+ */
+type SessionEntityRows = Map<string, unknown>;
+
+function snapshotSessionEntities(client: TelegramClient): SessionEntityRows | undefined {
+  const rows = (client.session as unknown as { _entities?: SessionEntityRows })._entities;
+  return rows instanceof Map && rows.size > 0 ? new Map(rows) : undefined;
+}
+
+function seedSessionEntities(client: TelegramClient, rows?: SessionEntityRows): void {
+  if (!rows) return;
+  const target = (client.session as unknown as { _entities?: SessionEntityRows })._entities;
+  if (!(target instanceof Map)) return;
+  for (const [key, row] of rows) {
+    if (!target.has(key)) target.set(key, row);
+  }
+}
+
 async function destroyClient(client: TelegramClient): Promise<void> {
   await withTimeout(client.destroy(), CLIENT_DESTROY_TIMEOUT_MS, "destroy client");
 }
 
-async function buildRuntime(): Promise<TeleBoxRuntime> {
+async function buildRuntime(seedEntities?: SessionEntityRows): Promise<TeleBoxRuntime> {
   const client = await createClient();
+  seedSessionEntities(client, seedEntities);
   const generation = nextGeneration++;
   const context = createGenerationContext(generation);
   const runtime: TeleBoxRuntime = {
@@ -469,6 +495,7 @@ export async function reloadRuntime(): Promise<TeleBoxRuntime> {
 
     const oldRuntime = currentRuntime;
     oldRuntime.state = "reloading";
+    const carriedEntities = snapshotSessionEntities(oldRuntime.client);
 
     try {
       await unloadPluginsForRuntime(oldRuntime);
@@ -484,7 +511,7 @@ export async function reloadRuntime(): Promise<TeleBoxRuntime> {
       throw error;
     }
 
-    const newRuntime = await buildRuntime();
+    const newRuntime = await buildRuntime(carriedEntities);
     currentRuntime = newRuntime;
 
     try {

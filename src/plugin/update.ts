@@ -8,6 +8,11 @@ import { getGlobalClient } from "@utils/runtimeManager";
 import { readDisplayVersion } from "@utils/teleboxInfoHelper";
 import { executeExit, ensureStatusMessage } from "./reload";
 import { updateAllPlugins } from "./tpm";
+import {
+  restoreInputPeer,
+  snapshotInputPeer,
+  type PersistedInputPeer,
+} from "@utils/postReloadMessage";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -52,6 +57,8 @@ const AUTOFIX_STATE_FILE = path.join(os.homedir(), ".telebox", "autofix.json");
 
 interface AutofixState {
   chatId: string;
+  /** InputPeer with access_hash — bare chatId can't resolve bots/non-contacts after restart. */
+  inputPeer?: PersistedInputPeer;
   msgId: number;
   startTime: number;
   removed: string[];
@@ -364,6 +371,7 @@ export async function resumeAutofix(): Promise<void> {
   const state = loadAutofixState();
   if (!state) return;
   clearAutofixState();
+  const peer = restoreInputPeer(state.inputPeer) ?? state.chatId;
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -372,7 +380,7 @@ export async function resumeAutofix(): Promise<void> {
 
     const elapsedMs = Date.now() - state.startTime;
     const client = await getGlobalClient();
-    await client.editMessage(state.chatId, {
+    await client.editMessage(peer, {
       message: state.msgId,
       text: `✅ 修复成功，用时 ${elapsedMs}ms`,
     });
@@ -381,7 +389,7 @@ export async function resumeAutofix(): Promise<void> {
     console.error("[autofix] 重启后续步骤失败:", e);
     try {
       const client = await getGlobalClient();
-      await client.editMessage(state.chatId, {
+      await client.editMessage(peer, {
         message: state.msgId,
         text: `❌ 修复过程出错：${getErrorMessage(e) || String(e)}`,
       });
@@ -408,7 +416,8 @@ async function handleAutofix(msg: Api.Message): Promise<void> {
     if (chatId == null || msg.id == null) {
       throw new Error("无法定位当前消息，无法记录修复状态");
     }
-    saveAutofixState({ chatId, msgId: statusMessage.id ?? msg.id, startTime, removed });
+    const inputPeer = await snapshotInputPeer(statusMessage);
+    saveAutofixState({ chatId, inputPeer, msgId: statusMessage.id ?? msg.id, startTime, removed });
 
     await statusMessage.edit({ text: "🔧 代码已同步，正在重启并更新插件…" });
     console.log("[autofix] 步骤 1-3 完成，重启进程…");
