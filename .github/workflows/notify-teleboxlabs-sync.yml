@@ -1,6 +1,6 @@
-name: Notify TeleBoxLabs Mirror
+name: Notify awaEmpty Mirror
 
-# 上游 main 有提交时立刻触发 TeleBoxLabs fork 的同步
+# 上游 main 有提交时立刻触发 awaEmpty fork 的同步
 on:
   push:
     branches: [main]
@@ -15,15 +15,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Dispatch Sync from TeleBoxOrg on TeleBoxLabs fork
+      - name: Dispatch Sync from TeleBoxOrg on awaEmpty fork
         env:
           GH_TOKEN: ${{ secrets.TELEBOXLABS_SYNC_TOKEN }}
-          FORK_OWNER: TeleBoxLabs
+          FORK_OWNER: awaEmpty
           REPO_NAME: ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
           if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::Missing secret TELEBOXLABS_SYNC_TOKEN (PAT with repo+workflow on TeleBoxLabs forks)"
+            echo "::error::Missing secret TELEBOXLABS_SYNC_TOKEN (PAT with repo+workflow on awaEmpty forks)"
             exit 1
           fi
 
@@ -41,7 +41,7 @@ jobs:
           echo
 
           if [ "$HTTP" = "204" ] || [ "$HTTP" = "200" ]; then
-            echo "✅ Dispatched TeleBoxLabs/${REPO_NAME} sync-upstream.yml"
+            echo "✅ Dispatched awaEmpty/${REPO_NAME} sync-upstream.yml"
             exit 0
           fi
 
@@ -59,9 +59,9 @@ jobs:
           echo
 
           if [ "$HTTP2" = "204" ] || [ "$HTTP2" = "200" ]; then
-            echo "✅ repository_dispatch sync-upstream on TeleBoxLabs/${REPO_NAME}"
+            echo "✅ repository_dispatch sync-upstream on awaEmpty/${REPO_NAME}"
             exit 0
           fi
 
-          echo "::error::Failed to trigger TeleBoxLabs mirror (workflow_dispatch=${HTTP}, repository_dispatch=${HTTP2})"
+          echo "::error::Failed to trigger awaEmpty mirror (workflow_dispatch=${HTTP}, repository_dispatch=${HTTP2})"
           exit 1
